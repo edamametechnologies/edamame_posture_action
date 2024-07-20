@@ -1,0 +1,60 @@
+name: 'Setup EDAMAME Posture'
+description: 'Download and start EDAMAME Posture'
+inputs:
+  edamame_user:
+    description: 'EDAMAME Posture User'
+    required: true
+  edamame_domain:
+    description: 'EDAMAME Posture Domain'
+    required: true
+  edamame_pin:
+    description: 'EDAMAME Posture PIN'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine OS
+      id: os-check
+      run: |
+        if [[ "$RUNNER_OS" == "Linux" ]]; then
+          echo "os=linux" >> $GITHUB_ENV
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          echo "os=macos" >> $GITHUB_ENV
+        elif [[ "$RUNNER_OS" == "Windows" ]]; then
+          echo "os=windows" >> $GITHUB_ENV
+        else
+          echo "Unsupported OS: $RUNNER_OS"
+          exit 1
+        fi
+      shell: bash
+
+    - name: Install Dependencies on Windows
+      if: ${{ env.os == 'windows' }}
+      run: |
+        choco install wget
+      shell: powershell
+
+    - name: Download EDAMAME Posture binary
+      run: |
+        if [[ "$os" == "linux" ]]; then
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/linux/0.3.82/edamame_posture
+        elif [[ "$os" == "macos" ]]; then
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/macos/0.3.82/edamame_posture
+        elif [[ "$os" == "windows" ]]; then
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/windows/0.3.82/edamame_posture.exe
+        fi
+      shell: bash
+
+    - name: Make EDAMAME Posture executable
+      run: chmod u+x edamame_posture*
+      shell: bash
+
+    - name: Start EDAMAME Posture
+      run: |
+        if [[ "$os" == "windows" ]]; then
+          # No sudo on Windows
+          ./edamame_posture.exe start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
+        else
+          sudo ./edamame_posture start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
+        fi
+      shell: bash
