@@ -58,3 +58,14 @@ runs:
           sudo ./edamame_posture start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
         fi
       shell: bash
+
+    - name: Wait for EDAMAME Posture successful reporting
+      run: |
+        if [[ "$os" == "windows" ]]; then
+          # No sudo on Windows
+          ./edamame_posture.exe wait-for-success
+        else
+          sudo ./edamame_posture wait-for-success
+        fi
+      shell: bash
+
