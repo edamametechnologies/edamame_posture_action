@@ -13,45 +13,27 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Determine OS
-      id: os-check
+    - name: Download EDAMAME Posture binary
       run: |
+        # Position the binary in the home folder of the runner
+        cd ..
         if [[ "$RUNNER_OS" == "Linux" ]]; then
-          echo "os=linux" >> $GITHUB_ENV
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/linux/0.3.83/edamame_posture
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          echo "os=macos" >> $GITHUB_ENV
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/macos/0.3.83/edamame_posture
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
-          echo "os=windows" >> $GITHUB_ENV
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/windows/0.3.83/edamame_posture.exe
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
         fi
       shell: bash
 
-    - name: Install Dependencies on Windows
-      if: ${{ env.os == 'windows' }}
-      run: |
-        choco install wget
-      shell: powershell
-
-    - name: Download EDAMAME Posture binary
-      run: |
-        if [[ "$os" == "linux" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/linux/0.3.83/edamame_posture
-        elif [[ "$os" == "macos" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/macos/0.3.83/edamame_posture
-        elif [[ "$os" == "windows" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/windows/0.3.83/edamame_posture.exe
-        fi
-      shell: bash
-
-    - name: Make EDAMAME Posture executable
-      run: chmod u+x edamame_posture*
-      shell: bash
-
     - name: Start EDAMAME Posture
       run: |
-        if [[ "$os" == "windows" ]]; then
+        cd ..
+        chmod u+x edamame_posture*
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
           # No sudo on Windows
           ./edamame_posture.exe start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
         else
@@ -61,7 +43,8 @@ runs:
 
     - name: Wait for EDAMAME Posture successful reporting
       run: |
-        if [[ "$os" == "windows" ]]; then
+        cd ..
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
           # No sudo on Windows
           ./edamame_posture.exe wait-for-success
         else
