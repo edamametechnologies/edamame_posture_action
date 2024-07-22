@@ -39,28 +39,20 @@ runs:
         fi
       shell: bash
 
-    - name: Start EDAMAME Posture
+    - name: Start EDAMAME Posture and wait for success
       run: |
         cd ..
         chmod u+x edamame_posture*
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           # No sudo on Windows
           ./edamame_posture.exe start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
+          ./edamame_posture.exe wait-for-success
         else
           sudo ./edamame_posture start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
+          sudo ./edamame_posture wait-for-success
         fi
       shell: bash
       env:
         EDAMAME_LOG_LEVEL: 'debug'
 
-    - name: Wait for EDAMAME Posture successful reporting
-      run: |
-        cd ..
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          # No sudo on Windows
-          ./edamame_posture.exe wait-for-success
-        else
-          sudo ./edamame_posture wait-for-success
-        fi
-      shell: bash
 
