@@ -10,8 +10,10 @@ inputs:
   edamame_pin:
     description: 'EDAMAME Posture PIN'
     required: true
+
 runs:
   using: 'composite'
+
   steps:
 
     - name: Dependencies
@@ -41,7 +43,6 @@ runs:
       run: |
         cd ..
         chmod u+x edamame_posture*
-        export EDAMAME_LOG_LEVEL=debug
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           # No sudo on Windows
           ./edamame_posture.exe start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
@@ -49,6 +50,8 @@ runs:
           sudo ./edamame_posture start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
         fi
       shell: bash
+      env:
+        EDAMAME_LOG_LEVEL: 'debug'
 
     - name: Wait for EDAMAME Posture successful reporting
       run: |
