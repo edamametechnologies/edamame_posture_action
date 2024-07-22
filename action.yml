@@ -52,7 +52,5 @@ runs:
           sudo ./edamame_posture wait-for-success
         fi
       shell: bash
-      env:
-        EDAMAME_LOG_LEVEL: 'debug'
 
 
