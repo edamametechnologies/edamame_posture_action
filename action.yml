@@ -10,6 +10,9 @@ inputs:
   edamame_pin:
     description: 'EDAMAME Posture PIN'
     required: true
+  edamame_id:
+    description: 'EDAMAME identifier suffix'
+    required: true
 
 runs:
   using: 'composite'
@@ -43,12 +46,13 @@ runs:
       run: |
         cd ..
         chmod u+x edamame_posture*
+        # We use the GitHub run ID as the device ID
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           # No sudo on Windows
-          ./edamame_posture.exe start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
+          ./edamame_posture.exe start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }} ${{ inputs.edamame_id }}
           ./edamame_posture.exe wait-for-success
         else
-          sudo ./edamame_posture start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }}
+          sudo ./edamame_posture start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }} ${{ inputs.edamame_id }}
           sudo ./edamame_posture wait-for-success
         fi
       shell: bash
