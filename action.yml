@@ -3,16 +3,20 @@ description: 'Download and start EDAMAME Posture'
 inputs:
   edamame_user:
     description: 'EDAMAME Posture User'
-    required: true
+    required: false
   edamame_domain:
     description: 'EDAMAME Posture Domain'
-    required: true
+    required: false
   edamame_pin:
     description: 'EDAMAME Posture PIN'
-    required: true
+    required: false
   edamame_id:
     description: 'EDAMAME identifier suffix'
-    required: true
+    required: false
+  auto_remediate:
+    description: 'Automatically remediate posture issues'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -40,20 +44,49 @@ runs:
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
         fi
+        chmod u+x edamame_posture*
       shell: bash
 
-    - name: Start EDAMAME Posture and wait for success
+    - name: Show initial posture
       run: |
         cd ..
-        chmod u+x edamame_posture*
-        # We use the GitHub run ID as the device ID
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           # No sudo on Windows
-          ./edamame_posture.exe start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }} ${{ inputs.edamame_id }}
-          ./edamame_posture.exe wait-for-success
+          ./edamame_posture.exe score
         else
-          sudo ./edamame_posture start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }} ${{ inputs.edamame_id }}
-          sudo ./edamame_posture wait-for-success
+          sudo ./edamame_posture score
+        fi
+      shell: bash
+
+    - name: Auto remediate posture issues if requested
+      run: |
+        if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # No sudo on Windows
+            ./edamame_posture.exe remediate
+          else
+            sudo ./edamame_posture remediate
+          fi
+        fi
+      shell: bash
+      
+    - name: Start EDAMAME Posture process and wait for connection if all arguments are provided, skip otherwise
+      run: |
+        # Check if all arguments are provided
+        if [[ "${{ inputs.edamame_user }}" != "" && "${{ inputs.edamame_domain }}" != "" && "${{ inputs.edamame_pin }}" != "" && "${{ inputs.edamame_id }}" != "" ]]; then
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # No sudo on Windows
+            ./edamame_posture.exe start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }} ${{ inputs.edamame_id }}
+            ./edamame_posture.exe wait-for-connection
+          else
+            sudo ./edamame_posture start ${{ inputs.edamame_user }} ${{ inputs.edamame_domain }} ${{ inputs.edamame_pin }} ${{ inputs.edamame_id }}
+            sudo ./edamame_posture wait-for-connection
+          fi
+        else # Check if only a partial set of arguments is provided
+          if [[ "${{ inputs.edamame_user }}${{ inputs.edamame_domain }}${{ inputs.edamame_pin }}${{ inputs.edamame_id }}" ]]; then
+            echo "Please provide all required arguments: edamame_user, edamame_domain, edamame_pin, edamame_id"
+            exit 1
+          fi
         fi
       shell: bash
 
