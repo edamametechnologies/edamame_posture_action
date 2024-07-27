@@ -60,6 +60,7 @@ runs:
 
     - name: Auto remediate posture issues if requested
       run: |
+        cd ..
         if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # No sudo on Windows
@@ -72,6 +73,7 @@ runs:
       
     - name: Start EDAMAME Posture process and wait for connection if all arguments are provided, skip otherwise
       run: |
+        cd ..
         # Check if all arguments are provided
         if [[ "${{ inputs.edamame_user }}" != "" && "${{ inputs.edamame_domain }}" != "" && "${{ inputs.edamame_pin }}" != "" && "${{ inputs.edamame_id }}" != "" ]]; then
           if [[ "$RUNNER_OS" == "Windows" ]]; then
