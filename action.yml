@@ -17,6 +17,10 @@ inputs:
     description: 'Automatically remediate posture issues'
     required: false
     default: 'false'
+  skip_remediations:
+    description: 'Remediations to skip (comma separated)'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -64,9 +68,9 @@ runs:
         if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # No sudo on Windows
-            ./edamame_posture.exe remediate
+            ./edamame_posture.exe remediate ${{ inputs.skip_remediations }}
           else
-            sudo ./edamame_posture remediate
+            sudo ./edamame_posture remediate ${{ inputs.skip_remediations }}
           fi
         fi
       shell: bash
