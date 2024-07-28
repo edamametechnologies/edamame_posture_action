@@ -68,9 +68,9 @@ runs:
         if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # No sudo on Windows
-            ./edamame_posture.exe remediate ${{ inputs.skip_remediations }}
+            ./edamame_posture.exe remediate "${{ inputs.skip_remediations }}"
           else
-            sudo ./edamame_posture remediate ${{ inputs.skip_remediations }}
+            sudo ./edamame_posture remediate "${{ inputs.skip_remediations }}"
           fi
         fi
       shell: bash
