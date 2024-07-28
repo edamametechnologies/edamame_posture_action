@@ -20,7 +20,6 @@ inputs:
   skip_remediations:
     description: 'Remediations to skip (comma separated)'
     required: false
-    default: ''
 
 runs:
   using: 'composite'
