@@ -65,11 +65,22 @@ runs:
       run: |
         cd ..
         if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # No sudo on Windows
-            ./edamame_posture.exe remediate "${{ inputs.skip_remediations }}"
-          else
-            sudo ./edamame_posture remediate "${{ inputs.skip_remediations }}"
+          if [[ "${{ inputs.skip_remediations }}" == "" ]]; then
+            echo "No remediations to skip"
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              # No sudo on Windows
+              ./edamame_posture.exe remediate
+            else
+              sudo ./edamame_posture remediate
+            fi
+          else 
+            echo "Skipping remediations: ${{ inputs.skip_remediations }}"
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              # No sudo on Windows
+              ./edamame_posture.exe remediate "${{ inputs.skip_remediations }}"
+            else
+              sudo ./edamame_posture remediate "${{ inputs.skip_remediations }}"
+            fi
           fi
         fi
       shell: bash
