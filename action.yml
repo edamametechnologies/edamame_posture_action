@@ -23,7 +23,7 @@ inputs:
   network_scan:
     description: 'Scan network for critical devices'
     required: false
-    default: 'true'
+    default: 'false'
 
 runs:
   using: 'composite'
