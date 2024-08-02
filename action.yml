@@ -121,38 +121,9 @@ runs:
       
     - name: Wait for repo access to be granted
       run: |
+        # We just wait 120 seconds for the access to be granted
         if [[ "${{ inputs.wait_for_repo }}" == "true" ]]; then
-          attempts=0
-          timeout=true
-          # Setup the git config
-          git config --global user.email "runner@edamame.tech"
-          git config --global user.name "EDAMAME Technologies"
-          for i in {1..20}; do
-            attempts=$((attempts + 1))
-            echo "Attempt $attempts: Checking repository access..."
-            # Check repo access without using gh
-            if git ls-remote https://${{ github.token }}@github.com/${{ github.repository }}; then
-              echo "Repository access granted."
-              timeout=false
-              break
-            else
-              echo "Repository access not yet granted. Waiting for 60 seconds..."
-              sleep 60
-            fi
-          done
-        
-          elapsed_time=$((attempts * 60))
-          elapsed_minutes=$((elapsed_time / 60))
-          elapsed_seconds=$((elapsed_time % 60))
-        
-          if [ "$timeout" = true ]; then
-            echo "Timeout occurred while waiting for repository access."
-            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-            exit 1
-          else
-            echo "Repository access granted."
-            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-          fi
+          sleep 120
         fi
       shell: bash
         
