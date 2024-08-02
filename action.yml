@@ -119,7 +119,7 @@ runs:
           attempts=$((attempts + 1))
           # We use the GitHub token to access the API using gh release list that requires authentication limited to the scope of the token
           # This is a worst case as access to the repo is granted faster than access to the API
-          if gh release list; then
+          if gh release list --repo ${{ github.repository }}; then
             timeout=false
             break
           else
