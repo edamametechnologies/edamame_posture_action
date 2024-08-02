@@ -140,5 +140,6 @@ runs:
           echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
         fi
       shell: bash
-
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
