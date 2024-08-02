@@ -118,7 +118,9 @@ runs:
           fi
         fi
       shell: bash
-
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      
     - name: Wait for repo access to be granted
       run: |
         if [[ "${{ inputs.wait_for_repo }}" == "true" ]]; then
