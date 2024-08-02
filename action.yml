@@ -111,4 +111,34 @@ runs:
         fi
       shell: bash
 
+    - name: Wait for access to be granted
+      run: |
+        attempts=0
+        timeout=true
+        for i in {1..20}; do
+          attempts=$((attempts + 1))
+          # We use the GitHub token to access the API using gh release list that requires authentication limited to the scope of the token
+          # This is a worst case as access to the repo is granted faster than access to the API
+          if gh release list; then
+            timeout=false
+            break
+          else
+            sleep 60
+          fi
+        done
+        
+        elapsed_time=$((attempts * 60))
+        elapsed_minutes=$((elapsed_time / 60))
+        elapsed_seconds=$((elapsed_time % 60))
+        
+        if [ "$timeout" = true ]; then
+          echo "Timeout occurred while waiting for access."
+          echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+          exit 1
+        else
+          echo "Access granted."
+          echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+        fi
+      shell: bash
+
 
