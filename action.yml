@@ -131,7 +131,7 @@ runs:
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking repository access..."
             # Check repo access without using gh
-            if git ls-remote https://github.com/${{ github.repository }}; then
+            if git ls-remote https://${{ github.token }}@github.com/${{ github.repository }}; then
               echo "Repository access granted."
               timeout=false
               break
