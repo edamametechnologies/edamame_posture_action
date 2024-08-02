@@ -127,7 +127,7 @@ runs:
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking repository access..."
-            if git fetch https://github.com/${{ github.repository }}; then
+            if git ls-remote https://github.com/${{ github.repository }}; then
               echo "Repository access granted."
               timeout=false
               break
