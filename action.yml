@@ -152,7 +152,7 @@ runs:
         fi
       shell: bash
       env:
-        GH_TOKEN: ${{ github.token }}
+        GITHUB_TOKEN: ${{ github.token }}
         
     - name: Wait for api access to be granted
       run: |
