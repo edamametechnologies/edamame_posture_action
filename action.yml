@@ -118,8 +118,6 @@ runs:
           fi
         fi
       shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
       
     - name: Wait for repo access to be granted
       run: |
@@ -153,7 +151,9 @@ runs:
           fi
         fi
       shell: bash
-
+      env:
+        GH_TOKEN: ${{ github.token }}
+        
     - name: Wait for api access to be granted
       run: |
         if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
