@@ -24,6 +24,14 @@ inputs:
     description: 'Scan network for critical devices'
     required: false
     default: 'false'
+  wait_for_repo:
+    description: 'Wait for access to the repo'
+    required: false
+    default: 'true'
+  wait_for_api:
+    description: 'Wait for API access to be granted'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -88,7 +96,7 @@ runs:
           fi
         fi
       shell: bash
-      
+
     - name: Start EDAMAME Posture process and wait for connection if all arguments are provided, skip otherwise
       run: |
         cd ..
@@ -111,33 +119,67 @@ runs:
         fi
       shell: bash
 
-    - name: Wait for access to be granted
+    - name: Wait for repo access to be granted
       run: |
-        attempts=0
-        timeout=true
-        for i in {1..20}; do
-          attempts=$((attempts + 1))
-          # We use the GitHub token to access the API using gh release list that requires authentication limited to the scope of the token
-          # This is a worst case as access to the repo is granted faster than access to the API
-          if gh release list --repo ${{ github.repository }}; then
-            timeout=false
-            break
+        if [[ "${{ inputs.wait_for_repo }}" == "true" ]]; then
+          attempts=0
+          timeout=true
+          for i in {1..20}; do
+            attempts=$((attempts + 1))
+            echo "Attempt $attempts: Checking repository access..."
+            if git ls-remote --exit-code; then
+              echo "Repository access granted."
+              timeout=false
+              break
+            else
+              echo "Repository access not yet granted. Waiting for 60 seconds..."
+              sleep 60
+            fi
+          done
+        
+          elapsed_time=$((attempts * 60))
+          elapsed_minutes=$((elapsed_time / 60))
+          elapsed_seconds=$((elapsed_time % 60))
+        
+          if [ "$timeout" = true ]; then
+            echo "Timeout occurred while waiting for repository access."
+            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            exit 1
           else
-            sleep 60
+            echo "Repository access granted."
+            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
           fi
-        done
+        fi
+      shell: bash
+
+    - name: Wait for api access to be granted
+      run: |
+        if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
+          attempts=0
+          timeout=true
+          for i in {1..20}; do
+            attempts=$((attempts + 1))
+            # We use the GitHub token to access the API using gh release list that requires authentication limited to the scope of the token
+            if gh release list --repo ${{ github.repository }}; then
+              timeout=false
+              break
+            else
+              sleep 60
+            fi
+          done
         
-        elapsed_time=$((attempts * 60))
-        elapsed_minutes=$((elapsed_time / 60))
-        elapsed_seconds=$((elapsed_time % 60))
-        
-        if [ "$timeout" = true ]; then
-          echo "Timeout occurred while waiting for access."
-          echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-          exit 1
-        else
-          echo "Access granted."
-          echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+          elapsed_time=$((attempts * 60))
+          elapsed_minutes=$((elapsed_time / 60))
+          elapsed_seconds=$((elapsed_time % 60))
+          
+          if [ "$timeout" = true ]; then
+            echo "Timeout occurred while waiting for API access."
+            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            exit 1
+          else
+            echo "API access granted."
+            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+          fi
         fi
       shell: bash
       env:
