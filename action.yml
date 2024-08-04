@@ -25,15 +25,19 @@ inputs:
     required: false
     default: 'false'
   wait_for_repo:
-    description: 'Wait for access to the repo'
+    description: 'Wait for access to the repo to be granted'
     required: false
-    default: 'true'
+    default: 'false'
   wait_for_api:
     description: 'Wait for API access to be granted'
     required: false
     default: 'false'
+  wait:
+    description: 'Wait for a while for access to be granted'
+    required: false
+    default: 'true'
   token:
-    description: 'GitHub token'
+    description: 'GitHub token to check access to the repo'
     required: false
     default: ${{ github.token }}
     
@@ -98,6 +102,13 @@ runs:
               sudo ./edamame_posture remediate "${{ inputs.skip_remediations }}"
             fi
           fi
+        fi
+      shell: bash
+      
+    - name: Wait for a while
+      run: |
+        if [[ "${{ inputs.wait }}" == "true" ]]; then
+          sleep 180
         fi
       shell: bash
 
