@@ -124,14 +124,11 @@ runs:
         if [[ "${{ inputs.wait_for_repo }}" == "true" ]]; then
           attempts=0
           timeout=true
-          # Setup the git config
-          git config --global user.email "runner@edamame.tech"
-          git config --global user.name "EDAMAME Technologies"
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking repository access..."
             # Check repo access without using gh but git
-            if git ls-remote https://${{ github.token }}@github.com/${{ github.repository }}; then
+            if git ls-remote https://github.com/${{ github.actor }}:${{ github.token }}@${{ github.repository }}; then
               timeout=false
               break
             else
