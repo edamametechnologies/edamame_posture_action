@@ -131,7 +131,7 @@ runs:
         
           # On github public runners the current directory is owned by some other user.
           # To avoid git unsafe repository error, add current directory as a safe one to git config.
-          git config --global --add safe.directory $(pwd)
+          git config --global --add safe.directory edamame_tmp
           
           # set credentials using "GIT_ASKPASS" to avoid the token to present in output of "git remote -v"
           echo "#\!/bin/bash\necho ${{ inputs.token }}" > ~/git_askpass.sh
