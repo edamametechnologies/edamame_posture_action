@@ -134,7 +134,7 @@ runs:
           git config --global --add safe.directory $(pwd)
           
           # set credentials using "GIT_ASKPASS" to avoid the token to present in output of "git remote -v"
-          echo "#\!/bin/bash\necho ${{ input.token }}" > ~/git_askpass.sh
+          echo "#\!/bin/bash\necho ${{ inputs.token }}" > ~/git_askpass.sh
           chmod +x ~/git_askpass.sh
         
           for i in {1..20}; do
