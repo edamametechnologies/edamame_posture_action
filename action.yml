@@ -133,15 +133,10 @@ runs:
           # To avoid git unsafe repository error, add current directory as a safe one to git config.
           git config --global --add safe.directory edamame_tmp
           
-          # set credentials using "GIT_ASKPASS" to avoid the token to present in output of "git remote -v"
-          echo "#!/bin/bash\necho ${{ inputs.token }}" > ~/git_askpass.sh
-          chmod +x ~/git_askpass.sh
-        
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking repository access..."
-            if GIT_ASKPASS=~/git_askpass.sh git clone --quiet https://github.com/${{ github.repository }} edamame_tmp; then
-            #if git clone --quiet https://${{ inputs.token }}@github.com/${{ github.repository }} edamame_tmp; then
+            if git clone --quiet https://${{ inputs.token }}@github.com/${{ github.repository }} edamame_tmp; then
               timeout=false
               break
             else
