@@ -140,8 +140,8 @@ runs:
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking repository access..."
-            #if GIT_ASKPASS=~/git_askpass.sh git clone --quiet https://github.com/${{ github.repository }} edamame_tmp; then
-          if git clone --quiet https://${{ inputs.token }}@github.com/${{ github.repository }} edamame_tmp; then
+            if GIT_ASKPASS=~/git_askpass.sh git clone --quiet https://github.com/${{ github.repository }} edamame_tmp; then
+            #if git clone --quiet https://${{ inputs.token }}@github.com/${{ github.repository }} edamame_tmp; then
               timeout=false
               break
             else
