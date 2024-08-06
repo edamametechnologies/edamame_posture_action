@@ -31,11 +31,11 @@ inputs:
   wait_for_api:
     description: 'Wait for API access to be granted'
     required: false
-    default: 'false'
+    default: 'true'
   wait:
     description: 'Wait for a while for access to be granted'
     required: false
-    default: 'true'
+    default: 'false'
   token:
     description: 'GitHub token to check access to the repo'
     required: false
