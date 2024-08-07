@@ -58,11 +58,11 @@ runs:
         # Position the binary in the home folder of the runner
         cd ..
         if [[ "$RUNNER_OS" == "Linux" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/linux/0.3.84/edamame_posture
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/linux/0.3.84/edamame_posture
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/macos/0.3.84/edamame_posture
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/macos/0.3.84/edamame_posture
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/0.3.84/edamame_posture.exe
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/dev/windows/0.3.84/edamame_posture.exe
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
