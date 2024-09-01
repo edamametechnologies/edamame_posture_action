@@ -58,11 +58,11 @@ runs:
         # Position the binary in the home folder of the runner
         cd ..
         if [[ "$RUNNER_OS" == "Linux" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/linux/0.3.84/edamame_posture
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/linux/latest/edamame_posture
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/macos/0.3.84/edamame_posture
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/macos/latest/edamame_posture
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/0.3.84/edamame_posture.exe
+          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/latest/edamame_posture.exe
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
@@ -81,7 +81,7 @@ runs:
         fi
       shell: bash
 
-    - name: Auto remediate posture issues if requested
+    - name: Auto remediate/harden posture issues if requested
       run: |
         cd ..
         if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
