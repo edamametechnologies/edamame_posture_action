@@ -74,10 +74,12 @@ runs:
         if [[ "$RUNNER_OS" == "Linux" ]]; then
           if [[ ! -f edamame_posture ]]; then
             wget https://edamame-posture.s3.eu-west-1.amazonaws.com/linux/latest/edamame_posture
+            chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
           if [[ ! -f edamame_posture ]]; then
             wget https://edamame-posture.s3.eu-west-1.amazonaws.com/macos/latest/edamame_posture
+            chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
           if [[ ! -f edamame_posture.exe ]]; then
@@ -87,7 +89,6 @@ runs:
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
         fi
-        chmod u+x edamame_posture*
       shell: bash
 
     - name: Show initial posture
@@ -166,12 +167,12 @@ runs:
           
           for i in {1..20}; do
             attempts=$((attempts + 1))
-            echo "Attempt $attempts: Checking repository access..."
+            echo "Attempt $attempts: Checking access to the repo through the git CLI..."
             if git clone --quiet https://${{ inputs.token }}@github.com/${{ github.repository }} edamame_tmp; then
               timeout=false
               break
             else
-              echo "Repository access not yet granted. Waiting for 60 seconds..."
+              echo "Access to the repo through the git CLI not yet granted. Waiting for 60 seconds..."
               sleep 60
             fi
           done
@@ -181,17 +182,17 @@ runs:
           elapsed_seconds=$((elapsed_time % 60))
         
           if [ "$timeout" = true ]; then
-            echo "Timeout occurred while waiting for repository access."
+            echo "Timeout occurred while waiting for access to the repo through the git CLI."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             exit 1
           else
-            echo "Repository access granted."
+            echo "Repository access to the repo through the git CLI granted."
             echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
           fi
         fi
       shell: bash
 
-    - name: Wait for api access to be granted if requested
+    - name: Wait for API access to be granted if requested
       run: |
         if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
           attempts=0
@@ -233,14 +234,14 @@ runs:
         
           for i in {1..20}; do
             attempts=$((attempts + 1))
-            echo "Attempt $attempts: Checking repository access..."
+            echo "Attempt $attempts: Checking https access to the repo..."
             status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${{ inputs.token }}" $repo_url)
         
             if [[ "$status_code" == "301" || "$status_code" == "200" ]]; then
               timeout=false
               break
             else
-              echo "Repository access not yet granted. Curl Status Code: $status_code. Waiting for 60 seconds..."
+              echo "https access to the repo not yet granted. Curl Status Code: $status_code. Waiting for 60 seconds..."
               sleep 60
             fi
           done
@@ -250,11 +251,11 @@ runs:
           elapsed_seconds=$((elapsed_time % 60))
         
           if [ "$timeout" = true ]; then
-            echo "Timeout occurred while waiting for repository access."
+            echo "Timeout occurred while waiting for https access to the repo."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             exit 1
           else
-            echo "Repository access granted."
+            echo "https access to the repo granted."
             echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
           fi
         fi
@@ -263,6 +264,7 @@ runs:
     - name: Dump sessions log if requested
       run: |
         if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
+          cd ..
           sudo ./edamame_posture get-connections
         fi
       shell: bash
