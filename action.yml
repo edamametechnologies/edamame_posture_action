@@ -194,7 +194,8 @@ runs:
 
     - name: Wait for API access to be granted if requested
       run: |
-        if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
+        # Skip if dump_sessions_log is true
+        if [[ "${{ inputs.wait_for_api }}" == "true" && "${{ inputs.dump_sessions_log }}" == "false" ]]; then
           attempts=0
           timeout=true
           for i in {1..20}; do
@@ -227,7 +228,8 @@ runs:
 
     - name: Wait for https access to the repo be granted if requested
       run: |
-        if [[ "${{ inputs.wait_for_https }}" == "true" ]]; then
+        # Skip if dump_sessions_log is true
+        if [[ "${{ inputs.wait_for_https }}" == "true" && "${{ inputs.dump_sessions_log }}" == "false" ]]; then
           attempts=0
           timeout=true
           repo_url="https://github.com/${{ github.repository }}.git"
@@ -265,6 +267,12 @@ runs:
       run: |
         if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
           cd ..
-          sudo ./edamame_posture get-connections
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # Not in place due to license issues
+            #./edamame_posture.exe get-connections
+            echo "Dumping sessions log is not supported on Windows."
+          else
+            sudo ./edamame_posture get-connections
+          fi
         fi
       shell: bash
