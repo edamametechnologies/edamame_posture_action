@@ -1,35 +1,43 @@
 name: 'Setup EDAMAME Posture'
-description: 'Download and start EDAMAME Posture'
+description: 'Download and control EDAMAME Posture'
 inputs:
   edamame_user:
-    description: 'EDAMAME Posture User'
+    description: 'EDAMAME Posture User (required to start the process in the background)'
     required: false
   edamame_domain:
-    description: 'EDAMAME Posture Domain'
+    description: 'EDAMAME Posture Domain (required to start the process in the background)'
     required: false
   edamame_pin:
-    description: 'EDAMAME Posture PIN'
+    description: 'EDAMAME Posture PIN (required to start the process in the background)'
     required: false
   edamame_id:
-    description: 'EDAMAME identifier suffix'
+    description: 'EDAMAME identifier suffix (required to start the process in the background)'
     required: false
   auto_remediate:
     description: 'Automatically remediate posture issues'
     required: false
     default: 'false'
   skip_remediations:
-    description: 'Remediations to skip (comma separated)'
+    description: 'Remediations to skip when performing auto-remediations (comma separated)'
     required: false
   network_scan:
-    description: 'Scan network for critical devices'
+    description: 'Scan network for critical devices and capture network traffic (only applicable if the background process is started)'
+    required: false
+    default: 'false'
+  dump_sessions_log:
+    description: 'Dump sessions log (only effective if the background process is started with network_scan set to true)'
     required: false
     default: 'false'
   wait_for_repo:
-    description: 'Wait for access to the repo to be granted'
+    description: 'Wait for access to the repo through the git CLI to be granted'
     required: false
     default: 'false'
   wait_for_api:
     description: 'Wait for API access to be granted'
+    required: false
+    default: 'true'
+  wait_for_https:
+    description: 'Wait for https access to the repo be granted'
     required: false
     default: 'true'
   wait:
@@ -49,20 +57,32 @@ runs:
     - name: Dependencies
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
-          choco install wget
+          # Install wget and curl using Chocolatey if not already installed
+          if ! choco list -lo | grep -q '^wget$'; then
+            choco install wget
+          fi
+          if ! choco list -lo | grep -q '^curl$'; then
+            choco install curl
+          fi
         fi
       shell: bash
 
     - name: Download EDAMAME Posture binary
       run: |
-        # Position the binary in the home folder of the runner
+        # Position the binary in the home folder of the runner if not already present
         cd ..
         if [[ "$RUNNER_OS" == "Linux" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/linux/latest/edamame_posture
+          if [[ ! -f edamame_posture ]]; then
+            wget https://edamame-posture.s3.eu-west-1.amazonaws.com/linux/latest/edamame_posture
+          fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/macos/latest/edamame_posture
+          if [[ ! -f edamame_posture ]]; then
+            wget https://edamame-posture.s3.eu-west-1.amazonaws.com/macos/latest/edamame_posture
+          fi
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
-          wget https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/latest/edamame_posture.exe
+          if [[ ! -f edamame_posture.exe ]]; then
+            wget https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/latest/edamame_posture.exe
+          fi
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
@@ -105,7 +125,7 @@ runs:
         fi
       shell: bash
       
-    - name: Wait for a while
+    - name: Wait for a while if requested
       run: |
         if [[ "${{ inputs.wait }}" == "true" ]]; then
           sleep 180
@@ -134,7 +154,7 @@ runs:
         fi
       shell: bash
 
-    - name: Wait for repo access to be granted
+    - name: Wait for access to the repo through the git CLI to be granted if requested
       run: |
         if [[ "${{ inputs.wait_for_repo }}" == "true" ]]; then
           attempts=0
@@ -171,7 +191,7 @@ runs:
         fi
       shell: bash
 
-    - name: Wait for api access to be granted
+    - name: Wait for api access to be granted if requested
       run: |
         if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
           attempts=0
@@ -203,3 +223,46 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+
+    - name: Wait for https access to the repo be granted if requested
+      run: |
+        if [[ "${{ inputs.wait_for_https }}" == "true" ]]; then
+          attempts=0
+          timeout=true
+          repo_url="https://github.com/${{ github.repository }}.git"
+        
+          for i in {1..20}; do
+            attempts=$((attempts + 1))
+            echo "Attempt $attempts: Checking repository access..."
+            status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${{ inputs.token }}" $repo_url)
+        
+            if [[ "$status_code" == "301" || "$status_code" == "200" ]]; then
+              timeout=false
+              break
+            else
+              echo "Repository access not yet granted. Curl Status Code: $status_code. Waiting for 60 seconds..."
+              sleep 60
+            fi
+          done
+        
+          elapsed_time=$((attempts * 60))
+          elapsed_minutes=$((elapsed_time / 60))
+          elapsed_seconds=$((elapsed_time % 60))
+        
+          if [ "$timeout" = true ]; then
+            echo "Timeout occurred while waiting for repository access."
+            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            exit 1
+          else
+            echo "Repository access granted."
+            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+          fi
+        fi
+      shell: bash
+
+    - name: Dump sessions log if requested
+      run: |
+        if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
+          sudo ./edamame_posture get-connections
+        fi
+      shell: bash
