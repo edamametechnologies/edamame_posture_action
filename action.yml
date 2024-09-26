@@ -32,6 +32,10 @@ inputs:
     description: 'Checkout the repo through the git CLI (retry if access is not granted)'
     required: false
     default: 'false'
+  checkout_submodules:
+    description: 'Checkout submodules'
+    required: false
+    default: 'false'
   wait_for_api:
     description: 'Wait for API access to be granted'
     required: false
@@ -169,6 +173,9 @@ runs:
                git fetch --depth=1 origin ${{ github.ref }}; then
               branch_name=$(echo "${{ github.ref }}" | sed -e "s/^refs\/heads\///")
               if git checkout -b "$branch_name" FETCH_HEAD; then
+                if [[ "${{ inputs.checkout_submodules }}" == "true" ]]; then
+                  git submodule update --init --recursive
+                fi
                 timeout=false
                 break
               fi
