@@ -160,21 +160,23 @@ runs:
         if [[ "${{ inputs.checkout }}" == "true" ]]; then
           attempts=0
           timeout=true
-          git config --global core.autocrlf false
-          git config --global core.eol lf
-          git config --global advice.detachedHead false
-          git init
-          git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git
           
           for i in {1..20}; do
             attempts=$((attempts + 1))
-            echo "Attempt $attempts: Checking access to the repo through the git CLI..."
-            if git fetch origin ${{ github.ref }} && git checkout FETCH_HEAD; then
-              timeout=false
-              break
+            echo "Attempt $attempts: Checking out the repo through the git CLI..."
+            if git init && \
+               git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git && \
+               git fetch --depth=1 origin ${{ github.ref }}; then
+              branch_name=$(echo "${{ github.ref }}" | sed -e "s/^refs\/heads\///")
+              if git checkout -b "$branch_name" FETCH_HEAD; then
+                timeout=false
+                break
+              fi
             else
-              echo "Access to the repo through the git CLI not yet granted. Waiting for 60 seconds..."
+              echo "Checkout of the repo through the git CLI failed. Waiting for 60 seconds..."
               sleep 60
+              # Clean up any partial clone before next attempt
+              rm -rf .git
             fi
           done
         
@@ -189,6 +191,15 @@ runs:
           else
             echo "Checkout of the repo through the git CLI succeeded."
             echo "Time taken to checkout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            
+            # Verify the checked out commit and branch
+            echo "Checked out branch: $(git rev-parse --abbrev-ref HEAD)"
+            echo "Checked out commit: $(git rev-parse HEAD)"
+            if [ "$(git rev-parse HEAD)" != "${{ github.sha }}" ]; then
+              echo "Warning: The checked out commit does not match the expected SHA."
+              echo "Expected: ${{ github.sha }}"
+              echo "Actual: $(git rev-parse HEAD)"
+            fi
           fi
         fi
       shell: bash
