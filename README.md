@@ -14,8 +14,8 @@ This GitHub Actions workflow sets up and configures EDAMAME Posture (https://git
 - dump_sessions_log: Dump sessions log (default: false)
 - wait: Wait for a while for access to be granted (default: false)
 - wait_for_https: Wait for https access to the repo be granted (default: false)
-- wait_for_api: Wait for API access to be granted (default: true)
-- wait_for_repo: Wait for access to the repo through the git CLI to be granted (default: false)
+- wait_for_api: Wait for API access to be granted (default: false)
+- checkout: Checkout the repo through the git CLI (default: false)
 - token: GitHub token to check access to the repo through the git CLI (default: ${{ github.token }})
 
 ## Steps
@@ -27,6 +27,6 @@ This GitHub Actions workflow sets up and configures EDAMAME Posture (https://git
 - Wait:
   - for a while: Waits for 180 seconds if wait is true. 
   - for https access: Waits for https access to the repository to be granted if wait_for_https is true.
-  - for repo access: Waits for access to the repository to be granted through the git CLI if wait_for_repo is true. 
   - for API access: Waits for API access to be granted if wait_for_api is true.
+- Checkout repo: Checks out the repo through the git CLI if checkout is true.
 - Dump sessions log: Dumps the sessions log if dump_sessions_log is true and the EDAMAME Posture process is running with network_scan set to true.
