@@ -28,24 +28,24 @@ inputs:
     description: 'Dump sessions log (only effective if the background process is started with network_scan set to true)'
     required: false
     default: 'false'
-  wait_for_repo:
-    description: 'Wait for access to the repo through the git CLI to be granted'
+  checkout:
+    description: 'Checkout the repo through the git CLI (retry if access is not granted)'
     required: false
     default: 'false'
   wait_for_api:
     description: 'Wait for API access to be granted'
     required: false
-    default: 'true'
+    default: 'false'
   wait_for_https:
     description: 'Wait for https access to the repo be granted'
     required: false
-    default: 'true'
+    default: 'false'
   wait:
     description: 'Wait for a while for access to be granted'
     required: false
     default: 'false'
   token:
-    description: 'GitHub token to check access to the repo'
+    description: 'GitHub token to checkout the repo'
     required: false
     default: ${{ github.token }}
     
@@ -155,20 +155,21 @@ runs:
         fi
       shell: bash
 
-    - name: Wait for access to the repo through the git CLI to be granted if requested
+    - name: Checkout the repo through the git CLI if requested
       run: |
-        if [[ "${{ inputs.wait_for_repo }}" == "true" ]]; then
+        if [[ "${{ inputs.checkout }}" == "true" ]]; then
           attempts=0
           timeout=true
-        
-          # On github public runners the current directory is owned by some other user.
-          # To avoid git unsafe repository error, add current directory as a safe one to git config.
-          git config --global --add safe.directory edamame_tmp
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          git config --global advice.detachedHead false
+          git init
+          git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git
           
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking access to the repo through the git CLI..."
-            if git clone --quiet https://${{ inputs.token }}@github.com/${{ github.repository }} edamame_tmp; then
+            if git fetch origin ${{ github.ref }} && git checkout FETCH_HEAD; then
               timeout=false
               break
             else
@@ -186,16 +187,15 @@ runs:
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             exit 1
           else
-            echo "Repository access to the repo through the git CLI granted."
-            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            echo "Checkout of the repo through the git CLI succeeded."
+            echo "Time taken to checkout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
           fi
         fi
       shell: bash
 
     - name: Wait for API access to be granted if requested
       run: |
-        # Skip if dump_sessions_log is true
-        if [[ "${{ inputs.wait_for_api }}" == "true" && "${{ inputs.dump_sessions_log }}" == "false" ]]; then
+        if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
           attempts=0
           timeout=true
           for i in {1..20}; do
@@ -228,8 +228,7 @@ runs:
 
     - name: Wait for https access to the repo be granted if requested
       run: |
-        # Skip if dump_sessions_log is true
-        if [[ "${{ inputs.wait_for_https }}" == "true" && "${{ inputs.dump_sessions_log }}" == "false" ]]; then
+        if [[ "${{ inputs.wait_for_https }}" == "true" ]]; then
           attempts=0
           timeout=true
           repo_url="https://github.com/${{ github.repository }}.git"
