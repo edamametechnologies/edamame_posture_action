@@ -52,6 +52,10 @@ inputs:
     description: 'GitHub token to checkout the repo'
     required: false
     default: ${{ github.token }}
+  display_logs:
+    description: 'Display posture logs'
+    required: false
+    default: 'true'
     
 runs:
   using: 'composite'
@@ -143,12 +147,18 @@ runs:
         # Check if all arguments are provided
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # No sudo on Windows
-            ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"
+            # No sudo on Windows, and no whitelist for Windows yet
+            ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "" "${{ inputs.network_scan }}"
             ./edamame_posture.exe wait-for-connection
           else
-            sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"
-            sudo ./edamame_posture wait-for-connection
+            if [[ "$RUNNER_OS" == "macOS" ]]; then
+              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "github_macos" "${{ inputs.network_scan }}"
+              sudo ./edamame_posture wait-for-connection
+          else
+            if [[ "$RUNNER_OS" == "Linux" ]]; then
+              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "github_ubuntu" "${{ inputs.network_scan }}"
+              sudo ./edamame_posture wait-for-connection
+            fi
           fi
         else
           # Check if only a partial set of mandatory arguments is provided
@@ -286,10 +296,23 @@ runs:
           cd ..
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # Not in place due to license issues
-            #./edamame_posture.exe get-connections
+            #./edamame_posture.exe get-sessions
             echo "Dumping sessions log is not supported on Windows."
           else
-            sudo ./edamame_posture get-connections
+            sudo ./edamame_posture get-sessions
+          fi
+        fi
+      shell: bash
+
+    - name: Display posture logs
+      run: |
+        if [[ "${{ inputs.display_logs }}" == "true" ]]; then
+          cd ..
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # No sudo on Windows
+            ./edamame_posture.exe logs
+          else
+            sudo ./edamame_posture logs
           fi
         fi
       shell: bash
