@@ -158,10 +158,11 @@ runs:
             if [[ "$RUNNER_OS" == "macOS" ]]; then
               sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_macos" "${{ inputs.network_scan }}"
               sudo ./edamame_posture wait-for-connection
-          else
-            if [[ "$RUNNER_OS" == "Linux" ]]; then
-              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_ubuntu" "${{ inputs.network_scan }}"
-              sudo ./edamame_posture wait-for-connection
+            else
+              if [[ "$RUNNER_OS" == "Linux" ]]; then
+                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_ubuntu" "${{ inputs.network_scan }}"
+                sudo ./edamame_posture wait-for-connection
+              fi
             fi
           fi
         else
