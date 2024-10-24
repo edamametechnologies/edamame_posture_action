@@ -149,26 +149,26 @@ runs:
       run: |
         cd ..
         # Check if all arguments are provided
-        if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
+        if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" && -n "${{ inputs.network_scan }}" && -n "${{ inputs.whitelist }}" ]]; then
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # No sudo on Windows, and no whitelist for Windows yet
-            ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_windows" "${{ inputs.network_scan }}"
+            ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"" "${{ inputs.whitelist }}_windows""
             ./edamame_posture.exe wait-for-connection
           else
             if [[ "$RUNNER_OS" == "macOS" ]]; then
-              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_macos" "${{ inputs.network_scan }}"
+              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_macos"
               sudo ./edamame_posture wait-for-connection
             else
               if [[ "$RUNNER_OS" == "Linux" ]]; then
-                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_ubuntu" "${{ inputs.network_scan }}"
+                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_ubuntu"
                 sudo ./edamame_posture wait-for-connection
               fi
             fi
           fi
         else
           # Check if only a partial set of mandatory arguments is provided
-          if [[ -n "${{ inputs.edamame_user }}${{ inputs.edamame_domain }}${{ inputs.edamame_pin }}${{ inputs.edamame_id }}" ]]; then
-            echo "Please provide all required arguments: edamame_user, edamame_domain, edamame_pin, edamame_id"
+          if [[ -n "${{ inputs.edamame_user }}${{ inputs.edamame_domain }}${{ inputs.edamame_pin }}${{ inputs.edamame_id }}${{ inputs.network_scan }}${{ inputs.whitelist }}" ]]; then
+            echo "Please provide all required arguments: edamame_user, edamame_domain, edamame_pin, edamame_id, network_scan, whitelist"
           exit 1
           fi
         fi
