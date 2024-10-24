@@ -295,6 +295,19 @@ runs:
         fi
       shell: bash
 
+    - name: Display posture logs
+      run: |
+        if [[ "${{ inputs.display_logs }}" == "true" ]]; then
+          cd ..
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # No sudo on Windows
+            ./edamame_posture.exe logs
+          else
+            sudo ./edamame_posture logs
+          fi
+        fi
+      shell: bash
+      
     - name: Dump sessions log if requested
       run: |
         if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
@@ -305,19 +318,6 @@ runs:
             echo "Dumping sessions log is not supported on Windows."
           else
             sudo ./edamame_posture get-sessions
-          fi
-        fi
-      shell: bash
-
-    - name: Display posture logs
-      run: |
-        if [[ "${{ inputs.display_logs }}" == "true" ]]; then
-          cd ..
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # No sudo on Windows
-            ./edamame_posture.exe logs
-          else
-            sudo ./edamame_posture logs
           fi
         fi
       shell: bash
