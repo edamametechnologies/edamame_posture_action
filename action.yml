@@ -56,7 +56,11 @@ inputs:
     description: 'Display posture logs'
     required: false
     default: 'true'
-    
+  whitelist:
+    description: 'Whitelist to use for the network scan (only applicable if the background process is started)'
+    required: false
+    default: 'github'
+
 runs:
   using: 'composite'
 
@@ -148,15 +152,15 @@ runs:
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # No sudo on Windows, and no whitelist for Windows yet
-            ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "" "${{ inputs.network_scan }}"
+            ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_windows" "${{ inputs.network_scan }}"
             ./edamame_posture.exe wait-for-connection
           else
             if [[ "$RUNNER_OS" == "macOS" ]]; then
-              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "github_macos" "${{ inputs.network_scan }}"
+              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_macos" "${{ inputs.network_scan }}"
               sudo ./edamame_posture wait-for-connection
           else
             if [[ "$RUNNER_OS" == "Linux" ]]; then
-              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "github_ubuntu" "${{ inputs.network_scan }}"
+              sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.whitelist }}_ubuntu" "${{ inputs.network_scan }}"
               sudo ./edamame_posture wait-for-connection
             fi
           fi
