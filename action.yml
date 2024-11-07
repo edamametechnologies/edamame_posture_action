@@ -83,23 +83,32 @@ runs:
         fi
       shell: bash
 
-    - name: Download EDAMAME Posture binary
+   - name: Download EDAMAME Posture binary
       run: |
         # Position the binary in the home folder of the runner if not already present
         cd ..
         if [[ "$RUNNER_OS" == "Linux" ]]; then
           if [[ ! -f edamame_posture ]]; then
+            echo "EDAMAME Posture binary not found. Downloading..."
             wget https://edamame-posture.s3.eu-west-1.amazonaws.com/linux/latest/edamame_posture
             chmod u+x edamame_posture
+          else
+            echo "EDAMAME Posture binary already exists."
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
           if [[ ! -f edamame_posture ]]; then
+            echo "EDAMAME Posture binary not found. Downloading..."
             wget https://edamame-posture.s3.eu-west-1.amazonaws.com/macos/latest/edamame_posture
             chmod u+x edamame_posture
+          else
+            echo "EDAMAME Posture binary already exists."
           fi
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
           if [[ ! -f edamame_posture.exe ]]; then
+            echo "EDAMAME Posture binary not found. Downloading..."
             wget https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/latest/edamame_posture.exe
+          else
+            echo "EDAMAME Posture binary already exists."
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
@@ -154,6 +163,21 @@ runs:
         cd ..
         # Check if all arguments are provided
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
+          existing_process=$(pgrep -u $USER -f "edamame_posture.*${{ inputs.edamame_domain }}")
+          
+          if [[ -n "$existing_process" ]]; then
+            echo "An existing EDAMAME Posture process is already running for the domain: ${{ inputs.edamame_domain }}."
+            echo "Checking if it matches the current user and domain..."
+            current_user=$(ps -o user= -p "$existing_process")
+            if [[ "$current_user" == "${{ inputs.edamame_user }}" ]]; then
+              echo "Matching user found. Using existing process."
+              ./edamame_posture wait-for-connection
+            else
+              echo "Different user detected. Stopping existing process and starting a new one."
+              sudo kill -9 "$existing_process"
+            fi
+          fi
+          
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # No sudo on Windows
             if [[ "${{ inputs.whitelist }}" != "" ]]; then
@@ -185,7 +209,7 @@ runs:
           # Check if only a partial set of mandatory arguments is provided
           if [[ -n "${{ inputs.edamame_user }}${{ inputs.edamame_domain }}${{ inputs.edamame_pin }}${{ inputs.edamame_id }}" ]]; then
             echo "Please provide all required arguments: edamame_user, edamame_domain, edamame_pin, edamame_id"
-          exit 1
+            exit 1
           fi
         fi
       shell: bash
