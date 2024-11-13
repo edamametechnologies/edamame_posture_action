@@ -100,6 +100,10 @@ runs:
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
           if [[ ! -f edamame_posture.exe ]]; then
             wget https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/latest/edamame_posture.exe
+            wget https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/Packet.dll -O Packet.dll
+            chmod +x Packet.dll
+            wget https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/wpcap.dll -O wpcap.dll
+            chmod +x wpcap.dll
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
