@@ -1,119 +1,155 @@
-name: 'Setup EDAMAME Posture'
-description: 'Download and control EDAMAME Posture'
+name: "Setup EDAMAME Posture"
+description: "Download and control EDAMAME Posture"
 inputs:
   edamame_user:
-    description: 'EDAMAME Posture User (required to start the process in the background)'
+    description: "EDAMAME Posture User (required to start the process in the background)"
     required: false
   edamame_domain:
-    description: 'EDAMAME Posture Domain (required to start the process in the background)'
+    description: "EDAMAME Posture Domain (required to start the process in the background)"
     required: false
   edamame_pin:
-    description: 'EDAMAME Posture PIN (required to start the process in the background)'
+    description: "EDAMAME Posture PIN (required to start the process in the background)"
     required: false
   edamame_id:
-    description: 'EDAMAME identifier suffix (required to start the process in the background)'
+    description: "EDAMAME identifier suffix (required to start the process in the background)"
     required: false
   auto_remediate:
-    description: 'Automatically remediate posture issues'
+    description: "Automatically remediate posture issues"
     required: false
-    default: 'false'
+    default: "false"
   skip_remediations:
-    description: 'Remediations to skip when performing auto-remediations (comma separated)'
+    description: "Remediations to skip when performing auto-remediations (comma separated)"
     required: false
   network_scan:
-    description: 'Scan network for critical devices and capture network traffic (only applicable if the background process is started)'
+    description: "Scan network for critical devices and capture network traffic (only applicable if the background process is started)"
     required: false
-    default: 'false'
+    default: "false"
   dump_sessions_log:
-    description: 'Dump sessions log (only effective if the background process is started with network_scan set to true)'
+    description: "Dump sessions log (only effective if the background process is started with network_scan set to true)"
     required: false
-    default: 'false'
+    default: "false"
   checkout:
-    description: 'Checkout the repo through the git CLI (retry if access is not granted)'
+    description: "Checkout the repo through the git CLI (retry if access is not granted)"
     required: false
-    default: 'false'
+    default: "false"
   checkout_submodules:
-    description: 'Checkout submodules'
+    description: "Checkout submodules"
     required: false
-    default: 'false'
+    default: "false"
   wait_for_api:
-    description: 'Wait for API access to be granted'
+    description: "Wait for API access to be granted"
     required: false
-    default: 'false'
+    default: "false"
   wait_for_https:
-    description: 'Wait for https access to the repo be granted'
+    description: "Wait for https access to the repo be granted"
     required: false
-    default: 'false'
+    default: "false"
   wait:
-    description: 'Wait for a while for access to be granted'
+    description: "Wait for a while for access to be granted"
     required: false
-    default: 'false'
+    default: "false"
   token:
-    description: 'GitHub token to checkout the repo'
+    description: "GitHub token to checkout the repo"
     required: false
     default: ${{ github.token }}
   display_logs:
-    description: 'Display posture logs'
+    description: "Display posture logs"
     required: false
-    default: 'true'
+    default: "true"
   whitelist:
-    description: 'Whitelist to use for the network scan (only applicable if the background process is started)'
+    description: "Whitelist to use for the network scan (only applicable if the background process is started)"
     required: false
-    default: 'github'
+    default: "github"
   whitelist_conformance:
-    description: 'Exit with error when non-compliant endpoints are detected (only applicable if the background process is started)'
+    description: "Exit with error when non-compliant endpoints are detected (only applicable if the background process is started)"
     required: false
-    default: 'false'
+    default: "false"
 
 runs:
-  using: 'composite'
+  using: "composite"
 
   steps:
-
     - name: Dependencies
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
+          cd
           # Install wget and curl using Chocolatey if not already installed
           if ! choco list -lo | grep -q '^wget$'; then
-            choco install wget
+            choco install wget -y
           fi
           if ! choco list -lo | grep -q '^curl$'; then
-            choco install curl
+            choco install curl -y
           fi
+          choco install vcredist2015 --package-parameters "/install /quiet /norestart" --yes
+          # Check and download Packet.dll
+          if [ ! -f "Packet.dll" ]; then
+              echo "Packet.dll not found. Downloading..."
+              wget https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/Packet.dll -O Packet.dll
+              chmod +x Packet.dll
+          else
+              echo "Packet.dll already exists. Skipping download."
+          fi
+
+          # Check and download wpcap.dll
+          if [ ! -f "wpcap.dll" ]; then
+              echo "wpcap.dll not found. Downloading..."
+              wget https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/wpcap.dll -O wpcap.dll
+              chmod +x wpcap.dll
+          else
+              echo "wpcap.dll already exists. Skipping download."
+          fi
+        elif [[ "$RUNNER_OS" == "Linux" ]]; then
+          # Update package lists and install necessary packages
+          sudo apt-get update
+          sudo apt-get install -y git libpcap0.8 wget build-essential
         fi
       shell: bash
 
     - name: Download EDAMAME Posture binary
+      id: download_binary
       run: |
-        # Position the binary in the home folder of the runner if not already present
-        cd ..
+        # Navigate to the home directory
+        cd
+        binary_present=false
+
         if [[ "$RUNNER_OS" == "Linux" ]]; then
-          if [[ ! -f edamame_posture ]]; then
+          if [[ -f edamame_posture ]]; then
+            echo "Binary already present"
+            binary_present=true
+          else
+            echo "Downloading EDAMAME Posture binary for Linux..."
             wget https://edamame-posture.s3.eu-west-1.amazonaws.com/linux/latest/edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          if [[ ! -f edamame_posture ]]; then
+          if [[ -f edamame_posture ]]; then
+            echo "Binary already present"
+            binary_present=true
+          else
+            echo "Downloading EDAMAME Posture binary for macOS..."
             wget https://edamame-posture.s3.eu-west-1.amazonaws.com/macos/latest/edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
-          if [[ ! -f edamame_posture.exe ]]; then
-            wget https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/latest/edamame_posture.exe
-            wget https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/Packet.dll -O Packet.dll
-            chmod +x Packet.dll
-            wget https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/wpcap.dll -O wpcap.dll
-            chmod +x wpcap.dll
+          if [[ -f edamame_posture.exe ]]; then
+            echo "Binary already present"
+            binary_present=true
+          else
+            echo "Downloading EDAMAME Posture binary for Windows..."
+            curl -o edamame_posture.exe https://edamame-posture.s3.eu-west-1.amazonaws.com/windows/latest/edamame_posture.exe
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
         fi
+
+        # Set the output based on whether the binary was already present
+        echo "binary_already_present=$binary_present" >> $GITHUB_OUTPUT
       shell: bash
 
     - name: Show initial posture
       run: |
-        cd ..
+        cd
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           # No sudo on Windows
           ./edamame_posture.exe score
@@ -124,7 +160,7 @@ runs:
 
     - name: Auto remediate/harden posture issues if requested
       run: |
-        cd ..
+        cd
         if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
           if [[ "${{ inputs.skip_remediations }}" == "" ]]; then
             echo "No remediations to skip"
@@ -134,7 +170,7 @@ runs:
             else
               sudo ./edamame_posture remediate
             fi
-          else 
+          else
             echo "Skipping remediations: ${{ inputs.skip_remediations }}"
             if [[ "$RUNNER_OS" == "Windows" ]]; then
               # No sudo on Windows
@@ -145,7 +181,7 @@ runs:
           fi
         fi
       shell: bash
-      
+
     - name: Wait for a while if requested
       run: |
         if [[ "${{ inputs.wait }}" == "true" ]]; then
@@ -155,9 +191,54 @@ runs:
 
     - name: Start EDAMAME Posture process and wait for connection if all arguments are provided, skip otherwise
       run: |
-        cd ..
+        cd
         # Check if all arguments are provided
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
+          if [[ "${{ steps.download_binary.outputs.binary_already_present }}" == "true" ]]; then
+            # Function to compare strings case-insensitively
+            case_insensitive_compare() {
+              [[ "${1,,}" == "${2,,}" ]]
+            }
+            echo "EDAMAME Posture binary is already present. Checking status..."
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              ./edamame_posture.exe status > posture_status.txt
+            else
+              sudo ./edamame_posture status > posture_status.txt
+            fi
+
+            # Check if the output indicates Error getting connection status: transport error
+            if grep -q "Error getting connection status: transport error" posture_status.txt; then
+              echo "No background process is running. Proceeding to start the process."
+            else
+              # Extract User and Domain from the status
+              current_user=$(grep -i 'user:' posture_status.txt | awk -F': ' '{print $2}')
+              current_domain=$(grep -i 'domain:' posture_status.txt | awk -F': ' '{print $2}')
+              connected=$(grep -i 'connected:' posture_status.txt | awk -F': ' '{print $2}')
+
+              echo "Current User: $current_user"
+              echo "Current Domain: $current_domain"
+              echo "Connected: $connected"
+
+              # Compare with inputs
+              if [[ "$connected" == "true" ]] && case_insensitive_compare "$current_user" "${{ inputs.edamame_user }}" && case_insensitive_compare "$current_domain" "${{ inputs.edamame_domain }}"; then
+                echo "EDAMAME Posture is already running with the specified user and domain. Skipping start process."
+                # Exit the step successfully to proceed to the next step
+                exit 0
+              else
+                echo "EDAMAME Posture is not running with the specified user/domain or not connected. Restarting the process..."
+                # Stop the existing process
+                if [[ "$RUNNER_OS" == "Windows" ]]; then
+                  ./edamame_posture.exe stop
+                  sleep 5
+                else
+                  sudo ./edamame_posture stop
+                  sleep 5
+                fi
+                echo "Stopped the existing EDAMAME Posture process."
+              fi
+            fi
+          fi
+
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # No sudo on Windows
             if [[ "${{ inputs.whitelist }}" != "" ]]; then
@@ -165,6 +246,7 @@ runs:
             else
               ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"
             fi
+            echo "Waiting for connection... Windows"
             ./edamame_posture.exe wait-for-connection
           else
             if [[ "$RUNNER_OS" == "macOS" ]]; then
@@ -173,6 +255,7 @@ runs:
               else
                 sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"
               fi
+              echo "Waiting for connection... macOS"
               sudo ./edamame_posture wait-for-connection
             else
               if [[ "$RUNNER_OS" == "Linux" ]]; then
@@ -181,6 +264,7 @@ runs:
                 else
                   sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"
                 fi
+                echo "Waiting for connection... Linux"
                 sudo ./edamame_posture wait-for-connection
               fi
             fi
@@ -199,13 +283,13 @@ runs:
         if [[ "${{ inputs.checkout }}" == "true" ]]; then
           attempts=0
           timeout=true
-          
+
+          git init || true
+          git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking out the repo through the git CLI..."
-            if git init && \
-               git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git && \
-               git fetch --depth=1 origin ${{ github.ref }}; then
+            if git fetch --depth=1 origin ${{ github.ref }}; then
               branch_name=$(echo "${{ github.ref }}" | sed -e "s/^refs\/heads\///")
               if git checkout -b "$branch_name" FETCH_HEAD; then
                 if [[ "${{ inputs.checkout_submodules }}" == "true" ]]; then
@@ -217,15 +301,13 @@ runs:
             else
               echo "Checkout of the repo through the git CLI failed. Waiting for 60 seconds..."
               sleep 60
-              # Clean up any partial clone before next attempt
-              rm -rf .git
             fi
           done
-        
+
           elapsed_time=$((attempts * 60))
           elapsed_minutes=$((elapsed_time / 60))
           elapsed_seconds=$((elapsed_time % 60))
-        
+
           if [ "$timeout" = true ]; then
             echo "Timeout occurred while waiting for access to the repo through the git CLI."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
@@ -233,7 +315,7 @@ runs:
           else
             echo "Checkout of the repo through the git CLI succeeded."
             echo "Time taken to checkout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-            
+
             # Verify the checked out commit and branch
             echo "Checked out branch: $(git rev-parse --abbrev-ref HEAD)"
             echo "Checked out commit: $(git rev-parse HEAD)"
@@ -261,11 +343,11 @@ runs:
               sleep 60
             fi
           done
-        
+
           elapsed_time=$((attempts * 60))
           elapsed_minutes=$((elapsed_time / 60))
           elapsed_seconds=$((elapsed_time % 60))
-          
+
           if [ "$timeout" = true ]; then
             echo "Timeout occurred while waiting for API access."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
@@ -285,12 +367,12 @@ runs:
           attempts=0
           timeout=true
           repo_url="https://github.com/${{ github.repository }}.git"
-        
+
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking https access to the repo..."
             status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${{ inputs.token }}" $repo_url)
-        
+
             if [[ "$status_code" == "301" || "$status_code" == "200" ]]; then
               timeout=false
               break
@@ -299,11 +381,11 @@ runs:
               sleep 60
             fi
           done
-        
+
           elapsed_time=$((attempts * 60))
           elapsed_minutes=$((elapsed_time / 60))
           elapsed_seconds=$((elapsed_time % 60))
-        
+
           if [ "$timeout" = true ]; then
             echo "Timeout occurred while waiting for https access to the repo."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
@@ -318,7 +400,7 @@ runs:
     - name: Display posture logs
       run: |
         if [[ "${{ inputs.display_logs }}" == "true" ]]; then
-          cd ..
+          cd
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # No sudo on Windows
             ./edamame_posture.exe logs
@@ -331,7 +413,7 @@ runs:
     - name: Dump sessions log if requested
       run: |
         if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
-          cd ..
+          cd
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # Not in place due to license issues
             #./edamame_posture.exe get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
