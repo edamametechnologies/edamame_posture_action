@@ -139,7 +139,6 @@ runs:
           else
             echo "Downloading EDAMAME Posture binary for Windows..."
             curl -o edamame_posture.exe https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe
-            mv edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe edamame_posture.exe
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
