@@ -242,29 +242,33 @@ runs:
           fi
 
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # Add a unique suffix to the edamame_id to avoid conflicts using matrix jobs
+            IDSUFFIX=$(powershell -Command "[guid]::NewGuid().ToString()")
             # No sudo on Windows
             if [[ "${{ inputs.whitelist }}" != "" ]]; then
-              ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_windows"
+              ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_${{ IDSUFFIX }}" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_windows"
             else
-              ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"
+              ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_${{ IDSUFFIX }}" "${{ inputs.network_scan }}"
             fi
             echo "Waiting for connection... Windows"
             ./edamame_posture.exe wait-for-connection
           else
+            # Add a unique suffix to the edamame_id to avoid conflicts using matrix jobs
+            IDSUFFIX=$(uuidgen)
             if [[ "$RUNNER_OS" == "macOS" ]]; then
               if [[ "${{ inputs.whitelist }}" != "" ]]; then
-                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_macos"
+                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_${{ IDSUFFIX }}" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_macos"
               else
-                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"
+                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_${{ IDSUFFIX }}" "${{ inputs.network_scan }}"
               fi
               echo "Waiting for connection... macOS"
               sudo ./edamame_posture wait-for-connection
             else
               if [[ "$RUNNER_OS" == "Linux" ]]; then
                 if [[ "${{ inputs.whitelist }}" != "" ]]; then
-                  sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_ubuntu"
+                  sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_${{ IDSUFFIX }}" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_ubuntu"
                 else
-                  sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}" "${{ inputs.network_scan }}"
+                  sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_${{ IDSUFFIX }}" "${{ inputs.network_scan }}"
                 fi
                 echo "Waiting for connection... Linux"
                 sudo ./edamame_posture wait-for-connection
