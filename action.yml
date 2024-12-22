@@ -118,8 +118,7 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Linux..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-unknown-linux-gnu
-            mv edamame_posture-0.8.0-x86_64-unknown-linux-gnu edamame_posture
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-unknown-linux-gnu -O edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
@@ -128,8 +127,7 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for macOS..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-universal-apple-darwin
-            mv edamame_posture-0.8.0-universal-apple-darwin edamame_posture
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-universal-apple-darwin -O edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -138,8 +136,7 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Windows..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe
-            mv edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe edamame_posture.exe
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe -O edamame_posture.exe
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
