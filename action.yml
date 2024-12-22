@@ -138,7 +138,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Windows..."
-            curl -o edamame_posture.exe https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe
+            mv edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe edamame_posture.exe
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
@@ -292,7 +293,7 @@ runs:
 
           git init || true
           git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git
-          for i in {1..20}; do
+          for i in {1..10}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking out the repo through the git CLI..."
             if git fetch --depth=1 origin ${{ github.ref }}; then
@@ -346,7 +347,7 @@ runs:
         if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
           attempts=0
           timeout=true
-          for i in {1..20}; do
+          for i in {1..10}; do
             attempts=$((attempts + 1))
             # We use the GitHub token to access the API using gh release list that requires authentication limited to the scope of the token
             if gh release list --repo ${{ github.repository }}; then
@@ -389,7 +390,7 @@ runs:
           timeout=true
           repo_url="https://github.com/${{ github.repository }}.git"
 
-          for i in {1..20}; do
+          for i in {1..10}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking https access to the repo..."
             status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${{ inputs.token }}" $repo_url)
