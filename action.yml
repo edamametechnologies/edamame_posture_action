@@ -317,6 +317,13 @@ runs:
           if [ "$timeout" = true ]; then
             echo "Timeout occurred while waiting for access to the repo through the git CLI."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            # Dump the logs
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              # No sudo on Windows
+              ./edamame_posture.exe logs
+            else
+              sudo ./edamame_posture logs
+            fi
             exit 1
           else
             echo "Checkout of the repo through the git CLI succeeded."
@@ -357,6 +364,14 @@ runs:
           if [ "$timeout" = true ]; then
             echo "Timeout occurred while waiting for API access."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            # Dump the logs
+                        # Dump the logs
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              # No sudo on Windows
+              ./edamame_posture.exe logs
+            else
+              sudo ./edamame_posture logs
+            fi
             exit 1
           else
             echo "API access granted."
@@ -395,6 +410,13 @@ runs:
           if [ "$timeout" = true ]; then
             echo "Timeout occurred while waiting for https access to the repo."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            # Dump the logs
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              # No sudo on Windows
+              ./edamame_posture.exe logs
+            else
+              sudo ./edamame_posture logs
+            fi
             exit 1
           else
             echo "https access to the repo granted."
