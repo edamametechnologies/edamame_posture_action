@@ -46,6 +46,7 @@ jobs:
             echo "RELEASE_EXISTS=true" >> $GITHUB_ENV
           else
             echo "RELEASE_EXISTS=false" >> $GITHUB_ENV
+          fi
 
       # Delete the existing release if it exists
       - name: Delete Existing Release
