@@ -115,8 +115,12 @@ runs:
         # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
         if [[ "${{ inputs.edamame_version }}" == "latest" ]]; then
           VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | jq -r '.tag_name')
+          # Get the version without the v prefix
+          VERSION=${VERSION#v}
           # Get a previous fallback version in case the latest version is not available for a given OS
           FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | jq -r '.[1].tag_name')
+          # Get the version without the v prefix
+          FALLBACK_VERSION=${FALLBACK_VERSION#v}
           if [[ -z "$FALLBACK_VERSION" ]]; then
             FALLBACK_VERSION=$VERSION
           fi
@@ -135,8 +139,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Linux..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-gnu -O edamame_posture || \
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-gnu -O edamame_posture
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-gnu -O edamame_posture || \
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-gnu -O edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
@@ -145,8 +149,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for macOS..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${VERSION}/edamame_posture-${VERSION}-universal-apple-darwin -O edamame_posture || \
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-universal-apple-darwin -O edamame_posture
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-universal-apple-darwin -O edamame_posture || \
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-universal-apple-darwin -O edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -155,8 +159,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Windows..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${VERSION}/edamame_posture-${VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe || \
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe || \
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
