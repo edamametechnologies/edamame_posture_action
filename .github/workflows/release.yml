@@ -48,11 +48,12 @@ jobs:
             echo "RELEASE_EXISTS=false" >> $GITHUB_ENV
           fi
 
-      # Delete the existing release if it exists
+      # Delete the existing release and tag if it exists
       - name: Delete Existing Release
         if: env.RELEASE_EXISTS == 'true'
         run: |
           gh release delete ${VERSION_TAG} --repo ${{ github.repository }} --yes
+          gh tag delete ${VERSION_TAG} --repo ${{ github.repository }} --yes
 
       # Create or overwrite the release
       - name: Create Release
