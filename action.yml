@@ -40,10 +40,6 @@ inputs:
     description: "Checkout submodules"
     required: false
     default: "false"
-  wait_for_api:
-    description: "Wait for API access to be granted"
-    required: false
-    default: "false"
   wait_for_https:
     description: "Wait for https access to the repo be granted"
     required: false
@@ -166,6 +162,8 @@ runs:
         # Set the output based on whether the binary was already present
         echo "binary_already_present=$binary_present" >> $GITHUB_OUTPUT
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
 
     - name: Show initial posture
       run: |
@@ -360,47 +358,6 @@ runs:
           fi
         fi
       shell: bash
-
-    - name: Wait for API access to be granted if requested
-      run: |
-        if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
-          attempts=0
-          timeout=true
-          for i in {1..10}; do
-            attempts=$((attempts + 1))
-            # We use the GitHub token to access the API using gh release list that requires authentication limited to the scope of the token
-            if gh release list --repo ${{ github.repository }}; then
-              timeout=false
-              break
-            else
-              sleep 60
-            fi
-          done
-
-          elapsed_time=$((attempts * 60))
-          elapsed_minutes=$((elapsed_time / 60))
-          elapsed_seconds=$((elapsed_time % 60))
-
-          if [ "$timeout" = true ]; then
-            echo "Timeout occurred while waiting for API access."
-            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-            # Dump the logs
-                        # Dump the logs
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              # No sudo on Windows
-              ./edamame_posture.exe logs
-            else
-              sudo ./edamame_posture logs
-            fi
-            exit 1
-          else
-            echo "API access granted."
-            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-          fi
-        fi
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
 
     - name: Wait for https access to the repo be granted if requested
       run: |

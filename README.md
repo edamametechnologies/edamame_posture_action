@@ -14,7 +14,6 @@ This GitHub Actions workflow sets up and configures EDAMAME Posture (https://git
 - `network_scan`: Scan network for critical devices and capture network traffic (default: false)
 - `wait`: Wait for a while for access to be granted (default: false)
 - `wait_for_https`: Wait for https access to the repo be granted (default: false)
-- `wait_for_api`: Wait for API access to be granted (default: false)
 - `checkout`: Checkout the repo through the git CLI (default: false)
 - `checkout_submodules`: Checkout submodules (default: false)
 - `token`: GitHub token to checkout the repo (default: ${{ github.token }})
@@ -30,11 +29,10 @@ This GitHub Actions workflow sets up and configures EDAMAME Posture (https://git
 5. Wait for a while: Waits for 180 seconds if wait is true.
 6. Start EDAMAME Posture process: Starts the EDAMAME Posture process and waits for connection if all required arguments are provided.
 7. Checkout repo: Checks out the repo through the git CLI if checkout is true.
-8. Wait for API access: Waits for API access to be granted if wait_for_api is true.
-9. Wait for https access: Waits for https access to the repository to be granted if wait_for_https is true.
-10. Display posture logs: Displays the posture logs if display_logs is true.
-11. Dump sessions log: Dumps the sessions log if dump_sessions_log is true and the EDAMAME Posture process is running with network_scan set to true.
-12. Check whitelist conformance: Checks if the whitelist conformance is true and there are non-compliant endpoints detected. Exits with an error if there are non-compliant endpoints detected.
+8. Wait for https access: Waits for https access to the repository to be granted if wait_for_https is true.
+9. Display posture logs: Displays the posture logs if display_logs is true.
+10. Dump sessions log: Dumps the sessions log if dump_sessions_log is true and the EDAMAME Posture process is running with network_scan set to true.
+11. Check whitelist conformance: Checks if the whitelist conformance is true and there are non-compliant endpoints detected. Exits with an error if there are non-compliant endpoints detected.
 
 ## Note
 For public repos accessing private repos using a dedicated token, the token must be passed to posture_action in order to properly wait for access to be granted during the various wait_ or checkout steps.
