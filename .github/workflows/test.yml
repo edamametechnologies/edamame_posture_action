@@ -1,4 +1,4 @@
-name: Test EDAMAME Posture Action
+name: Test
 
 on:
   workflow_dispatch:
