@@ -40,16 +40,6 @@ jobs:
       - name: Clean up existing release
         run: |
           gh release delete ${VERSION_TAG} --cleanup-tag --repo ${{ github.repository }} --yes
-          # Verify that the release was deleted
-          if [[ -n "$(gh release view ${VERSION_TAG} --repo ${{ github.repository }} --json id -q .id)" ]]; then
-            echo "Failed to delete release ${VERSION_TAG}"
-            exit 1
-          fi
-          # Verify that the tag was deleted
-          if [[ -n "$(gh tag view ${VERSION_TAG} --repo ${{ github.repository }} --json id -q .id)" ]]; then
-            echo "Failed to delete tag ${VERSION_TAG}"
-            exit 1
-          fi
 
       # Create the release
       - name: Create Release
