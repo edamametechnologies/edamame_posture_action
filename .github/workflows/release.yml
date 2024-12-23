@@ -29,6 +29,8 @@ jobs:
           auto_remediate: true
           network_scan: true
           checkout: true
+          # Wait for the API to be ready
+          wait_for_api: true
 
       # Set the release version
       - name: Set Release Version
