@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+# Auto cancel previous runs if they were not completed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Write permissions are required to upload the release asset.
+permissions: write-all
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # Set the release version (always v0)
+      - name: Set Release Version
+        run: |
+          VERSION_TAG="v0"
+          echo "VERSION_TAG=${VERSION_TAG}" >> $GITHUB_ENV
+
+      # Check if release exists
+      - name: Check for Existing Release
+        id: get_release
+        run: |
+          RELEASE_ID=$(gh release view ${VERSION_TAG} --repo ${{ github.repository }} --json id -q .id 2>/dev/null || echo "")
+          echo "RELEASE_ID=${RELEASE_ID}" >> $GITHUB_ENV
+          if [[ -n "$RELEASE_ID" ]]; then
+            echo "RELEASE_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "RELEASE_EXISTS=false" >> $GITHUB_ENV
+
+      # Delete the existing release if it exists
+      - name: Delete Existing Release
+        if: env.RELEASE_EXISTS == 'true'
+        run: |
+          gh release delete ${VERSION_TAG} --repo ${{ github.repository }} --yes
+
+      # Create or overwrite the release
+      - name: Create Release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ env.VERSION_TAG }}
+          release_name: Release ${{ env.VERSION_TAG }}
+          draft: false
+          prerelease: false
