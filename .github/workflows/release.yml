@@ -15,12 +15,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      GH_TOKEN: ${{ github.token }}
+
     steps:
       # Checkout the repository
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # Set the release version (always v0)
+      # Set the release version
       - name: Set Release Version
         run: |
           VERSION_TAG="v0"
