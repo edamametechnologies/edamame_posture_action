@@ -15,9 +15,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      GH_TOKEN: ${{ github.token }}
-
     steps:
       - name: Setup EDAMAME Posture
         uses: edamametechnologies/edamame_posture_action@v0
@@ -40,6 +37,8 @@ jobs:
 
       # Check if release exists and delete it if it does
       - name: Clean up existing release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete ${VERSION_TAG} --cleanup-tag --repo ${{ github.repository }} --yes
 

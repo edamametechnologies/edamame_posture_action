@@ -14,9 +14,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    
-    env:
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Setup EDAMAME Posture
@@ -28,8 +25,8 @@ jobs:
           edamame_id: ${{ github.run_id }}
           checkout: true
 
-      # Run the EDAMAME Posture setup action
-      - name: Run EDAMAME Posture Setup Action
+      # Test the EDAMAME Posture Action
+      - name: Test EDAMAME Posture Action
         uses: ./ # Use the local action definition (action.yaml)
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
