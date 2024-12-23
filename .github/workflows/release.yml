@@ -36,25 +36,22 @@ jobs:
           VERSION_TAG="v0"
           echo "VERSION_TAG=${VERSION_TAG}" >> $GITHUB_ENV
 
-      # Check if release exists
-      - name: Check for Existing Release
-        id: get_release
-        run: |
-          RELEASE_ID=$(gh release view ${VERSION_TAG} --repo ${{ github.repository }} --json id -q .id 2>/dev/null || echo "")
-          echo "RELEASE_ID=${RELEASE_ID}" >> $GITHUB_ENV
-          if [[ -n "$RELEASE_ID" ]]; then
-            echo "RELEASE_EXISTS=true" >> $GITHUB_ENV
-          else
-            echo "RELEASE_EXISTS=false" >> $GITHUB_ENV
-          fi
-
-      # Delete the existing release and tag if it exists
-      - name: Delete Existing Release
-        if: env.RELEASE_EXISTS == 'true'
+      # Check if release exists and delete it if it does
+      - name: Clean up existing release
         run: |
           gh release delete ${VERSION_TAG} --cleanup-tag --repo ${{ github.repository }} --yes
+          # Verify that the release was deleted
+          if [[ -n "$(gh release view ${VERSION_TAG} --repo ${{ github.repository }} --json id -q .id)" ]]; then
+            echo "Failed to delete release ${VERSION_TAG}"
+            exit 1
+          fi
+          # Verify that the tag was deleted
+          if [[ -n "$(gh tag view ${VERSION_TAG} --repo ${{ github.repository }} --json id -q .id)" ]]; then
+            echo "Failed to delete tag ${VERSION_TAG}"
+            exit 1
+          fi
 
-      # Create or overwrite the release
+      # Create the release
       - name: Create Release
         uses: actions/create-release@v1
         env:
