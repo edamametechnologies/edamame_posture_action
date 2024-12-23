@@ -37,7 +37,3 @@ jobs:
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
 
-      # Add a verification step to ensure the action completed successfully
-      - name: Verify Action Execution
-        run: |
-          echo "EDAMAME Posture Setup completed successfully"
