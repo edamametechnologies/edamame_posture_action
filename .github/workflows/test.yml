@@ -2,6 +2,10 @@ name: Test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'dev'
+      - 'main'
 
 jobs:
   test-edamame-posture:
