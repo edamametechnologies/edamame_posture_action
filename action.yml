@@ -299,8 +299,10 @@ runs:
           attempts=0
           timeout=true
 
+          # Initialize the repo if it doesn't exist
           git init || true
-          git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git
+          # Add the remote if it doesn't exist
+          git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
           for i in {1..10}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking out the repo through the git CLI..."
