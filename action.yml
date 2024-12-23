@@ -13,6 +13,10 @@ inputs:
   edamame_id:
     description: "EDAMAME identifier suffix (required to start the process in the background)"
     required: false
+  edamame_version:
+    description: "EDAMAME Posture version (optional, defaults to latest)"
+    required: false
+    default: "latest"
   auto_remediate:
     description: "Automatically remediate posture issues"
     required: false
@@ -108,6 +112,13 @@ runs:
     - name: Download EDAMAME Posture binary
       id: download_binary
       run: |
+        # Get the latest version from the GitHub releases
+        if [[ "${{ inputs.edamame_version }}" == "latest" ]]; then
+          VERSION=$(gh release list --repo edamametechnologies/edamame_posture_cli --json tagName --jq '.[0].tagName')
+        else
+          VERSION=${{ inputs.edamame_version }}
+        fi
+
         # Navigate to the home directory
         cd
         binary_present=false
@@ -118,7 +129,7 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Linux..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-unknown-linux-gnu -O edamame_posture
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-gnu -O edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
@@ -127,7 +138,7 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for macOS..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-universal-apple-darwin -O edamame_posture
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-universal-apple-darwin -O edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -136,7 +147,7 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Windows..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.8.0/edamame_posture-0.8.0-x86_64-pc-windows-msvc.exe -O edamame_posture.exe
+            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
@@ -239,9 +250,11 @@ runs:
             fi
           fi
 
+          # Add a unique suffix to the edamame_id to avoid conflicts using matrix jobs
+          # ms since epoch
+          IDSUFFIX=$(node -e "console.log(Date.now())")
+
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # Add a unique suffix to the edamame_id to avoid conflicts using matrix jobs
-            IDSUFFIX=$(powershell -Command "[guid]::NewGuid().ToString()")
             # No sudo on Windows
             if [[ "${{ inputs.whitelist }}" != "" ]]; then
               ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_windows"
@@ -251,8 +264,6 @@ runs:
             echo "Waiting for connection... Windows"
             ./edamame_posture.exe wait-for-connection
           else
-            # Add a unique suffix to the edamame_id to avoid conflicts using matrix jobs
-            IDSUFFIX=$(uuidgen)
             if [[ "$RUNNER_OS" == "macOS" ]]; then
               if [[ "${{ inputs.whitelist }}" != "" ]]; then
                 sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_macos"
