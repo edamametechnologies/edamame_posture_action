@@ -208,7 +208,7 @@ runs:
           if [[ "${{ steps.download_binary.outputs.binary_already_present }}" == "true" ]]; then
             # Function to compare strings case-insensitively
             case_insensitive_compare() {
-              [[ "${1,,}" == "${2,,}" ]]
+              [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "$(echo "$2" | tr '[:upper:]' '[:lower:]')" ]]
             }
             echo "EDAMAME Posture binary is already present. Checking status..."
             if [[ "$RUNNER_OS" == "Windows" ]]; then
