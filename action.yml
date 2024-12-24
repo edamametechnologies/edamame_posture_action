@@ -117,10 +117,13 @@ runs:
           VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | jq -r '.tag_name')
           # Get the version without the v prefix
           VERSION=${VERSION#v}
-          # Get a previous fallback version in case the latest version is not available for a given OS. If not found, use the latest version
-          FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | jq -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name' || echo $VERSION)
+          # Get a previous fallback version in case the latest version is not available for a given OS (can fail)
+          FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | jq -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name' || true)
           # Get the version without the v prefix
           FALLBACK_VERSION=${FALLBACK_VERSION#v}
+          if [[ -z "$FALLBACK_VERSION" ]]; then
+            FALLBACK_VERSION=$VERSION
+          fi
         else
           VERSION=${{ inputs.edamame_version }}
           FALLBACK_VERSION=$VERSION
