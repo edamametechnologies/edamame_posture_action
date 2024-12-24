@@ -75,6 +75,7 @@ runs:
   steps:
     - name: Dependencies
       run: |
+        JQ=jq
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           cd
           # Install wget and curl using Chocolatey if not already installed
@@ -109,6 +110,8 @@ runs:
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
           # Install wget, curl and jq using Homebrew
           brew install wget curl jq
+          # Force using the Homebrew version of jq
+          JQ=/opt/homebrew/bin/jq
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
@@ -120,11 +123,11 @@ runs:
       run: |
         # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
         if [[ "${{ inputs.edamame_version }}" == "latest" ]]; then
-          VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | jq -r '.tag_name')
+          VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | $JQ -r '.tag_name')
           # Get the version without the v prefix
           VERSION=${VERSION#v}
           # Get a previous fallback version in case the latest version is not available for a given OS
-          FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | jq -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
+          FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | $JQ -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
           # Get the version without the v prefix
           FALLBACK_VERSION=${FALLBACK_VERSION#v}
           if [[ -z "$FALLBACK_VERSION" ]]; then
