@@ -21,16 +21,18 @@ jobs:
         id: get_latest_version
         run: |
             JQ=jq
+            echo "jq version: $($JQ --version)"
             # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
-            VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | $JQ -r '.tag_name')
+            VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | $JQ -r '.tag_name' || echo "ERROR: $?")
             # Get the version without the v prefix
             VERSION=${VERSION#v}
             # Get a previous fallback version in case the latest version is not available for a given OS
-            FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | $JQ -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
+            FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | $JQ -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name' || echo "ERROR: $?")
             # Get the version without the v prefix
             FALLBACK_VERSION=${FALLBACK_VERSION#v}
             if [[ -z "$FALLBACK_VERSION" ]]; then
-            FALLBACK_VERSION=$VERSION
+              FALLBACK_VERSION=$VERSION
             fi
             echo "VERSION=${VERSION}"
             echo "FALLBACK_VERSION=${FALLBACK_VERSION}"
+        shell: bash
