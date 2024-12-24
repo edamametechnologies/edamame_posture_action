@@ -1,0 +1,36 @@
+name: Test JQ
+
+on:
+  workflow_dispatch:
+      
+# Auto cancel previous runs if they were not completed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-edamame-posture:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Get the latest version of the CLI from the GitHub releases
+        id: get_latest_version
+        run: |
+            JQ=jq
+            # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
+            VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | $JQ -r '.tag_name')
+            # Get the version without the v prefix
+            VERSION=${VERSION#v}
+            # Get a previous fallback version in case the latest version is not available for a given OS
+            FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | $JQ -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
+            # Get the version without the v prefix
+            FALLBACK_VERSION=${FALLBACK_VERSION#v}
+            if [[ -z "$FALLBACK_VERSION" ]]; then
+            FALLBACK_VERSION=$VERSION
+            fi
+            echo "VERSION=${VERSION}"
+            echo "FALLBACK_VERSION=${FALLBACK_VERSION}"

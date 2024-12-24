@@ -118,12 +118,7 @@ runs:
     - name: Download EDAMAME Posture binary
       id: download_binary
       run: |
-        # Force using the Homebrew version of jq on macOS
-        if [[ "$RUNNER_OS" == "macOS" ]]; then
-          JQ=/opt/homebrew/bin/jq
-        else
-          JQ=jq
-        fi
+        JQ=jq
         # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
         if [[ "${{ inputs.edamame_version }}" == "latest" ]]; then
           VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | $JQ -r '.tag_name')
