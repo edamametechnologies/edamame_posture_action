@@ -75,7 +75,6 @@ runs:
   steps:
     - name: Dependencies
       run: |
-        JQ=jq
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           cd
           # Install wget and curl using Chocolatey if not already installed
@@ -110,8 +109,6 @@ runs:
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
           # Install wget, curl and jq using Homebrew
           brew install wget curl jq
-          # Force using the Homebrew version of jq
-          JQ=/opt/homebrew/bin/jq
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
@@ -121,6 +118,12 @@ runs:
     - name: Download EDAMAME Posture binary
       id: download_binary
       run: |
+        # Force using the Homebrew version of jq on macOS
+        if [[ "$RUNNER_OS" == "macOS" ]]; then
+          JQ=/opt/homebrew/bin/jq
+        else
+          JQ=jq
+        fi
         # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
         if [[ "${{ inputs.edamame_version }}" == "latest" ]]; then
           VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | $JQ -r '.tag_name')
