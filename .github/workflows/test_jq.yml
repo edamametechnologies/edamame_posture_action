@@ -23,15 +23,33 @@ jobs:
             JQ=jq
             echo "jq version: $($JQ --version)"
             # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
-            LATEST=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest)
-            echo "LATEST: $LATEST"
-            VERSION=$(echo $LATEST | $JQ -r '.tag_name' || echo "ERROR: $?")
+            # Loop until we get a valid response
+            while true; do
+              LATEST=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest)
+              # Check if we have been rate limited
+              if [[ $(echo $LATEST | $JQ -r '.message' | grep -i "API rate limit exceeded") ]]; then
+                echo "API rate limit exceeded, sleeping for 10 seconds"
+                sleep 10
+              else
+                break
+              fi
+            done
+            VERSION=$(echo $LATEST | $JQ -r '.tag_name')
             # Get the version without the v prefix
             VERSION=${VERSION#v}
             # Get a previous fallback version in case the latest version is not available for a given OS
-            FALLBACK=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases)
-            echo "FALLBACK: $FALLBACK"
-            FALLBACK_VERSION=$(echo $FALLBACK | $JQ -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name' || echo "ERROR: $?")
+            # Loop until we get a valid response
+            while true; do
+              FALLBACK=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases)
+              # Check if we have been rate limited
+              if [[ $(echo $FALLBACK | $JQ -r '.message' | grep -i "API rate limit exceeded") ]]; then
+                echo "API rate limit exceeded, sleeping for 10 seconds"
+                sleep 10
+              else
+                break
+              fi
+            done
+            FALLBACK_VERSION=$(echo $FALLBACK | $JQ -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
             # Get the version without the v prefix
             FALLBACK_VERSION=${FALLBACK_VERSION#v}
             if [[ -z "$FALLBACK_VERSION" ]]; then
