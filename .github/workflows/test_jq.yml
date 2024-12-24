@@ -27,7 +27,7 @@ jobs:
             while true; do
               LATEST=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest)
               # Check if we have been rate limited
-              if [[ $(echo $LATEST | $JQ -r '.message' | grep -i "API rate limit exceeded") ]]; then
+              if [[ $(echo $LATEST | grep -i "API rate limit exceeded") ]]; then
                 echo "API rate limit exceeded, sleeping for 10 seconds"
                 sleep 10
               else
@@ -42,7 +42,7 @@ jobs:
             while true; do
               FALLBACK=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases)
               # Check if we have been rate limited
-              if [[ $(echo $FALLBACK | $JQ -r '.message' | grep -i "API rate limit exceeded") ]]; then
+              if [[ $(echo $FALLBACK | grep -i "API rate limit exceeded") ]]; then
                 echo "API rate limit exceeded, sleeping for 10 seconds"
                 sleep 10
               else
