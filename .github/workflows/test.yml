@@ -6,6 +6,11 @@ on:
     branches:
       - 'dev'
       - 'main'
+      
+# Auto cancel previous runs if they were not completed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test-edamame-posture:
