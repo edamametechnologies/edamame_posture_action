@@ -118,7 +118,7 @@ runs:
           # Get the version without the v prefix
           VERSION=${VERSION#v}
           # Get a previous fallback version in case the latest version is not available for a given OS (can fail, i.e. returns null)
-          FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | jq -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name' | sed 's/null//')
+          FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | jq -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name' || true | sed 's/null//')
           # Get the version without the v prefix
           FALLBACK_VERSION=${FALLBACK_VERSION#v}
           if [[ -z "$FALLBACK_VERSION" ]]; then
