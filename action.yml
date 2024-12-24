@@ -114,7 +114,7 @@ runs:
       run: |
         # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
         if [[ "${{ inputs.edamame_version }}" == "latest" ]]; then
-          VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | jq -r '..tag_name')
+          VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | jq -r '.tag_name')
           # Get the version without the v prefix
           VERSION=${VERSION#v}
           # Get a previous fallback version in case the latest version is not available for a given OS
