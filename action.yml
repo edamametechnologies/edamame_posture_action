@@ -107,8 +107,8 @@ runs:
           sudo apt-get update
           sudo apt-get install -y git libpcap0.8 wget curl build-essential
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          # Install wget and curl using Homebrew if not already installed
-          brew install wget curl
+          # Install wget, curl and jq using Homebrew
+          brew install wget curl jq
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
