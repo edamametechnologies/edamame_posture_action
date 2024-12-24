@@ -105,7 +105,13 @@ runs:
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
           # Update package lists and install necessary packages
           sudo apt-get update
-          sudo apt-get install -y git libpcap0.8 wget build-essential
+          sudo apt-get install -y git libpcap0.8 wget curl build-essential
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          # Install wget and curl using Homebrew if not already installed
+          brew install wget curl
+        else
+          echo "Unsupported OS: $RUNNER_OS"
+          exit 1
         fi
       shell: bash
 
@@ -118,16 +124,7 @@ runs:
           # Get the version without the v prefix
           VERSION=${VERSION#v}
           # Get a previous fallback version in case the latest version is not available for a given OS
-          # Fail on macOS ... guess the version by decrementing the patch version number if not zero
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            if [[ $(echo $VERSION | awk -F. '{print $3}') -eq 0 ]]; then
-              FALLBACK_VERSION=$VERSION
-            else
-              FALLBACK_VERSION=$(echo $VERSION | awk -F. '{printf "%d%d%d", $1, $2, $3-1}')
-            fi
-          else
-            FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | jq -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
-          fi
+          FALLBACK_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases | jq -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
           # Get the version without the v prefix
           FALLBACK_VERSION=${FALLBACK_VERSION#v}
           if [[ -z "$FALLBACK_VERSION" ]]; then
