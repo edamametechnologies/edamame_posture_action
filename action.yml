@@ -122,12 +122,19 @@ runs:
         echo "jq version: $($JQ --version)"
         # Get the latest version from the GitHub releases (don't use gh cli as it would require the IP to be whitelisted)
         # Loop until we get a valid response
+        WAIT_TIME=5
         while true; do
           LATEST=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest)
           # Check if we have been rate limited
           if [[ $(echo $LATEST | grep -i "API rate limit exceeded") ]]; then
-            echo "API rate limit exceeded, sleeping for 10 seconds"
-            sleep 10
+            # Expontential backoff
+            WAIT_TIME=$((WAIT_TIME * 2))
+            # Max wait time
+            if [[ $WAIT_TIME -gt 120 ]]; then
+              WAIT_TIME=120
+            fi
+            echo "API rate limit exceeded, sleeping for $WAIT_TIME seconds"
+            sleep $WAIT_TIME
           else
             break
           fi
@@ -137,12 +144,19 @@ runs:
         VERSION=${VERSION#v}
         # Get a previous fallback version in case the latest version is not available for a given OS
         # Loop until we get a valid response
+        WAIT_TIME=5
         while true; do
           FALLBACK=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases)
           # Check if we have been rate limited
           if [[ $(echo $FALLBACK | grep -i "API rate limit exceeded") ]]; then
-            echo "API rate limit exceeded, sleeping for 10 seconds"
-            sleep 10
+            # Expontential backoff
+            WAIT_TIME=$((WAIT_TIME * 2))
+            # Max wait time
+            if [[ $WAIT_TIME -gt 120 ]]; then
+              WAIT_TIME=120
+            fi
+            echo "API rate limit exceeded, sleeping for $WAIT_TIME seconds"
+            sleep $WAIT_TIME
           else
             break
           fi
