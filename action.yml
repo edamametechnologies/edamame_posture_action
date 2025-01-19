@@ -311,6 +311,7 @@ runs:
 
     - name: Report email
       run: |
+        cd
         if [[ "${{ inputs.report_email }}" != "" ]]; then
           echo "Sending compliance report to email: ${{ inputs.report_email }}"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
