@@ -40,4 +40,5 @@ jobs:
           edamame_id: ${{ github.run_id }}
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
+          report_email: dev@edamame.tech
 

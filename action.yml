@@ -68,6 +68,10 @@ inputs:
     description: "Exit with error when non-compliant endpoints are detected (only applicable if the background process is started)"
     required: false
     default: "false"
+  report_email:
+    description: "Report email address"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -77,14 +81,24 @@ runs:
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           cd
-          # Install wget and curl using Chocolatey if not already installed
+          # Install wget, curl, jq using Chocolatey if not already installed
           if ! choco list -lo | grep -q '^wget$'; then
             choco install wget -y
           fi
           if ! choco list -lo | grep -q '^curl$'; then
             choco install curl -y
           fi
+          if ! choco list -lo | grep -q '^jq$'; then
+            choco install jq -y
+          fi
+
+          # Install node if not installed
+          if ! choco list -lo | grep -q '^nodejs$'; then
+            choco install nodejs -y
+          fi
+
           choco install vcredist2015 --package-parameters "/install /quiet /norestart" --yes
+
           # Check and download Packet.dll
           if [ ! -f "Packet.dll" ]; then
               echo "Packet.dll not found. Downloading..."
@@ -103,12 +117,62 @@ runs:
               echo "wpcap.dll already exists. Skipping download."
           fi
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
-          # Update package lists and install necessary packages
           sudo apt-get update
-          sudo apt-get install -y git libpcap0.8 wget curl build-essential
+
+          # Check/install git
+          if ! command -v git &> /dev/null; then
+            sudo apt-get install -y git
+          fi
+
+          # Check/install wget
+          if ! command -v wget &> /dev/null; then
+            sudo apt-get install -y wget
+          fi
+
+          # Check/install curl
+          if ! command -v curl &> /dev/null; then
+            sudo apt-get install -y curl
+          fi
+
+          # Check/install jq
+          if ! command -v jq &> /dev/null; then
+            sudo apt-get install -y jq
+          fi
+
+          # Check/install libpcap0.8
+          if ! dpkg -s libpcap0.8 &> /dev/null; then
+            sudo apt-get install -y libpcap0.8
+          fi
+
+          # Check/install build-essential
+          if ! dpkg -s build-essential &> /dev/null; then
+            sudo apt-get install -y build-essential
+          fi
+
+          # Check/install node + npm
+          if ! command -v node &> /dev/null; then
+            sudo apt-get install -y nodejs npm
+          fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          # Install wget, curl and jq using Homebrew
-          brew install wget curl jq
+          # Check/install wget
+          if ! command -v wget &> /dev/null; then
+            brew install wget
+          fi
+
+          # Check/install curl
+          if ! command -v curl &> /dev/null; then
+            brew install curl
+          fi
+
+          # Check/install jq
+          if ! command -v jq &> /dev/null; then
+            brew install jq
+          fi
+
+          # Check/install node
+          if ! command -v node &> /dev/null; then
+            brew install node
+          fi
         else
           echo "Unsupported OS: $RUNNER_OS"
           exit 1
@@ -127,7 +191,7 @@ runs:
           LATEST=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest)
           # Check if we have been rate limited
           if [[ $(echo $LATEST | grep -i "API rate limit exceeded") ]]; then
-            # Expontential backoff
+            # Exponential backoff
             WAIT_TIME=$((WAIT_TIME * 2))
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
@@ -149,7 +213,7 @@ runs:
           FALLBACK=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases)
           # Check if we have been rate limited
           if [[ $(echo $FALLBACK | grep -i "API rate limit exceeded") ]]; then
-            # Expontential backoff
+            # Exponential backoff
             WAIT_TIME=$((WAIT_TIME * 2))
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
@@ -241,6 +305,27 @@ runs:
             else
               sudo ./edamame_posture remediate "${{ inputs.skip_remediations }}"
             fi
+          fi
+        fi
+      shell: bash
+
+    - name: Report email
+      run: |
+        if [[ "${{ inputs.report_email }}" != "" ]]; then
+          echo "Sending compliance report to email: ${{ inputs.report_email }}"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+              # No sudo on Windows
+              signature=$(./edamame_posture.exe request-signature | grep Signature | awk '{print $2}')
+          else
+              signature=$(sudo ./edamame_posture request-signature | grep Signature | awk '{print $2}')
+          fi
+          echo "Signature: $signature"
+          echo "Sending compliance report to email: ${{ inputs.report_email }}"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+              # No sudo on Windows
+              ./edamame_posture.exe request-report "${{ inputs.report_email }}" "$signature"
+          else
+              sudo ./edamame_posture request-report "${{ inputs.report_email }}" "$signature"
           fi
         fi
       shell: bash
@@ -340,7 +425,7 @@ runs:
           # Check if only a partial set of mandatory arguments is provided
           if [[ -n "${{ inputs.edamame_user }}${{ inputs.edamame_domain }}${{ inputs.edamame_pin }}${{ inputs.edamame_id }}" ]]; then
             echo "Please provide all required arguments: edamame_user, edamame_domain, edamame_pin, edamame_id"
-          exit 1
+            exit 1
           fi
         fi
       shell: bash
@@ -428,7 +513,6 @@ runs:
             echo "Timeout occurred while waiting for API access."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
-                        # Dump the logs
             if [[ "$RUNNER_OS" == "Windows" ]]; then
               # No sudo on Windows
               ./edamame_posture.exe logs
