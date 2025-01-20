@@ -195,15 +195,16 @@ runs:
             WAIT_TIME=$((WAIT_TIME * 2))
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
-              WAIT_TIME=120
+              # Use the latest known valid version
+              VERSION=v0.9.5
             fi
             echo "API rate limit exceeded, sleeping for $WAIT_TIME seconds"
             sleep $WAIT_TIME
           else
+            VERSION=$(echo $LATEST | $JQ -r '.tag_name')
             break
           fi
         done
-        VERSION=$(echo $LATEST | $JQ -r '.tag_name')
         # Get the version without the v prefix
         VERSION=${VERSION#v}
         # Get a previous fallback version in case the latest version is not available for a given OS
