@@ -197,6 +197,7 @@ runs:
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid version
               VERSION=v0.9.5
+              echo "Using the latest known valid version: $VERSION"
             fi
             echo "API rate limit exceeded, sleeping for $WAIT_TIME seconds"
             sleep $WAIT_TIME
