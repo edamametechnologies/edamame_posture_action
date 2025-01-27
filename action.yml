@@ -220,15 +220,18 @@ runs:
             WAIT_TIME=$((WAIT_TIME * 2))
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
-              WAIT_TIME=120
+              # Use the latest known valid fallback version
+              FALLBACK=v0.9.7
+              echo "Using the latest known valid fallback version: $FALLBACK"
+              break
             fi
             echo "API rate limit exceeded, sleeping for $WAIT_TIME seconds"
             sleep $WAIT_TIME
           else
+            FALLBACK_VERSION=$(echo $FALLBACK | $JQ -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
             break
           fi
         done
-        FALLBACK_VERSION=$(echo $FALLBACK | $JQ -r '[.[] | select(.draft==false and .prerelease==false)][1].tag_name')
         # Get the version without the v prefix
         FALLBACK_VERSION=${FALLBACK_VERSION#v}
         if [[ -z "$FALLBACK_VERSION" ]]; then
