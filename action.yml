@@ -84,28 +84,32 @@ runs:
           # Install wget, curl, jq using Chocolatey if not already installed
           if ! choco list -lo | grep -q '^wget$'; then
             echo "Installing wget..."
-            # --no-progress is not supported by all Chocolatey version/systems
-            choco install wget -y
+            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
+            choco install wget -y | grep -v "Progress:"
           fi
           if ! choco list -lo | grep -q '^curl$'; then
             echo "Installing curl..."
-            choco install curl -y
+            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
+            choco install curl -y | grep -v "Progress:"
           fi
           if ! choco list -lo | grep -q '^jq$'; then
             echo "Installing jq..."
-            choco install jq -y
+            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
+            choco install jq -y | grep -v "Progress:"
           fi
 
           # Install node if not installed
           if ! choco list -lo | grep -q '^nodejs$'; then
             echo "Installing nodejs..."
-            choco install nodejs -y
+            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
+            choco install nodejs -y | grep -v "Progress:"
           fi
 
           # Install vcredist2015 if not installed
           if ! choco list -lo | grep -q '^vcredist2015$'; then
             echo "Installing vcredist2015..."
-            choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y 
+            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
+            choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y | grep -v "Progress:"
           fi
 
           # Check and download Packet.dll
