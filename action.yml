@@ -84,27 +84,28 @@ runs:
           # Install wget, curl, jq using Chocolatey if not already installed
           if ! choco list -lo | grep -q '^wget$'; then
             echo "Installing wget..."
-            choco --no-progress install wget -y
+            # --no-progress is not supported by all Chocolatey version/systems
+            choco install wget -y
           fi
           if ! choco list -lo | grep -q '^curl$'; then
             echo "Installing curl..."
-            choco --no-progress install curl -y
+            choco install curl -y
           fi
           if ! choco list -lo | grep -q '^jq$'; then
             echo "Installing jq..."
-            choco --no-progress install jq -y
+            choco install jq -y
           fi
 
           # Install node if not installed
           if ! choco list -lo | grep -q '^nodejs$'; then
             echo "Installing nodejs..."
-            choco --no-progress install nodejs -y
+            choco install nodejs -y
           fi
 
           # Install vcredist2015 if not installed
           if ! choco list -lo | grep -q '^vcredist2015$'; then
             echo "Installing vcredist2015..."
-            choco --no-progress install vcredist2015 --package-parameters "/install /quiet /norestart" -y 
+            choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y 
           fi
 
           # Check and download Packet.dll
