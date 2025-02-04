@@ -83,26 +83,26 @@ runs:
           cd
           # Install wget, curl, jq using Chocolatey if not already installed
           if ! choco list -lo | grep -q '^wget$'; then
-            choco install wget -y
+            choco --no-progress install wget -y
           fi
           if ! choco list -lo | grep -q '^curl$'; then
-            choco install curl -y
+            choco --no-progress install curl -y
           fi
           if ! choco list -lo | grep -q '^jq$'; then
-            choco install jq -y
+            choco --no-progress install jq -y
           fi
 
           # Install node if not installed
           if ! choco list -lo | grep -q '^nodejs$'; then
-            choco install nodejs -y
+            choco --no-progress install nodejs -y
           fi
 
-          choco install vcredist2015 --package-parameters "/install /quiet /norestart" --yes
+          choco --no-progress install vcredist2015 --package-parameters "/install /quiet /norestart" -y 
 
           # Check and download Packet.dll
           if [ ! -f "Packet.dll" ]; then
               echo "Packet.dll not found. Downloading..."
-              wget https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/Packet.dll -O Packet.dll
+              wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/Packet.dll -O Packet.dll
               chmod +x Packet.dll
           else
               echo "Packet.dll already exists. Skipping download."
@@ -111,7 +111,7 @@ runs:
           # Check and download wpcap.dll
           if [ ! -f "wpcap.dll" ]; then
               echo "wpcap.dll not found. Downloading..."
-              wget https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/wpcap.dll -O wpcap.dll
+              wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/wpcap.dll -O wpcap.dll
               chmod +x wpcap.dll
           else
               echo "wpcap.dll already exists. Skipping download."
@@ -196,7 +196,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid version
-              VERSION=v0.9.8
+              VERSION=v0.9.10
               echo "Using the latest known valid version: $VERSION"
               break
             fi
@@ -248,8 +248,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Linux..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-gnu -O edamame_posture || \
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-gnu -O edamame_posture
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-gnu -O edamame_posture || \
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-gnu -O edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
@@ -258,8 +258,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for macOS..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-universal-apple-darwin -O edamame_posture || \
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-universal-apple-darwin -O edamame_posture
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-universal-apple-darwin -O edamame_posture || \
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-universal-apple-darwin -O edamame_posture
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -268,8 +268,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Windows..."
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe || \
-            wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe || \
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-pc-windows-msvc.exe -O edamame_posture.exe
           fi
         else
           echo "Unsupported OS: $RUNNER_OS"
