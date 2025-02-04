@@ -83,21 +83,29 @@ runs:
           cd
           # Install wget, curl, jq using Chocolatey if not already installed
           if ! choco list -lo | grep -q '^wget$'; then
+            echo "Installing wget..."
             choco --no-progress install wget -y
           fi
           if ! choco list -lo | grep -q '^curl$'; then
+            echo "Installing curl..."
             choco --no-progress install curl -y
           fi
           if ! choco list -lo | grep -q '^jq$'; then
+            echo "Installing jq..."
             choco --no-progress install jq -y
           fi
 
           # Install node if not installed
           if ! choco list -lo | grep -q '^nodejs$'; then
+            echo "Installing nodejs..."
             choco --no-progress install nodejs -y
           fi
 
-          choco --no-progress install vcredist2015 --package-parameters "/install /quiet /norestart" -y 
+          # Install vcredist2015 if not installed
+          if ! choco list -lo | grep -q '^vcredist2015$'; then
+            echo "Installing vcredist2015..."
+            choco --no-progress install vcredist2015 --package-parameters "/install /quiet /norestart" -y 
+          fi
 
           # Check and download Packet.dll
           if [ ! -f "Packet.dll" ]; then
@@ -121,56 +129,67 @@ runs:
 
           # Check/install git
           if ! command -v git &> /dev/null; then
+            echo "Installing git..."
             sudo apt-get install -y git
           fi
 
           # Check/install wget
           if ! command -v wget &> /dev/null; then
+            echo "Installing wget..."
             sudo apt-get install -y wget
           fi
 
           # Check/install curl
           if ! command -v curl &> /dev/null; then
+            echo "Installing curl..."
             sudo apt-get install -y curl
           fi
 
           # Check/install jq
           if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
             sudo apt-get install -y jq
           fi
 
           # Check/install libpcap0.8
           if ! dpkg -s libpcap0.8 &> /dev/null; then
+            echo "Installing libpcap0.8..."
             sudo apt-get install -y libpcap0.8
           fi
 
           # Check/install build-essential
           if ! dpkg -s build-essential &> /dev/null; then
+            echo "Installing build-essential..."
             sudo apt-get install -y build-essential
           fi
 
           # Check/install node + npm
           if ! command -v node &> /dev/null; then
+            echo "Installing node + npm..."
             sudo apt-get install -y nodejs npm
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
           # Check/install wget
           if ! command -v wget &> /dev/null; then
+            echo "Installing wget..."
             brew install wget
           fi
 
           # Check/install curl
           if ! command -v curl &> /dev/null; then
+            echo "Installing curl..."
             brew install curl
           fi
 
           # Check/install jq
           if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
             brew install jq
           fi
 
           # Check/install node
           if ! command -v node &> /dev/null; then
+            echo "Installing node..."
             brew install node
           fi
         else
