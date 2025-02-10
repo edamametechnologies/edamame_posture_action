@@ -267,7 +267,7 @@ runs:
         binary_present=false
 
         if [[ "$RUNNER_OS" == "Linux" ]]; then
-          if [[ -f edamame_posture ]]; then
+          if [[ -f edamame_posture || -f /usr/bin/edamame_posture ]]; then
             echo "Binary already present"
             binary_present=true
           else
