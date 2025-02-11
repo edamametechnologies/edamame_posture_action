@@ -304,6 +304,15 @@ runs:
         echo "binary_already_present=$binary_present" >> $GITHUB_OUTPUT
       shell: bash
 
+    - name: Set EDAMAME_POSTURE variable
+      run: |
+        if command -v edamame_posture >/dev/null 2>&1; then
+          echo "EDAMAME_POSTURE=edamame_posture" >> $GITHUB_ENV
+        else
+          echo "EDAMAME_POSTURE=./edamame_posture" >> $GITHUB_ENV
+        fi
+      shell: bash
+
     - name: Show initial posture
       run: |
         cd
@@ -311,7 +320,7 @@ runs:
           # No sudo on Windows
           ./edamame_posture.exe score
         else
-          sudo ./edamame_posture score
+          sudo $EDAMAME_POSTURE score
         fi
       shell: bash
 
@@ -325,7 +334,7 @@ runs:
               # No sudo on Windows
               ./edamame_posture.exe remediate
             else
-              sudo ./edamame_posture remediate
+              sudo $EDAMAME_POSTURE remediate
             fi
           else
             echo "Skipping remediations: ${{ inputs.skip_remediations }}"
@@ -333,7 +342,7 @@ runs:
               # No sudo on Windows
               ./edamame_posture.exe remediate "${{ inputs.skip_remediations }}"
             else
-              sudo ./edamame_posture remediate "${{ inputs.skip_remediations }}"
+              sudo $EDAMAME_POSTURE remediate "${{ inputs.skip_remediations }}"
             fi
           fi
         fi
@@ -348,7 +357,7 @@ runs:
               # No sudo on Windows
               signature=$(./edamame_posture.exe request-signature | grep Signature | awk '{print $2}')
           else
-              signature=$(sudo ./edamame_posture request-signature | grep Signature | awk '{print $2}')
+              signature=$(sudo $EDAMAME_POSTURE request-signature | grep Signature | awk '{print $2}')
           fi
           echo "Signature: $signature"
           echo "Sending compliance report to email: ${{ inputs.report_email }}"
@@ -356,7 +365,7 @@ runs:
               # No sudo on Windows
               ./edamame_posture.exe request-report "${{ inputs.report_email }}" "$signature"
           else
-              sudo ./edamame_posture request-report "${{ inputs.report_email }}" "$signature"
+              sudo $EDAMAME_POSTURE request-report "${{ inputs.report_email }}" "$signature"
           fi
         fi
       shell: bash
@@ -382,7 +391,7 @@ runs:
             if [[ "$RUNNER_OS" == "Windows" ]]; then
               ./edamame_posture.exe status > posture_status.txt
             else
-              sudo ./edamame_posture status > posture_status.txt
+              sudo $EDAMAME_POSTURE status > posture_status.txt
             fi
 
             # Check if the output indicates Error getting connection status: transport error
@@ -410,7 +419,7 @@ runs:
                   ./edamame_posture.exe stop
                   sleep 5
                 else
-                  sudo ./edamame_posture stop
+                  sudo $EDAMAME_POSTURE stop
                   sleep 5
                 fi
                 echo "Stopped the existing EDAMAME Posture process."
@@ -434,21 +443,21 @@ runs:
           else
             if [[ "$RUNNER_OS" == "macOS" ]]; then
               if [[ "${{ inputs.whitelist }}" != "" ]]; then
-                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_macos"
+                sudo $EDAMAME_POSTURE start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_macos"
               else
-                sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}"
+                sudo $EDAMAME_POSTURE start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}"
               fi
               echo "Waiting for connection... macOS"
-              sudo ./edamame_posture wait-for-connection
+              sudo $EDAMAME_POSTURE wait-for-connection
             else
               if [[ "$RUNNER_OS" == "Linux" ]]; then
                 if [[ "${{ inputs.whitelist }}" != "" ]]; then
-                  sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_ubuntu"
+                  sudo $EDAMAME_POSTURE start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_ubuntu"
                 else
-                  sudo ./edamame_posture start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}"
+                  sudo $EDAMAME_POSTURE start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}"
                 fi
                 echo "Waiting for connection... Linux"
-                sudo ./edamame_posture wait-for-connection
+                sudo $EDAMAME_POSTURE wait-for-connection
               fi
             fi
           fi
@@ -501,7 +510,7 @@ runs:
               # No sudo on Windows
               ./edamame_posture.exe logs
             else
-              sudo ./edamame_posture logs
+              sudo $EDAMAME_POSTURE logs
             fi
             exit 1
           else
@@ -548,7 +557,7 @@ runs:
               # No sudo on Windows
               ./edamame_posture.exe logs
             else
-              sudo ./edamame_posture logs
+              sudo $EDAMAME_POSTURE logs
             fi
             exit 1
           else
@@ -593,7 +602,7 @@ runs:
               # No sudo on Windows
               ./edamame_posture.exe logs
             else
-              sudo ./edamame_posture logs
+              sudo $EDAMAME_POSTURE logs
             fi
             exit 1
           else
@@ -611,7 +620,7 @@ runs:
             # No sudo on Windows
             ./edamame_posture.exe logs
           else
-            sudo ./edamame_posture logs
+            sudo $EDAMAME_POSTURE logs
           fi
         fi
       shell: bash
@@ -625,7 +634,7 @@ runs:
             #./edamame_posture.exe get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
             echo "Dumping sessions log is not supported on Windows."
           else
-            sudo ./edamame_posture get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
+            sudo $EDAMAME_POSTURE get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
           fi
         fi
       shell: bash
