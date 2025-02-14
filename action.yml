@@ -82,31 +82,31 @@ runs:
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           cd
           # Install wget, curl, jq using Chocolatey if not already installed
-          if ! choco list -lo | grep -q '^wget$'; then
+          if ! choco list | grep -E '^wget[[:space:]]'; then
             echo "Installing wget..."
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install wget -y | grep -v "Progress:"
           fi
-          if ! choco list -lo | grep -q '^curl$'; then
+          if ! choco list | grep -q '^curl[[:space:]]'; then
             echo "Installing curl..."
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install curl -y | grep -v "Progress:"
           fi
-          if ! choco list -lo | grep -q '^jq$'; then
+          if ! choco list | grep -q '^jq[[:space:]]'; then
             echo "Installing jq..."
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install jq -y | grep -v "Progress:"
           fi
 
           # Install node if not installed
-          if ! choco list -lo | grep -q '^nodejs$'; then
+          if ! choco list | grep -q '^nodejs[[:space:]]'; then
             echo "Installing nodejs..."
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install nodejs -y | grep -v "Progress:"
           fi
 
           # Install vcredist2015 if not installed
-          if ! choco list -lo | grep -q '^vcredist2015$'; then
+          if ! choco list | grep -q '^vcredist2015[[:space:]]'; then
             echo "Installing vcredist2015..."
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y | grep -v "Progress:"
@@ -220,7 +220,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid version
-              VERSION=v0.9.14
+              VERSION=v0.9.15
               echo "Using the latest known valid version: $VERSION"
               break
             fi
@@ -245,7 +245,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid fallback version
-              FALLBACK=v0.9.13
+              FALLBACK=v0.9.14
               echo "Using the latest known valid fallback version: $FALLBACK"
               break
             fi
@@ -262,10 +262,12 @@ runs:
           FALLBACK_VERSION=$VERSION
         fi
 
+        # We only support edamame_posture installed in the current directory on Windows and macOS
         # Navigate to the home directory
         cd
         binary_present=false
 
+        # On Linux we also provide a deb package to have it installed in /usr/bin
         if [[ "$RUNNER_OS" == "Linux" ]]; then
           if [[ -f edamame_posture || -f /usr/bin/edamame_posture ]]; then
             echo "Binary already present"
@@ -304,24 +306,24 @@ runs:
         echo "binary_already_present=$binary_present" >> $GITHUB_OUTPUT
       shell: bash
 
-    - name: Set EDAMAME_POSTURE variable
+    - name: Set EDAMAME_POSTURE_CMD variable
       run: |
-        if command -v edamame_posture >/dev/null 2>&1; then
-          echo "EDAMAME_POSTURE=edamame_posture" >> $GITHUB_ENV
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          EDAMAME_POSTURE_CMD="./edamame_posture.exe"
+          echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
         else
-          echo "EDAMAME_POSTURE=./edamame_posture" >> $GITHUB_ENV
+          if command -v edamame_posture >/dev/null 2>&1; then
+            echo "EDAMAME_POSTURE_CMD=\"sudo edamame_posture\"" >> $GITHUB_ENV
+          else
+            echo "EDAMAME_POSTURE_CMD=\"sudo ./edamame_posture\"" >> $GITHUB_ENV
+          fi
         fi
       shell: bash
 
     - name: Show initial posture
       run: |
         cd
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          # No sudo on Windows
-          ./edamame_posture.exe score
-        else
-          sudo $EDAMAME_POSTURE score
-        fi
+        $EDAMAME_POSTURE_CMD score
       shell: bash
 
     - name: Auto remediate/harden posture issues if requested
@@ -330,20 +332,10 @@ runs:
         if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
           if [[ "${{ inputs.skip_remediations }}" == "" ]]; then
             echo "No remediations to skip"
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              # No sudo on Windows
-              ./edamame_posture.exe remediate
-            else
-              sudo $EDAMAME_POSTURE remediate
-            fi
+            $EDAMAME_POSTURE_CMD remediate
           else
             echo "Skipping remediations: ${{ inputs.skip_remediations }}"
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              # No sudo on Windows
-              ./edamame_posture.exe remediate "${{ inputs.skip_remediations }}"
-            else
-              sudo $EDAMAME_POSTURE remediate "${{ inputs.skip_remediations }}"
-            fi
+            $EDAMAME_POSTURE_CMD remediate "${{ inputs.skip_remediations }}"
           fi
         fi
       shell: bash
@@ -353,20 +345,10 @@ runs:
         cd
         if [[ "${{ inputs.report_email }}" != "" ]]; then
           echo "Sending compliance report to email: ${{ inputs.report_email }}"
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-              # No sudo on Windows
-              signature=$(./edamame_posture.exe request-signature | grep Signature | awk '{print $2}')
-          else
-              signature=$(sudo $EDAMAME_POSTURE request-signature | grep Signature | awk '{print $2}')
-          fi
+          signature=$($EDAMAME_POSTURE_CMD request-signature | grep Signature | awk '{print $2}')
           echo "Signature: $signature"
           echo "Sending compliance report to email: ${{ inputs.report_email }}"
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-              # No sudo on Windows
-              ./edamame_posture.exe request-report "${{ inputs.report_email }}" "$signature"
-          else
-              sudo $EDAMAME_POSTURE request-report "${{ inputs.report_email }}" "$signature"
-          fi
+          $EDAMAME_POSTURE_CMD request-report "${{ inputs.report_email }}" "$signature"
         fi
       shell: bash
 
@@ -388,11 +370,7 @@ runs:
               [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "$(echo "$2" | tr '[:upper:]' '[:lower:]')" ]]
             }
             echo "EDAMAME Posture binary is already present. Checking status..."
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              ./edamame_posture.exe status > posture_status.txt
-            else
-              sudo $EDAMAME_POSTURE status > posture_status.txt
-            fi
+            $EDAMAME_POSTURE_CMD status > posture_status.txt
 
             # Check if the output indicates Error getting connection status: transport error
             if grep -q "Error getting connection status: transport error" posture_status.txt; then
@@ -415,13 +393,8 @@ runs:
               else
                 echo "EDAMAME Posture is not running with the specified user/domain or not connected. Restarting the process..."
                 # Stop the existing process
-                if [[ "$RUNNER_OS" == "Windows" ]]; then
-                  ./edamame_posture.exe stop
-                  sleep 5
-                else
-                  sudo $EDAMAME_POSTURE stop
-                  sleep 5
-                fi
+                $EDAMAME_POSTURE_CMD stop
+                sleep 5
                 echo "Stopped the existing EDAMAME Posture process."
               fi
             fi
@@ -431,36 +404,21 @@ runs:
           # ms since epoch
           IDSUFFIX=$(node -e "console.log(Date.now())")
 
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # No sudo on Windows
-            if [[ "${{ inputs.whitelist }}" != "" ]]; then
-              ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_windows"
+          if [[ "${{ inputs.whitelist }}" != "" ]]; then
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              WHITELIST="${{ inputs.whitelist }}_windows"
             else
-              ./edamame_posture.exe start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}"
-            fi
-            echo "Waiting for connection... Windows"
-            ./edamame_posture.exe wait-for-connection
-          else
-            if [[ "$RUNNER_OS" == "macOS" ]]; then
-              if [[ "${{ inputs.whitelist }}" != "" ]]; then
-                sudo $EDAMAME_POSTURE start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_macos"
+              if [[ "$RUNNER_OS" == "macOS" ]]; then
+                WHITELIST="${{ inputs.whitelist }}_macos"
               else
-                sudo $EDAMAME_POSTURE start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}"
-              fi
-              echo "Waiting for connection... macOS"
-              sudo $EDAMAME_POSTURE wait-for-connection
-            else
-              if [[ "$RUNNER_OS" == "Linux" ]]; then
-                if [[ "${{ inputs.whitelist }}" != "" ]]; then
-                  sudo $EDAMAME_POSTURE start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" "${{ inputs.whitelist }}_ubuntu"
-                else
-                  sudo $EDAMAME_POSTURE start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}"
-                fi
-                echo "Waiting for connection... Linux"
-                sudo $EDAMAME_POSTURE wait-for-connection
+                WHITELIST="${{ inputs.whitelist }}_ubuntu"
               fi
             fi
+          else
+            WHITELIST=""
           fi
+
+          $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
         else
           # Check if only a partial set of mandatory arguments is provided
           if [[ -n "${{ inputs.edamame_user }}${{ inputs.edamame_domain }}${{ inputs.edamame_pin }}${{ inputs.edamame_id }}" ]]; then
@@ -473,7 +431,6 @@ runs:
     - name: Checkout the repo through the git CLI if requested
       run: |
         if [[ "${{ inputs.checkout }}" == "true" ]]; then
-          attempts=0
           timeout=true
 
           # Initialize the repo if it doesn't exist
@@ -481,8 +438,7 @@ runs:
           # Add the remote if it doesn't exist
           git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
           for i in {1..10}; do
-            attempts=$((attempts + 1))
-            echo "Attempt $attempts: Checking out the repo through the git CLI..."
+            echo "Attempt $i: Checking out the repo through the git CLI..."
             if git fetch --depth=1 origin ${{ github.ref }}; then
               branch_name=$(echo "${{ github.ref }}" | sed -e "s/^refs\/heads\///")
               if git checkout -b "$branch_name" FETCH_HEAD; then
@@ -498,7 +454,7 @@ runs:
             fi
           done
 
-          elapsed_time=$((attempts * 60))
+          elapsed_time=$((i * 60))
           elapsed_minutes=$((elapsed_time / 60))
           elapsed_seconds=$((elapsed_time % 60))
 
@@ -506,12 +462,7 @@ runs:
             echo "Timeout occurred while waiting for access to the repo through the git CLI."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              # No sudo on Windows
-              ./edamame_posture.exe logs
-            else
-              sudo $EDAMAME_POSTURE logs
-            fi
+            $EDAMAME_POSTURE_CMD logs
             exit 1
           else
             echo "Checkout of the repo through the git CLI succeeded."
@@ -553,12 +504,7 @@ runs:
             echo "Timeout occurred while waiting for API access."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              # No sudo on Windows
-              ./edamame_posture.exe logs
-            else
-              sudo $EDAMAME_POSTURE logs
-            fi
+            $EDAMAME_POSTURE_CMD logs
             exit 1
           else
             echo "API access granted."
@@ -598,12 +544,7 @@ runs:
             echo "Timeout occurred while waiting for https access to the repo."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              # No sudo on Windows
-              ./edamame_posture.exe logs
-            else
-              sudo $EDAMAME_POSTURE logs
-            fi
+            $EDAMAME_POSTURE_CMD logs
             exit 1
           else
             echo "https access to the repo granted."
@@ -616,12 +557,7 @@ runs:
       run: |
         if [[ "${{ inputs.display_logs }}" == "true" ]]; then
           cd
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # No sudo on Windows
-            ./edamame_posture.exe logs
-          else
-            sudo $EDAMAME_POSTURE logs
-          fi
+          $EDAMAME_POSTURE_CMD logs
         fi
       shell: bash
 
@@ -631,10 +567,9 @@ runs:
           cd
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # Not in place due to license issues
-            #./edamame_posture.exe get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
             echo "Dumping sessions log is not supported on Windows."
           else
-            sudo $EDAMAME_POSTURE get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
+            $EDAMAME_POSTURE_CMD get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
           fi
         fi
       shell: bash
