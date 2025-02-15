@@ -313,9 +313,11 @@ runs:
           echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
         else
           if command -v edamame_posture >/dev/null 2>&1; then
-            echo "EDAMAME_POSTURE_CMD=\"sudo edamame_posture\"" >> $GITHUB_ENV
+            EDAMAME_POSTURE_CMD="sudo edamame_posture"
+            echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
           else
-            echo "EDAMAME_POSTURE_CMD=\"sudo ./edamame_posture\"" >> $GITHUB_ENV
+            EDAMAME_POSTURE_CMD="sudo ./edamame_posture"
+            echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
           fi
         fi
       shell: bash
