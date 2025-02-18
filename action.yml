@@ -464,6 +464,7 @@ runs:
             echo "Timeout occurred while waiting for access to the repo through the git CLI."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
+            cd
             $EDAMAME_POSTURE_CMD logs
             exit 1
           else
