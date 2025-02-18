@@ -507,6 +507,7 @@ runs:
             echo "Timeout occurred while waiting for API access."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
+            cd
             $EDAMAME_POSTURE_CMD logs
             exit 1
           else
@@ -547,6 +548,7 @@ runs:
             echo "Timeout occurred while waiting for https access to the repo."
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
+            cd
             $EDAMAME_POSTURE_CMD logs
             exit 1
           else
