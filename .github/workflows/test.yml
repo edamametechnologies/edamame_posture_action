@@ -33,6 +33,7 @@ jobs:
 
       # Test the EDAMAME Posture Action
       - name: Test EDAMAME Posture Action
+        id: tests
         uses: ./ # Use the local action definition (action.yaml)
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -42,4 +43,19 @@ jobs:
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
           report_email: dev@edamame.tech
+        continue-on-error: true
 
+      - name: Slack alerts
+        if: steps.tests.outcome != 'success'
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: 'C072J0U9TH7'
+          slack-message: "Tests ran in ${{ github.workflow }} for ${{ github.repository }} for ${{ runner.os }} on branch ${{ github.ref }} failed: see https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Fail job if tests failed
+        if: steps.tests.outcome != 'success'
+        run: |
+          echo "Forcing job to fail because tests did not succeed."
+          exit 1
