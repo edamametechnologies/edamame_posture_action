@@ -245,7 +245,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid fallback version
-              FALLBACK=v0.9.14
+              FALLBACK=v0.9.15
               echo "Using the latest known valid fallback version: $FALLBACK"
               break
             fi
