@@ -331,7 +331,7 @@ runs:
     - name: Auto remediate/harden posture issues if requested
       run: |
         cd
-        if [[ "${{ inputs.auto_remediate }}" == "true" ]]; then
+        if [[ "${{ inputs.auto_remediate }}" == "true" && "${{ steps.download_binary.outputs.binary_already_present }}" == "false" ]]; then
           if [[ "${{ inputs.skip_remediations }}" == "" ]]; then
             echo "No remediations to skip"
             $EDAMAME_POSTURE_CMD remediate
@@ -376,28 +376,20 @@ runs:
 
             # Check if the output indicates Error getting connection status: transport error
             if grep -q "Error getting connection status: transport error" posture_status.txt; then
-              echo "No background process is running. Proceeding to start the process."
+              echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
+              exit 1;
             else
-              # Extract User and Domain from the status
-              current_user=$(grep -i 'user:' posture_status.txt | awk -F': ' '{print $2}')
-              current_domain=$(grep -i 'domain:' posture_status.txt | awk -F': ' '{print $2}')
               connected=$(grep -i 'connected:' posture_status.txt | awk -F': ' '{print $2}')
-
-              echo "Current User: $current_user"
-              echo "Current Domain: $current_domain"
               echo "Connected: $connected"
 
               # Compare with inputs
-              if [[ "$connected" == "true" ]] && case_insensitive_compare "$current_user" "${{ inputs.edamame_user }}" && case_insensitive_compare "$current_domain" "${{ inputs.edamame_domain }}"; then
+              if [[ "$connected" == "true" ]]; then
                 echo "EDAMAME Posture is already running with the specified user and domain. Skipping start process."
                 # Exit the step successfully to proceed to the next step
                 exit 0
               else
-                echo "EDAMAME Posture is not running with the specified user/domain or not connected. Restarting the process..."
-                # Stop the existing process
-                $EDAMAME_POSTURE_CMD stop
-                sleep 5
-                echo "Stopped the existing EDAMAME Posture process."
+                echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
+                exit 1;
               fi
             fi
           fi
