@@ -377,7 +377,7 @@ runs:
             # Check if the output indicates Error getting connection status: transport error
             if grep -q "Error getting connection status: transport error" posture_status.txt; then
               echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
-              exit 1;
+              exit 1
             else
               connected=$(grep -i 'connected:' posture_status.txt | awk -F': ' '{print $2}')
               echo "Connected: $connected"
@@ -389,7 +389,7 @@ runs:
                 exit 0
               else
                 echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
-                exit 1;
+                exit 1
               fi
             fi
           fi
