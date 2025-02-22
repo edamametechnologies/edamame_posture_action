@@ -126,6 +126,19 @@ runs:
               echo "wpcap.dll already exists. Skipping download."
           fi
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
+
+          # Wait for apt lock to be released, up to 300 seconds
+          TIMEOUT=300
+          TIME_PASSED=0
+          while sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+            echo "Waiting for apt lock to be released..."
+            sleep 1
+            TIME_PASSED=$(( TIME_PASSED + 1 ))
+            if [ $TIME_PASSED -ge $TIMEOUT ]; then
+              echo "Timed out waiting for apt lock after $TIMEOUT seconds."
+              exit 1
+            fi
+          done
           sudo apt-get update
 
           # Check/install git
