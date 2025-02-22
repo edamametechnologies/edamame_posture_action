@@ -13,10 +13,6 @@ inputs:
   edamame_id:
     description: "EDAMAME identifier suffix (required to start the process in the background)"
     required: false
-  edamame_version:
-    description: "EDAMAME Posture version (optional, defaults to latest)"
-    required: false
-    default: "latest"
   auto_remediate:
     description: "Automatically remediate posture issues"
     required: false
@@ -401,18 +397,19 @@ runs:
           if [[ "${{ inputs.whitelist }}" != "" ]]; then
             if [[ "$RUNNER_OS" == "Windows" ]]; then
               WHITELIST="${{ inputs.whitelist }}_windows"
+            elif [[ "$RUNNER_OS" == "macOS" ]]; then
+              WHITELIST="${{ inputs.whitelist }}_macos"
             else
-              if [[ "$RUNNER_OS" == "macOS" ]]; then
-                WHITELIST="${{ inputs.whitelist }}_macos"
-              else
-                WHITELIST="${{ inputs.whitelist }}_ubuntu"
-              fi
+              WHITELIST="${{ inputs.whitelist }}_ubuntu"
             fi
           else
             WHITELIST=""
           fi
 
+          echo "Starting EDAMAME Posture..."
           $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
+          echo "Waiting for connection..."
+          sudo $EDAMAME_POSTURE_CMD wait-for-connection
         else
           # Check if only a partial set of mandatory arguments is provided
           if [[ -n "${{ inputs.edamame_user }}${{ inputs.edamame_domain }}${{ inputs.edamame_pin }}${{ inputs.edamame_id }}" ]]; then
