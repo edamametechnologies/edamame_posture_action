@@ -8,8 +8,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 
 - **Self-Hosted Runners (Posture Already Installed)**  
   If your self-hosted runner already has the EDAMAME Posture CLI installed (e.g., in `/usr/bin` or a pre-configured location), this action will detect the existing binary and skip the download. It then checks the posture service status:
-  - If you are **already connected** (matching `edamame_user` and `edamame_domain`), the action will **skip** starting the service again.  
-  - If the runner has the EDAMAME Posture binary installed but is **not connected**, the action will attempt to use the provided inputs to connect the posture service. If critical connection inputs (`edamame_user`, `edamame_domain`, `edamame_pin`, `edamame_id`) are missing or incorrect, the step fails.
+  - If you are **already connected** (matching `edamame_user` and `edamame_domain`), the action will **skip** starting the service again.
 
 - **GitHub-Hosted Runners (Posture Not Installed)**  
   On a typical GitHub-hosted runner, EDAMAME Posture is not installed by default. The action will:
@@ -24,7 +23,6 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `edamame_domain`: EDAMAME Posture domain (required to start the process in the background)  
 - `edamame_pin`: EDAMAME Posture PIN (required to start the process in the background)  
 - `edamame_id`: EDAMAME identifier suffix (required when starting the process in the background)  
-- `edamame_version`: EDAMAME Posture version to use (default: latest)  
 - `auto_remediate`: Automatically remediate posture issues (default: false)  
 - `skip_remediations`: Remediations to skip (comma-separated)  
 - `network_scan`: Scan network for critical devices and capture network traffic (default: false)  
