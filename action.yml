@@ -64,10 +64,6 @@ inputs:
     description: "GitHub token to checkout the repo"
     required: false
     default: ${{ github.token }}
-  display_logs:
-    description: "Display posture logs"
-    required: false
-    default: "true"
   whitelist:
     description: "Whitelist to use for the network scan (only applicable if the background process is started)"
     required: false
@@ -606,14 +602,6 @@ runs:
             echo "https access to the repo granted."
             echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
           fi
-        fi
-      shell: bash
-
-    - name: Display posture logs
-      run: |
-        if [[ "${{ inputs.display_logs }}" == "true" ]]; then
-          cd
-          $EDAMAME_POSTURE_CMD logs
         fi
       shell: bash
 
