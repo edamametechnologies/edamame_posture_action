@@ -28,9 +28,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Test the EDAMAME Posture Action (start)
-      - name: Test EDAMAME Posture Action
-        id: tests-start
+      # Test start
+      - name: Test start
+        id: test-start
         uses: ./ # Use the local action definition (action.yaml)
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -62,7 +62,7 @@ jobs:
         continue-on-error: true
 
       - name: Slack alerts
-        if: steps.tests-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success'
+        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
@@ -71,7 +71,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
       - name: Fail job if tests failed
-        if: steps.tests-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success'
+        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success'
         run: |
           echo "Forcing job to fail because tests did not succeed."
           exit 1
