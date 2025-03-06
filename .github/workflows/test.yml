@@ -28,9 +28,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Test the EDAMAME Posture Action
+      # Test the EDAMAME Posture Action (start)
       - name: Test EDAMAME Posture Action
-        id: tests
+        id: tests-start
         uses: ./ # Use the local action definition (action.yaml)
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -41,9 +41,28 @@ jobs:
           checkout: false
           report_email: dev@edamame.tech
         continue-on-error: true
+        
+      # Test check-policy (local)
+      - name: Test check-policy (local)
+        id: test-check-policy-local
+        uses: ./
+        with:
+          edamame_minimum_score: 1.0
+          edamame_mandatory_threats: "encrypted disk disabled"
+          edamame_mandatory_prefixes: ""
+        continue-on-error: true
+        
+      # Test check-policy-for-domain
+      - name: Test check-policy-for-domain
+        id: test-check-policy-for-domain
+        uses: ./
+        with:
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_policy: "Github"
+        continue-on-error: true
 
       - name: Slack alerts
-        if: steps.tests.outcome != 'success'
+        if: steps.tests-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
@@ -52,7 +71,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
       - name: Fail job if tests failed
-        if: steps.tests.outcome != 'success'
+        if: steps.tests-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success'
         run: |
           echo "Forcing job to fail because tests did not succeed."
           exit 1
