@@ -2,16 +2,28 @@ name: "Setup EDAMAME Posture"
 description: "Download and control EDAMAME Posture"
 inputs:
   edamame_user:
-    description: "EDAMAME Posture User (required to start the process in the background)"
+    description: "EDAMAME user (required to start the process in the background)"
     required: false
   edamame_domain:
-    description: "EDAMAME Posture Domain (required to start the process in the background)"
+    description: "EDAMAME domain (required to start the process in the background)"
     required: false
   edamame_pin:
-    description: "EDAMAME Posture PIN (required to start the process in the background)"
+    description: "EDAMAME PIN (required to start the process in the background)"
     required: false
   edamame_id:
     description: "EDAMAME identifier suffix (required to start the process in the background)"
+    required: false
+  edamame_policy:
+    description: "EDAMAME policy name that the device must comply with (the action will fail if the device does not comply)"
+    required: false
+  edamame_minimum_score:
+    description: "Minimum score that the device must achieve (the action will fail if the device does not achieve the minimum score)"
+    required: false
+  edamame_mandatory_threats:
+    description: "Comma separated list of mandatory threats that the device must not exhibit (the action will fail if the device does not detect the threats)"
+    required: false
+  edamame_mandatory_prefixes:
+    description: "Comma separated list of mandatory tag prefixes covering threats that the device must not exhibit (the action will fail if the device does not have the prefixes)"
     required: false
   auto_remediate:
     description: "Automatically remediate posture issues"
@@ -229,7 +241,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid version
-              VERSION=v0.9.18
+              VERSION=v0.9.19
               echo "Using the latest known valid version: $VERSION"
               break
             fi
@@ -337,7 +349,7 @@ runs:
         $EDAMAME_POSTURE_CMD score
       shell: bash
 
-    - name: Auto remediate/harden posture issues if requested
+    - name: Auto remediate/harden posture issues if requested and if we are not running in a self-hosted runner (the binary is already present)
       run: |
         cd
         if [[ "${{ inputs.auto_remediate }}" == "true" && "${{ steps.download_binary.outputs.binary_already_present }}" == "false" ]]; then
@@ -355,11 +367,58 @@ runs:
       run: |
         cd
         if [[ "${{ inputs.report_email }}" != "" ]]; then
-          echo "Sending compliance report to email: ${{ inputs.report_email }}"
           signature=$($EDAMAME_POSTURE_CMD request-signature | grep Signature | awk '{print $2}')
           echo "Signature: $signature"
           echo "Sending compliance report to email: ${{ inputs.report_email }}"
           $EDAMAME_POSTURE_CMD request-report "${{ inputs.report_email }}" "$signature"
+        fi
+      shell: bash
+
+    - name: Check local policy compliance
+      run: |
+        cd
+        # Check if minimum score and mandatory threats are provided. Mandatory prefixes are optional.
+        if [[ -n "${{ inputs.edamame_minimum_score }}" && -n "${{ inputs.edamame_mandatory_threats }}" ]]; then
+          echo "Checking policy compliance with minimum score: ${{ inputs.edamame_minimum_score }}, mandatory threats: ${{ inputs.edamame_mandatory_threats }} and mandatory prefixes: ${{ inputs.edamame_mandatory_prefixes }}"
+          
+          # Capture the policy check output, also use prefix to check for mandatory threats
+          policy_output=$($EDAMAME_POSTURE_CMD check-policy "${{ inputs.edamame_minimum_score }}" "${{ inputs.edamame_mandatory_threats }}" "${{ inputs.edamame_mandatory_prefixes }}")
+          policy_status=$?
+          
+          echo "$policy_output"
+          
+          # Check if the policy check was successful
+          if [[ $policy_status -ne 0 ]]; then
+            echo "Device does not comply with the required policy with minimum score: ${{ inputs.edamame_minimum_score }}, mandatory threats: ${{ inputs.edamame_mandatory_threats }} and mandatory prefixes: ${{ inputs.edamame_mandatory_prefixes }}"
+            echo "Exiting workflow due to policy non-compliance."
+            exit 1
+          fi
+          
+          echo "Device complies with the required policy with minimum score: ${{ inputs.edamame_minimum_score }}, mandatory threats: ${{ inputs.edamame_mandatory_threats }} and mandatory prefixes: ${{ inputs.edamame_mandatory_prefixes }}"
+        fi
+      shell: bash
+
+    - name: Check domain policy compliance 
+      run: |
+        cd
+        # Check if both domain and policy are provided
+        if [[ -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_policy }}" ]]; then
+          echo "Checking policy compliance with domain: ${{ inputs.edamame_domain }} and policy: ${{ inputs.edamame_policy }}"
+          
+          # Capture the policy check output
+          policy_output=$($EDAMAME_POSTURE_CMD check-policy-for-domain "${{ inputs.edamame_domain }}" "${{ inputs.edamame_policy }}")
+          policy_status=$?
+          
+          echo "$policy_output"
+          
+          # Check if the policy check was successful
+          if [[ $policy_status -ne 0 ]]; then
+            echo "Device does not comply with the required policy: ${{ inputs.edamame_policy }} and domain: ${{ inputs.edamame_domain }}"
+            echo "Exiting workflow due to policy non-compliance."
+            exit 1
+          fi
+          
+          echo "Device complies with the required policy: ${{ inputs.edamame_policy }} and domain: ${{ inputs.edamame_domain }}"
         fi
       shell: bash
 
@@ -376,10 +435,6 @@ runs:
         # Check if all arguments are provided
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
           if [[ "${{ steps.download_binary.outputs.binary_already_present }}" == "true" ]]; then
-            # Function to compare strings case-insensitively
-            case_insensitive_compare() {
-              [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "$(echo "$2" | tr '[:upper:]' '[:lower:]')" ]]
-            }
             echo "EDAMAME Posture binary is already present. Checking status..."
             $EDAMAME_POSTURE_CMD status > posture_status.txt
 

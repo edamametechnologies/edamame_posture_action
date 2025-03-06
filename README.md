@@ -23,6 +23,10 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `edamame_domain`: EDAMAME Posture domain (required to start the process in the background)  
 - `edamame_pin`: EDAMAME Posture PIN (required to start the process in the background)  
 - `edamame_id`: EDAMAME identifier suffix (required when starting the process in the background)  
+- `edamame_policy`: EDAMAME policy name that the device must comply with (the action will fail if the device does not comply)  
+- `edamame_minimum_score`: Minimum score that the device must achieve (the action will fail if the device does not achieve the minimum score)  
+- `edamame_mandatory_threats`: Comma-separated list of mandatory threats that the device must not exhibit (the action will fail if the device detects these threats)  
+- `edamame_mandatory_prefixes`: Comma-separated list of mandatory tag prefixes covering threats that the device must not exhibit (the action will fail if the device does not have the prefixes)  
 - `auto_remediate`: Automatically remediate posture issues (default: false)  
 - `skip_remediations`: Remediations to skip (comma-separated)  
 - `network_scan`: Scan network for critical devices and capture network traffic (default: false)  
@@ -57,26 +61,37 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 5. **Report email**  
    - If `report_email` is set, requests a compliance report for that email address by fetching a signature and using `request-report`.
 
-6. **Wait for a while**  
+6. **Check local policy compliance**  
+   - If `edamame_minimum_score` and `edamame_mandatory_threats` are set, verifies device compliance.
+   - Uses `check-policy` to check against the specified minimum score and mandatory threats.
+   - Validates mandatory prefixes if provided.
+   - Exits with an error if the device fails to comply.
+
+7. **Check domain policy compliance**  
+   - If both `edamame_domain` and `edamame_policy` are set, verifies device compliance.
+   - Uses `check-policy-for-domain` to evaluate compliance with the specified domain policy.
+   - Exits with an error if the device fails to comply.
+
+8. **Wait for a while**  
    - If `wait` is true, sleeps for 180 seconds. Useful if you need more lead time for certain environments.
 
-7. **Start EDAMAME Posture process**  
+9. **Start EDAMAME Posture process**  
    - If `edamame_user`, `edamame_domain`, `edamame_pin`, and `edamame_id` are all set, attempts to start in the background.  
    - Adds a unique suffix to `edamame_id` when running on ephemeral (matrix or short-lived) runners.
 
-8. **Checkout the repo through the git CLI**  
+10. **Checkout the repo through the git CLI**  
    - If `checkout` is true, tries up to 10 times to fetch and check out the specified branch (using `token`).
 
-9. **Wait for API access**  
+11. **Wait for API access**  
    - If `wait_for_api` is true, periodically invokes `gh release list`, allowing time for an IP/runner to be whitelisted in private repos.
 
-10. **Wait for https access**  
+12. **Wait for https access**  
    - If `wait_for_https` is true, repeatedly checks the repo over https until it is accessible or time runs out.
 
-11. **Display posture logs**  
+13. **Display posture logs**  
    - If `display_logs` is true, prints the EDAMAME CLI's logs.
 
-12. **Dump sessions log**  
+14. **Dump sessions log**  
    - If `dump_sessions_log` is true on a supported OS, runs `get-sessions`.  
    - If `whitelist_conformance` is true and the CLI reports non-compliant endpoints, the step exits with an error status.
 
