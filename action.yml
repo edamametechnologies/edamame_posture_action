@@ -478,12 +478,6 @@ runs:
           $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
           echo "Waiting for connection..."
           $EDAMAME_POSTURE_CMD wait-for-connection
-        else
-          # Check if only a partial set of mandatory arguments is provided
-          if [[ -n "${{ inputs.edamame_user }}${{ inputs.edamame_domain }}${{ inputs.edamame_pin }}${{ inputs.edamame_id }}" ]]; then
-            echo "Please provide all required arguments: edamame_user, edamame_domain, edamame_pin, edamame_id"
-            exit 1
-          fi
         fi
       shell: bash
 
