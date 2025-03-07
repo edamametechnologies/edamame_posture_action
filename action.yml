@@ -374,7 +374,7 @@ runs:
       run: |
         cd
         # Check if minimum score and mandatory threats are provided. Mandatory prefixes are optional.
-        if [[ -n "${{ inputs.edamame_minimum_score }}" && -n "${{ inputs.edamame_mandatory_threats }}" ]]; then
+        if [[ -n "${{ inputs.edamame_minimum_score }}" ]]; then
           echo "Checking policy compliance with minimum score: ${{ inputs.edamame_minimum_score }}, mandatory threats: ${{ inputs.edamame_mandatory_threats }} and mandatory prefixes: ${{ inputs.edamame_mandatory_prefixes }}"
           
           # Capture the policy check output, also use prefix to check for mandatory threats
