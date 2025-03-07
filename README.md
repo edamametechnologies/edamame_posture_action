@@ -62,7 +62,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - If `report_email` is set, requests a compliance report for that email address by fetching a signature and using `request-report`.
 
 6. **Check local policy compliance**  
-   - If `edamame_minimum_score` and `edamame_mandatory_threats` are set, verifies device compliance.
+   - If `edamame_minimum_score` and optionnaly `edamame_mandatory_threats` are set, verifies device compliance.
    - Uses `check-policy` to check against the specified minimum score and mandatory threats.
    - Validates mandatory prefixes if provided.
    - Exits with an error if the device fails to comply.
