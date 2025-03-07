@@ -61,8 +61,27 @@ jobs:
           edamame_policy: "Github"
         continue-on-error: true
 
+      # Test check-policy (local)
+      - name: Test check-policy (local)
+        id: test-check-policy-local-error
+        uses: ./
+        with:
+          edamame_minimum_score: 5.0
+          edamame_mandatory_threats: "no EPP"
+          edamame_mandatory_prefixes: ""
+        continue-on-error: true
+      
+      # Test check-policy-for-domain
+      - name: Test check-policy-for-domain
+        id: test-check-policy-for-domain-error
+        uses: ./
+        with:
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_policy: "Invalid policy"
+        continue-on-error: true
+
       - name: Slack alerts
-        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success'
+        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success' || steps.test-check-policy-local-error.outcome == 'success' || steps.test-check-policy-for-domain-error.outcome == 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
@@ -71,7 +90,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
       - name: Fail job if tests failed
-        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success'
+        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success' || steps.test-check-policy-local-error.outcome == 'success' || steps.test-check-policy-for-domain-error.outcome == 'success'
         run: |
           echo "Forcing job to fail because tests did not succeed."
           exit 1
