@@ -41,6 +41,8 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `whitelist`: Whitelist to use for the network scan (default: github)  
 - `whitelist_conformance`: Exit with error when non-compliant endpoints are detected (default: false)  
 - `report_email`: Send a compliance report to this email address (default: "")
+- `create_custom_whitelist`: Create a custom whitelist from captured network sessions (default: false)
+- `custom_whitelist_path`: Path to save or load custom whitelist JSON (default: "")
 
 ## Steps
 
@@ -95,5 +97,76 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - If `dump_sessions_log` is true on a supported OS, runs `get-sessions`.  
    - If `whitelist_conformance` is true and the CLI reports non-compliant endpoints, the step exits with an error status.
 
+15. **Create custom whitelist**  
+   - If `create_custom_whitelist` is true, generates a whitelist from the current network sessions.
+   - If `custom_whitelist_path` is provided, saves the whitelist to this file.
+   - Otherwise, outputs the whitelist JSON to the action log.
+   - Limited functionality on Windows due to licensing constraints.
+
+16. **Apply custom whitelist**  
+   - If `custom_whitelist_path` is provided and `create_custom_whitelist` is not true, loads and applies the whitelist.
+   - Reads the whitelist JSON from the specified file and applies it using `set-custom-whitelists`.
+   - Exits with an error if the specified file is not found.
+
 ## Note
 For public repos that need access to private repos (or other restricted endpoints), pass the `token` input to this action. This allows the action to handle partial or delayed permissions during checkout, API access, or HTTPS waiting steps.
+
+## Examples
+
+### Basic Security Check
+```yaml
+- name: EDAMAME Posture Check
+  uses: edamametechnologies/edamame_posture_action@main
+  with:
+    auto_remediate: true
+```
+
+### Creating a Custom Whitelist
+```yaml
+- name: EDAMAME Posture with Custom Whitelist Creation
+  uses: edamametechnologies/edamame_posture_action@main
+  with:
+    network_scan: true                      # Enable network scanning
+    create_custom_whitelist: true           # Generate a whitelist from observed traffic
+    custom_whitelist_path: ./whitelist.json # Save to this file
+```
+
+### Applying a Custom Whitelist
+```yaml
+- name: EDAMAME Posture with Custom Whitelist
+  uses: edamametechnologies/edamame_posture_action@main
+  with:
+    network_scan: true                      # Enable network scanning
+    custom_whitelist_path: ./whitelist.json # Load and apply this whitelist
+    whitelist_conformance: true             # Fail if non-compliant traffic is detected
+```
+
+### Full CI/CD Integration with Custom Whitelist
+```yaml
+- name: EDAMAME Posture Setup with Continuous Monitoring
+  uses: edamametechnologies/edamame_posture_action@main
+  with:
+    edamame_user: ${{ secrets.EDAMAME_USER }}
+    edamame_domain: ${{ secrets.EDAMAME_DOMAIN }}
+    edamame_pin: ${{ secrets.EDAMAME_PIN }}
+    edamame_id: "cicd-runner"
+    network_scan: true
+    custom_whitelist_path: ./whitelist.json
+    whitelist_conformance: true
+    auto_remediate: true
+```
+
+## EDAMAME Ecosystem
+
+This GitHub Action is part of the broader EDAMAME security ecosystem:
+
+- **EDAMAME Core**: The core implementation used by all EDAMAME components (closed source)
+- **EDAMAME Security**: Desktop security application with full UI and enhanced capabilities (closed source)
+- **[EDAMAME Foundation](https://github.com/edamametechnologies/edamame_foundation)**: Foundation library providing security assessment functionality
+- **[EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli)**: CLI tool for security posture assessment and remediation
+- **[EDAMAME Helper](https://github.com/edamametechnologies/edamame_helper)**: Helper application for executing privileged security checks
+- **[EDAMAME CLI](https://github.com/edamametechnologies/edamame_cli)**: Interface to EDAMAME core services
+- **[GitHub Integration](https://github.com/edamametechnologies/edamame_posture_action)**: GitHub Action for integrating posture checks in CI/CD
+- **[GitLab Integration](https://gitlab.com/edamametechnologies/edamame_posture_action)**: Similar integration for GitLab CI/CD workflows
+- **[Threat Models](https://github.com/edamametechnologies/threatmodels)**: Threat model definitions used throughout the system
+- **[EDAMAME Hub](https://hub.edamame.tech)**: Web portal for centralized management when using these components in team environments
