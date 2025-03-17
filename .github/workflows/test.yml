@@ -40,6 +40,8 @@ jobs:
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
           report_email: dev@edamame.tech
+          # Set to true to test the whitelist creation
+          network_scan: true
         continue-on-error: true
         
       # Test check-policy (local)
@@ -61,8 +63,8 @@ jobs:
           edamame_policy: "Github"
         continue-on-error: true
 
-      # Test check-policy (local)
-      - name: Test check-policy (local)
+      # Test check-policy (local) with error
+      - name: Test check-policy (local) with error
         id: test-check-policy-local-error
         uses: ./
         with:
@@ -71,8 +73,8 @@ jobs:
           edamame_mandatory_prefixes: ""
         continue-on-error: true
       
-      # Test check-policy-for-domain
-      - name: Test check-policy-for-domain
+      # Test check-policy-for-domain with error
+      - name: Test check-policy-for-domain with error
         id: test-check-policy-for-domain-error
         uses: ./
         with:
@@ -80,8 +82,40 @@ jobs:
           edamame_policy: "Invalid policy"
         continue-on-error: true
 
+      # Test dump sessions
+      - name: Test dump sessions
+        id: test-dump-sessions
+        uses: ./
+        with:
+          dump_sessions_log: true
+        continue-on-error: true
+
+      # Test create custom whitelist on macOS and Linux
+      - name: Test create custom whitelist on macOS and Linux
+        id: test-create-custom-whitelist
+        if: runner.os == 'macos' || runner.os == 'linux'
+        uses: ./
+        with:
+          create_custom_whitelist: true
+          custom_whitelist_path: custom_whitelist.json
+        continue-on-error: true
+
+      - name: Print custom whitelist
+        id: print-custom-whitelist
+        run: |
+          cat custom_whitelist.json
+        continue-on-error: true
+      # Test set custom whitelist
+      - name: Test set custom whitelist
+        id: test-set-custom-whitelist
+        uses: ./
+        with:
+          set_custom_whitelist: true
+          custom_whitelist_path: custom_whitelist.json
+        continue-on-error: true
+        
       - name: Slack alerts
-        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success' || steps.test-check-policy-local-error.outcome == 'success' || steps.test-check-policy-for-domain-error.outcome == 'success'
+        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success' || steps.test-check-policy-local-error.outcome == 'success' || steps.test-check-policy-for-domain-error.outcome == 'success' || steps.test-dump-sessions.outcome != 'success' || steps.test-create-custom-whitelist.outcome != 'success' || steps.test-set-custom-whitelist.outcome != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
@@ -90,7 +124,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
       - name: Fail job if tests failed
-        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success' || steps.test-check-policy-local-error.outcome == 'success' || steps.test-check-policy-for-domain-error.outcome == 'success'
+        if: steps.test-start.outcome != 'success' || steps.test-check-policy-local.outcome != 'success' || steps.test-check-policy-for-domain.outcome != 'success' || steps.test-check-policy-local-error.outcome == 'success' || steps.test-check-policy-for-domain-error.outcome == 'success' || steps.test-dump-sessions.outcome != 'success' || steps.test-create-custom-whitelist.outcome != 'success' || steps.test-set-custom-whitelist.outcome != 'success'
         run: |
           echo "Forcing job to fail because tests did not succeed."
           exit 1

@@ -76,6 +76,14 @@ inputs:
     description: "Report email address"
     required: false
     default: ""
+  create_custom_whitelist:
+    description: "Create a custom whitelist from captured network sessions and save it to the specified path"
+    required: false
+    default: "false"
+  custom_whitelist_path:
+    description: "Path to save or load custom whitelist JSON (used with create_custom_whitelists or to provide a whitelist file to apply)"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -237,7 +245,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid version
-              VERSION=v0.9.19
+              VERSION=v0.9.20
               echo "Using the latest known valid version: $VERSION"
               break
             fi
@@ -477,6 +485,21 @@ runs:
         fi
       shell: bash
 
+    - name: Apply custom whitelist if provided
+      run: |
+        if [[ -n "${{ inputs.custom_whitelist_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" ]]; then
+          cd
+          if [[ -f "${{ inputs.custom_whitelist_path }}" ]]; then
+            echo "Applying custom whitelist from: ${{ inputs.custom_whitelist_path }}"
+            $EDAMAME_POSTURE_CMD set-custom-whitelists "$(cat "${{ inputs.custom_whitelist_path }}")"
+            echo "Custom whitelist applied successfully"
+          else
+            echo "Error: Custom whitelist file not found at ${{ inputs.custom_whitelist_path }}"
+            exit 1
+          fi
+        fi
+      shell: bash
+
     - name: Checkout the repo through the git CLI if requested
       run: |
         if [[ "${{ inputs.checkout }}" == "true" ]]; then
@@ -614,6 +637,26 @@ runs:
             echo "Dumping sessions log is not supported on Windows."
           else
             $EDAMAME_POSTURE_CMD get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
+          fi
+        fi
+      shell: bash
+
+    - name: Create custom whitelist from network sessions if requested
+      run: |
+        if [[ "${{ inputs.create_custom_whitelists }}" == "true" ]]; then
+          cd
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "Creating custom whitelist is not fully supported on Windows due to licensing limitations."
+          fi
+          
+          echo "Creating custom whitelist from active network sessions..."
+          if [[ -n "${{ inputs.custom_whitelist_path }}" ]]; then
+            # Save to the specified file
+            $EDAMAME_POSTURE_CMD create-custom-whitelists > "${{ inputs.custom_whitelist_path }}"
+            echo "Custom whitelist saved to: ${{ inputs.custom_whitelist_path }}"
+          else
+            # Just display the whitelist JSON
+            $EDAMAME_POSTURE_CMD create-custom-whitelists
           fi
         fi
       shell: bash
