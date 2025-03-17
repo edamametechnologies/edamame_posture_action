@@ -161,7 +161,7 @@ For public repos that need access to private repos (or other restricted endpoint
 This GitHub Action is part of the broader EDAMAME security ecosystem:
 
 - **EDAMAME Core**: The core implementation used by all EDAMAME components (closed source)
-- **EDAMAME Security**: Desktop security application with full UI and enhanced capabilities (closed source)
+- **[EDAMAME Security](https://github.com/edamametechnologies)**: Desktop/mobile security application with full UI and enhanced capabilities (closed source)
 - **[EDAMAME Foundation](https://github.com/edamametechnologies/edamame_foundation)**: Foundation library providing security assessment functionality
 - **[EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli)**: CLI tool for security posture assessment and remediation
 - **[EDAMAME Helper](https://github.com/edamametechnologies/edamame_helper)**: Helper application for executing privileged security checks
