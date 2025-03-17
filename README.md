@@ -116,7 +116,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Basic Security Check
 ```yaml
 - name: EDAMAME Posture Check
-  uses: edamametechnologies/edamame_posture_action@main
+  uses: edamametechnologies/edamame_posture_action@v0
   with:
     auto_remediate: true
 ```
@@ -124,7 +124,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Creating a Custom Whitelist
 ```yaml
 - name: EDAMAME Posture with Custom Whitelist Creation
-  uses: edamametechnologies/edamame_posture_action@main
+  uses: edamametechnologies/edamame_posture_action@v0
   with:
     network_scan: true                      # Enable network scanning
     create_custom_whitelist: true           # Generate a whitelist from observed traffic
@@ -134,7 +134,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Applying a Custom Whitelist
 ```yaml
 - name: EDAMAME Posture with Custom Whitelist
-  uses: edamametechnologies/edamame_posture_action@main
+  uses: edamametechnologies/edamame_posture_action@v0
   with:
     network_scan: true                      # Enable network scanning
     custom_whitelist_path: ./whitelist.json # Load and apply this whitelist
@@ -144,7 +144,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Full CI/CD Integration with Custom Whitelist
 ```yaml
 - name: EDAMAME Posture Setup with Continuous Monitoring
-  uses: edamametechnologies/edamame_posture_action@main
+  uses: edamametechnologies/edamame_posture_action@v0
   with:
     edamame_user: ${{ secrets.EDAMAME_USER }}
     edamame_domain: ${{ secrets.EDAMAME_DOMAIN }}
