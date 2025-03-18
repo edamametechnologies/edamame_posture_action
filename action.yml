@@ -68,7 +68,7 @@ inputs:
     description: "Whitelist to use for the network scan (only applicable if the background process is started)"
     required: false
     default: "github"
-  whitelists_conformance:
+  whitelist_conformance:
     description: "Exit with error when non-compliant endpoints are detected (only applicable if the background process is started)"
     required: false
     default: "false"
@@ -640,7 +640,7 @@ runs:
             # Not in place due to license issues
             echo "Dumping sessions log is not supported on Windows."
           else
-            $EDAMAME_POSTURE_CMD get-sessions || if [[ "${{ inputs.whitelists_conformance }}" == "true" ]]; then exit 1; fi
+            $EDAMAME_POSTURE_CMD get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
           fi
         fi
       shell: bash
