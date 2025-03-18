@@ -41,8 +41,8 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `whitelist`: Whitelist to use for the network scan (default: github)  
 - `whitelist_conformance`: Exit with error when non-compliant endpoints are detected (default: false)  
 - `report_email`: Send a compliance report to this email address (default: "")
-- `create_custom_whitelists`: Create a custom whitelist from captured network sessions (default: false)
-- `custom_whitelists_path`: Path to save or load custom whitelist JSON (default: "")
+- `create_custom_whitelists`: Create custom whitelists from captured network sessions (default: false)
+- `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
 
 ## Steps
 
