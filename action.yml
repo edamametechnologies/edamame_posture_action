@@ -496,9 +496,9 @@ runs:
           if [[ -f "${{ inputs.custom_whitelists_path }}" ]]; then
             echo "Applying custom whitelists from: ${{ inputs.custom_whitelists_path }}"
             $EDAMAME_POSTURE_CMD set-custom-whitelists "$(cat "${{ inputs.custom_whitelists_path }}")"
-            echo "Custom whitelist applied successfully"
+            echo "Custom whitelists applied successfully"
           else
-            echo "Error: Custom whitelist file not found at ${{ inputs.custom_whitelists_path }}"
+            echo "Error: Custom whitelists file not found at ${{ inputs.custom_whitelists_path }}"
             exit 1
           fi
         fi
@@ -656,7 +656,7 @@ runs:
             if [[ -n "${{ inputs.custom_whitelists_path }}" ]]; then
               # Save to the specified file
               $EDAMAME_POSTURE_CMD create-custom-whitelists > "${{ inputs.custom_whitelists_path }}"
-              echo "Custom whitelist saved to: ${{ inputs.custom_whitelists_path }}"
+              echo "Custom whitelists saved to: ${{ inputs.custom_whitelists_path }}"
             else
               # Just display the whitelist JSON
               $EDAMAME_POSTURE_CMD create-custom-whitelists

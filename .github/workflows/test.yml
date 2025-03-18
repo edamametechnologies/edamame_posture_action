@@ -99,12 +99,6 @@ jobs:
           create_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
-
-      - name: Print custom whitelist
-        id: print-custom-whitelist
-        run: |
-          cat custom_whitelists.json
-        continue-on-error: true
         
       # Test set custom whitelist
       - name: Test set custom whitelist
