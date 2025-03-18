@@ -96,7 +96,7 @@ jobs:
         if: runner.os == 'macos' || runner.os == 'linux'
         uses: ./
         with:
-          create_custom_whitelist: true
+          create_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
 
@@ -112,7 +112,7 @@ jobs:
         if: (runner.os == 'macos' || runner.os == 'linux') && steps.test-create-custom-whitelist.outcome == 'success'
         uses: ./
         with:
-          set_custom_whitelist: true
+          set_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
         
