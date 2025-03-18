@@ -77,15 +77,15 @@ inputs:
     required: false
     default: ""
   create_custom_whitelists:
-    description: "Create a custom whitelist from captured network sessions and save it to the specified path"
+    description: "Create custom whitelists from captured network sessions and save it to the specified path"
     required: false
     default: "false"
   custom_whitelists_path:
-    description: "Path to save or load custom whitelist JSON (used with create_custom_whitelists or to provide a whitelist file to apply)"
+    description: "Path to save or load custom whitelists JSON (used with create_custom_whitelists or to provide a whitelist file to apply)"
     required: false
     default: ""
   set_custom_whitelists:
-    description: "Apply a custom whitelist from a file specified in custom_whitelists_path"
+    description: "Apply custom whitelists from a file specified in custom_whitelists_path"
     required: false
     default: "false"
 
@@ -489,29 +489,14 @@ runs:
         fi
       shell: bash
 
-    - name: Apply custom whitelist if provided
+    - name: Apply custom whitelists if provided
       run: |
-        if [[ -n "${{ inputs.custom_whitelists_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" && "${{ inputs.set_custom_whitelists }}" != "true" ]]; then
+        if [[ -n "${{ inputs.custom_whitelists_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" && "${{ inputs.set_custom_whitelists }}" == "true" ]]; then
           cd
           if [[ -f "${{ inputs.custom_whitelists_path }}" ]]; then
-            echo "Applying custom whitelist from: ${{ inputs.custom_whitelists_path }}"
+            echo "Applying custom whitelists from: ${{ inputs.custom_whitelists_path }}"
             $EDAMAME_POSTURE_CMD set-custom-whitelists "$(cat "${{ inputs.custom_whitelists_path }}")"
             echo "Custom whitelist applied successfully"
-          else
-            echo "Error: Custom whitelist file not found at ${{ inputs.custom_whitelists_path }}"
-            exit 1
-          fi
-        fi
-      shell: bash
-
-    - name: Apply custom whitelist when set_custom_whitelists is true
-      run: |
-        if [[ "${{ inputs.set_custom_whitelists }}" == "true" && -n "${{ inputs.custom_whitelists_path }}" ]]; then
-          cd
-          if [[ -f "${{ inputs.custom_whitelists_path }}" ]]; then
-            echo "Setting custom whitelist from: ${{ inputs.custom_whitelists_path }}"
-            $EDAMAME_POSTURE_CMD set-custom-whitelists "$(cat "${{ inputs.custom_whitelists_path }}")"
-            echo "Custom whitelist set successfully"
           else
             echo "Error: Custom whitelist file not found at ${{ inputs.custom_whitelists_path }}"
             exit 1
@@ -660,14 +645,14 @@ runs:
         fi
       shell: bash
 
-    - name: Create custom whitelist from network sessions if requested
+    - name: Create custom whitelists from network sessions if requested
       run: |
         if [[ "${{ inputs.create_custom_whitelists }}" == "true" ]]; then
           cd
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            echo "Creating custom whitelist is not fully supported on Windows due to licensing limitations."
+            echo "Creating custom whitelists is not fully supported on Windows due to licensing limitations."
           else
-            echo "Creating custom whitelist from active network sessions..."
+            echo "Creating custom whitelists from active network sessions..."
             if [[ -n "${{ inputs.custom_whitelists_path }}" ]]; then
               # Save to the specified file
               $EDAMAME_POSTURE_CMD create-custom-whitelists > "${{ inputs.custom_whitelists_path }}"

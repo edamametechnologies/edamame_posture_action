@@ -90,8 +90,8 @@ jobs:
           dump_sessions_log: true
         continue-on-error: true
 
-      # Test create custom whitelist on macOS and Linux
-      - name: Test create custom whitelist on macOS and Linux
+      # Test create custom whitelists on macOS and Linux
+      - name: Test create custom whitelists on macOS and Linux
         id: test-create-custom-whitelist
         if: runner.os == 'macos' || runner.os == 'linux'
         uses: ./
