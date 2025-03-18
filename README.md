@@ -41,8 +41,8 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `whitelist`: Whitelist to use for the network scan (default: github)  
 - `whitelist_conformance`: Exit with error when non-compliant endpoints are detected (default: false)  
 - `report_email`: Send a compliance report to this email address (default: "")
-- `create_custom_whitelist`: Create a custom whitelist from captured network sessions (default: false)
-- `custom_whitelist_path`: Path to save or load custom whitelist JSON (default: "")
+- `create_custom_whitelists`: Create a custom whitelist from captured network sessions (default: false)
+- `custom_whitelists_path`: Path to save or load custom whitelist JSON (default: "")
 
 ## Steps
 
@@ -98,13 +98,13 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - If `whitelist_conformance` is true and the CLI reports non-compliant endpoints, the step exits with an error status.
 
 15. **Create custom whitelist**  
-   - If `create_custom_whitelist` is true, generates a whitelist from the current network sessions.
-   - If `custom_whitelist_path` is provided, saves the whitelist to this file.
+   - If `create_custom_whitelists` is true, generates a whitelist from the current network sessions.
+   - If `custom_whitelists_path` is provided, saves the whitelist to this file.
    - Otherwise, outputs the whitelist JSON to the action log.
    - Limited functionality on Windows due to licensing constraints.
 
 16. **Apply custom whitelist**  
-   - If `custom_whitelist_path` is provided and `create_custom_whitelist` is not true, loads and applies the whitelist.
+   - If `custom_whitelists_path` is provided and `create_custom_whitelists` is not true, loads and applies the whitelist.
    - Reads the whitelist JSON from the specified file and applies it using `set-custom-whitelists`.
    - Exits with an error if the specified file is not found.
 
@@ -127,8 +127,8 @@ For public repos that need access to private repos (or other restricted endpoint
   uses: edamametechnologies/edamame_posture_action@v0
   with:
     network_scan: true                      # Enable network scanning
-    create_custom_whitelist: true           # Generate a whitelist from observed traffic
-    custom_whitelist_path: ./whitelist.json # Save to this file
+    create_custom_whitelists: true           # Generate a whitelist from observed traffic
+    custom_whitelists_path: ./whitelists.json # Save to this file
 ```
 
 ### Applying a Custom Whitelist
@@ -137,7 +137,7 @@ For public repos that need access to private repos (or other restricted endpoint
   uses: edamametechnologies/edamame_posture_action@v0
   with:
     network_scan: true                      # Enable network scanning
-    custom_whitelist_path: ./whitelist.json # Load and apply this whitelist
+    custom_whitelists_path: ./whitelists.json # Load and apply this whitelist
     whitelist_conformance: true             # Fail if non-compliant traffic is detected
 ```
 
@@ -151,7 +151,7 @@ For public repos that need access to private repos (or other restricted endpoint
     edamame_pin: ${{ secrets.EDAMAME_PIN }}
     edamame_id: "cicd-runner"
     network_scan: true
-    custom_whitelist_path: ./whitelist.json
+    custom_whitelists_path: ./whitelists.json
     whitelist_conformance: true
     auto_remediate: true
 ```

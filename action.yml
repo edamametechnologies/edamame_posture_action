@@ -76,7 +76,7 @@ inputs:
     description: "Report email address"
     required: false
     default: ""
-  create_custom_whitelist:
+  create_custom_whitelists:
     description: "Create a custom whitelist from captured network sessions and save it to the specified path"
     required: false
     default: "false"
@@ -84,7 +84,7 @@ inputs:
     description: "Path to save or load custom whitelist JSON (used with create_custom_whitelists or to provide a whitelist file to apply)"
     required: false
     default: ""
-  set_custom_whitelist:
+  set_custom_whitelists:
     description: "Apply a custom whitelist from a file specified in custom_whitelists_path"
     required: false
     default: "false"
@@ -491,7 +491,7 @@ runs:
 
     - name: Apply custom whitelist if provided
       run: |
-        if [[ -n "${{ inputs.custom_whitelists_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" && "${{ inputs.set_custom_whitelist }}" != "true" ]]; then
+        if [[ -n "${{ inputs.custom_whitelists_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" && "${{ inputs.set_custom_whitelists }}" != "true" ]]; then
           cd
           if [[ -f "${{ inputs.custom_whitelists_path }}" ]]; then
             echo "Applying custom whitelist from: ${{ inputs.custom_whitelists_path }}"
@@ -504,9 +504,9 @@ runs:
         fi
       shell: bash
 
-    - name: Apply custom whitelist when set_custom_whitelist is true
+    - name: Apply custom whitelist when set_custom_whitelists is true
       run: |
-        if [[ "${{ inputs.set_custom_whitelist }}" == "true" && -n "${{ inputs.custom_whitelists_path }}" ]]; then
+        if [[ "${{ inputs.set_custom_whitelists }}" == "true" && -n "${{ inputs.custom_whitelists_path }}" ]]; then
           cd
           if [[ -f "${{ inputs.custom_whitelists_path }}" ]]; then
             echo "Setting custom whitelist from: ${{ inputs.custom_whitelists_path }}"
