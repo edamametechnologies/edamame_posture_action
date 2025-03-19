@@ -476,7 +476,7 @@ runs:
             elif [[ "$RUNNER_OS" == "macOS" ]]; then
               WHITELIST="${{ inputs.whitelist }}_macos"
             else
-              WHITELIST="${{ inputs.whitelist }}_ubuntu"
+              WHITELIST="${{ inputs.whitelist }}_linux"
             fi
           else
             WHITELIST=""
