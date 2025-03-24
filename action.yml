@@ -92,6 +92,10 @@ inputs:
     description: "Apply custom whitelists from a file specified in custom_whitelists_path"
     required: false
     default: "false"
+  stop:
+    description: "Stop the EDAMAME Posture process"
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
@@ -682,5 +686,15 @@ runs:
               $EDAMAME_POSTURE_CMD create-custom-whitelists
             fi
           fi
+        fi
+      shell: bash
+
+    - name: Stop EDAMAME Posture process if requested
+      run: |
+        if [[ "${{ inputs.stop }}" == "true" ]]; then
+          cd
+          echo "Stopping EDAMAME Posture process..."
+          $EDAMAME_POSTURE_CMD stop
+          echo "EDAMAME Posture process stopped."
         fi
       shell: bash
