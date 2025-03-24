@@ -193,10 +193,10 @@ runs:
             sudo apt-get install -y jq
           fi
 
-          # Check/install libpcap0.8
-          if ! dpkg -s libpcap0.8 &> /dev/null; then
-            echo "Installing libpcap0.8..."
-            sudo apt-get install -y libpcap0.8
+          # Check/install libpcap0.8t64
+          if ! dpkg -s libpcap0.8t64 &> /dev/null; then
+            echo "Installing libpcap0.8t64..."
+            sudo apt-get install -y libpcap0.8t64
           fi
 
           # Check/install build-essential
