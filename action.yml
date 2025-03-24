@@ -36,6 +36,10 @@ inputs:
     description: "Scan network for critical devices and capture network traffic (only applicable if the background process is started)"
     required: false
     default: "false"
+  disconnected_mode:
+    description: "Start EDAMAME Posture in disconnected mode without requiring domain authentication"
+    required: false
+    default: "false"
   dump_sessions_log:
     description: "Dump sessions log (only effective if the background process is started with network_scan set to true)"
     required: false
@@ -249,7 +253,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid version
-              VERSION=v0.9.20
+              VERSION=v0.9.21
               echo "Using the latest known valid version: $VERSION"
               break
             fi
@@ -486,6 +490,22 @@ runs:
           $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
           echo "Waiting for connection..."
           $EDAMAME_POSTURE_CMD wait-for-connection
+        elif [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+          echo "Starting EDAMAME Posture in disconnected mode..."
+
+          if [[ "${{ inputs.whitelist }}" != "" ]]; then
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              WHITELIST="${{ inputs.whitelist }}_windows"
+            elif [[ "$RUNNER_OS" == "macOS" ]]; then
+              WHITELIST="${{ inputs.whitelist }}_macos"
+            else
+              WHITELIST="${{ inputs.whitelist }}_linux"
+            fi
+          else
+            WHITELIST=""
+          fi
+          
+          $EDAMAME_POSTURE_CMD background-start-disconnected "${{ inputs.network_scan }}" $WHITELIST
         fi
       shell: bash
 

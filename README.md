@@ -30,6 +30,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `auto_remediate`: Automatically remediate posture issues (default: false)  
 - `skip_remediations`: Remediations to skip (comma-separated)  
 - `network_scan`: Scan network for critical devices and capture network traffic (default: false)  
+- `disconnected_mode`: Start EDAMAME Posture in disconnected mode without requiring domain authentication (default: false)
 - `dump_sessions_log`: Dump sessions log (default: false)  
 - `checkout`: Checkout the repo through the git CLI (default: false)  
 - `checkout_submodules`: Checkout git submodules (default: false)  
@@ -43,6 +44,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `report_email`: Send a compliance report to this email address (default: "")
 - `create_custom_whitelists`: Create custom whitelists from captured network sessions (default: false)
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
+- `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
 
 ## Steps
 
@@ -108,6 +110,89 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - Reads the whitelist JSON from the specified file and applies it using `set-custom-whitelists`.
    - Exits with an error if the specified file is not found.
 
+## Usage Pattern
+
+For optimal security monitoring in your CI/CD workflows, follow this recommended pattern:
+
+1. **Setup at Workflow Beginning**  
+   Place the main EDAMAME Posture setup step at the very beginning of your workflow, before any build, test, or deployment steps. This ensures complete capture of all network activity and security posture evaluation throughout the entire workflow execution.
+
+   ```yaml
+   - name: Setup EDAMAME Posture
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+       edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+       edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+       edamame_id: ${{ github.run_id }}
+       network_scan: true  # Required for network traffic capture and whitelist application
+       # Other configuration parameters
+   ```
+
+   > **Important:** The `network_scan` parameter must be set to `true` for network traffic capture to occur and for the default whitelist to apply. Without this setting, the session dump will not contain network traffic information.
+
+2. **Dump Sessions at Workflow End**  
+   Add a second EDAMAME Posture action step at the very end of your workflow to dump and analyze the captured session logs. This provides a comprehensive view of all network activity that occurred during workflow execution and a detection of communications outside of the default or custom whitelist.
+
+   ```yaml
+   - name: Dump EDAMAME Posture sessions
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       dump_sessions_log: true
+   ```
+
+3. **Using Custom Whitelists with Conformance Checking**  
+   For stricter security controls, you can use custom whitelists and enforce conformance. This pattern will cause the workflow to exit with error code 1 if any non-conforming communications are detected during the session dump.
+
+   ```yaml
+   # At the beginning of the workflow
+   - name: Setup EDAMAME Posture with Custom Whitelist
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+       edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+       edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+       edamame_id: ${{ github.run_id }}
+       network_scan: true
+       custom_whitelists_path: ./whitelists.json  # Path to your predefined whitelist
+       set_custom_whitelists: true  # Required to apply the custom whitelist
+       
+   # ... your workflow steps ...
+   
+   # At the end of the workflow
+   - name: Dump EDAMAME Posture sessions with conformance check
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       dump_sessions_log: true
+       whitelist_conformance: true  # Will exit with code 1 if non-conforming traffic is detected
+   ```
+
+4. **Disconnected Mode for Air-Gapped or Restricted Environments**
+   For environments where you want all the security monitoring capabilities without requiring domain authentication or external connectivity:
+
+   ```yaml
+   # At the beginning of the workflow
+   - name: Setup EDAMAME Posture in Disconnected Mode
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       disconnected_mode: true
+       network_scan: true
+       whitelist: github_linux  # Apply appropriate whitelist for your platform
+       
+   # ... your workflow steps ...
+   
+   # At the end of the workflow
+   - name: Verify Network Activity
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       dump_sessions_log: true
+       whitelist_conformance: true
+   ```
+
+   > **Important:** Disconnected mode provides all the network monitoring and local security policy checking capabilities without requiring EDAMAME Hub registration.
+
+This pattern is demonstrated in the example workflows included in the EDAMAME repositories, such as the `release_deploy_debs.yml` workflow, where the initial setup is performed at the beginning and session logs are dumped at the very end of the workflow execution.
+
 ## Note
 For public repos that need access to private repos (or other restricted endpoints), pass the `token` input to this action. This allows the action to handle partial or delayed permissions during checkout, API access, or HTTPS waiting steps.
 
@@ -138,6 +223,7 @@ For public repos that need access to private repos (or other restricted endpoint
   with:
     network_scan: true                      # Enable network scanning
     custom_whitelists_path: ./whitelists.json # Load and apply this whitelist
+    set_custom_whitelists: true             # Required to apply the custom whitelist
     whitelist_conformance: true             # Fail if non-compliant traffic is detected
 ```
 
@@ -152,8 +238,22 @@ For public repos that need access to private repos (or other restricted endpoint
     edamame_id: "cicd-runner"
     network_scan: true
     custom_whitelists_path: ./whitelists.json
+    set_custom_whitelists: true             # Required to apply the custom whitelist
     whitelist_conformance: true
     auto_remediate: true
+```
+
+### Using Disconnected Mode with Local Policy Checking
+```yaml
+- name: EDAMAME Posture in Disconnected Mode
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    disconnected_mode: true                  # Run without domain authentication
+    network_scan: true                       # Monitor network traffic
+    whitelist: github_linux                  # Apply appropriate whitelist
+    auto_remediate: true                     # Fix security issues automatically
+    edamame_minimum_score: 2.0               # Enforce minimum security score
+    edamame_mandatory_threats: "encrypted disk disabled,critical vulnerability"
 ```
 
 ## EDAMAME Ecosystem
