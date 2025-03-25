@@ -472,8 +472,8 @@ runs:
               # Compare with inputs
               if [[ "$connected" == "true" ]]; then
                 echo "EDAMAME Posture is already running with the specified user and domain. Skipping start process."
-                # Exit the step successfully to proceed to the next step
-                exit 0
+                # Instead of exiting, use a variable to control the flow
+                SKIP_START=true
               else
                 echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
                 exit 1
@@ -481,26 +481,29 @@ runs:
             fi
           fi
 
-          # Add a unique suffix to the edamame_id to avoid conflicts using matrix jobs
-          # ms since epoch
-          IDSUFFIX=$(node -e "console.log(Date.now())")
+          # Only continue with the start process if we're not skipping it
+          if [[ "$SKIP_START" != "true" ]]; then
+            # Add a unique suffix to the edamame_id to avoid conflicts using matrix jobs
+            # ms since epoch
+            IDSUFFIX=$(node -e "console.log(Date.now())")
 
-          if [[ "${{ inputs.whitelist }}" != "" ]]; then
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              WHITELIST="${{ inputs.whitelist }}_windows"
-            elif [[ "$RUNNER_OS" == "macOS" ]]; then
-              WHITELIST="${{ inputs.whitelist }}_macos"
+            if [[ "${{ inputs.whitelist }}" != "" ]]; then
+              if [[ "$RUNNER_OS" == "Windows" ]]; then
+                WHITELIST="${{ inputs.whitelist }}_windows"
+              elif [[ "$RUNNER_OS" == "macOS" ]]; then
+                WHITELIST="${{ inputs.whitelist }}_macos"
+              else
+                WHITELIST="${{ inputs.whitelist }}_linux"
+              fi
             else
-              WHITELIST="${{ inputs.whitelist }}_linux"
+              WHITELIST=""
             fi
-          else
-            WHITELIST=""
-          fi
 
-          echo "Starting EDAMAME Posture..."
-          $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
-          echo "Waiting for connection..."
-          $EDAMAME_POSTURE_CMD wait-for-connection
+            echo "Starting EDAMAME Posture..."
+            $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
+            echo "Waiting for connection..."
+            $EDAMAME_POSTURE_CMD wait-for-connection
+          fi
         elif [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
           echo "Starting EDAMAME Posture in disconnected mode..."
 
