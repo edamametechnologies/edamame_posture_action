@@ -39,12 +39,13 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `wait_for_api`: Wait for API access via the GitHub CLI (default: false)  
 - `token`: GitHub token to checkout the repo (default: ${{ github.token }})  
 - `display_logs`: Display posture logs (default: true)  
-- `whitelist`: Whitelist to use for the network scan (default: github)  
+- `whitelist`: Whitelist to use for the network scan (default: github). A platform-dependent suffix (`_windows`, `_macos`, or `_linux`) is automatically appended to this value based on the runner's operating system.
 - `whitelist_conformance`: Exit with error when non-compliant endpoints are detected (default: false)  
 - `report_email`: Send a compliance report to this email address (default: "")
 - `create_custom_whitelists`: Create custom whitelists from captured network sessions (default: false)
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
 - `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
+- `stop`: Stop the background process  (default: false)
 
 ## Steps
 
@@ -109,6 +110,11 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - If `custom_whitelists_path` is provided and `create_custom_whitelists` is not true, loads and applies the whitelist.
    - Reads the whitelist JSON from the specified file and applies it using `set-custom-whitelists`.
    - Exits with an error if the specified file is not found.
+
+17. **Stop EDAMAME Posture process**  
+   - If `stop` is true, stops the EDAMAME Posture background process.
+   - Uses the `stop` command to gracefully terminate the posture service.
+   - Useful for cleaning up resources at the end of a workflow or before starting a new posture service instance.
 
 ## Usage Pattern
 
@@ -177,7 +183,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
      with:
        disconnected_mode: true
        network_scan: true
-       whitelist: github_linux  # Apply appropriate whitelist for your platform
+       whitelist: github # Platform-dependent suffix (_windows, _macos, or _linux) is automatically added based on the runner's OS
        
    # ... your workflow steps ...
    
