@@ -196,7 +196,14 @@ runs:
           # Check/install libpcap0.8t64
           if ! dpkg -s libpcap0.8t64 &> /dev/null; then
             echo "Installing libpcap0.8t64..."
-            sudo apt-get install -y libpcap0.8t64
+            # Install libpcap0.8t64 if available, otherwise install libpcap0.8
+            if ! sudo apt-get install -y libpcap0.8t64  &> /dev/null; then
+              echo "Failed to install libpcap0.8t64, using libpcap0.8 instead"
+              if ! dpkg -s libpcap0.8 &> /dev/null; then
+                echo "Installing libpcap0.8..."
+                sudo apt-get install -y libpcap0.8
+              fi
+            fi
           fi
 
           # Check/install build-essential
