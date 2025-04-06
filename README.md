@@ -40,7 +40,9 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `token`: GitHub token to checkout the repo (default: ${{ github.token }})  
 - `display_logs`: Display posture logs (default: true)  
 - `whitelist`: Whitelist to use for the network scan (default: github). A platform-dependent suffix (`_windows`, `_macos`, or `_linux`) is automatically appended to this value based on the runner's operating system.
-- `whitelist_conformance`: Exit with error when non-compliant endpoints are detected (default: false)  
+- `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true)
+- `exit_on_blacklisted_sessions`: Exit with error when blacklisted sessions are detected (default: false)
+- `exit_on_anomalous_sessions`: Exit with error when anomalous sessions are detected (default: false)
 - `report_email`: Send a compliance report to this email address (default: "")
 - `create_custom_whitelists`: Create custom whitelists from captured network sessions (default: false)
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
@@ -98,7 +100,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 
 14. **Dump sessions log**  
    - If `dump_sessions_log` is true on a supported OS, runs `get-sessions`.  
-   - If `whitelist_conformance` is true and the CLI reports non-compliant endpoints, the step exits with an error status.
+   - If `exit_on_whitelist_exceptions` is true and the CLI reports whitelist exceptions, the step exits with an error status.
 
 15. **Create custom whitelist**  
    - If `create_custom_whitelists` is true, generates a whitelist from the current network sessions.
@@ -148,7 +150,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
    ```
 
 3. **Using Custom Whitelists with Conformance Checking**  
-   For stricter security controls, you can use custom whitelists and enforce conformance. This pattern will cause the workflow to exit with error code 1 if any non-conforming communications are detected during the session dump.
+   For stricter security controls, you can use custom whitelists and enforce conformance. This pattern will cause the workflow to exit with a non-zero exit code if any non-conforming communications are detected during the session dump.
 
    ```yaml
    # At the beginning of the workflow
@@ -170,7 +172,9 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
      uses: edamametechnologies/edamame_posture_action@v0
      with:
        dump_sessions_log: true
-       whitelist_conformance: true  # Will exit with code 1 if non-conforming traffic is detected
+       exit_on_whitelist_exceptions: true  # Will exit with non-zero code if whitelist exceptions are detected
+       exit_on_blacklisted_sessions: false # Will not exit with error if blacklisted sessions are detected (default)
+       exit_on_anomalous_sessions: false   # Will not exit with error if anomalous sessions are detected (default)
    ```
 
 4. **Disconnected Mode for Air-Gapped or Restricted Environments**
@@ -192,7 +196,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
      uses: edamametechnologies/edamame_posture_action@v0
      with:
        dump_sessions_log: true
-       whitelist_conformance: true
+       exit_on_whitelist_exceptions: true  # Will exit with non-zero code if whitelist exceptions are detected
    ```
 
    > **Important:** Disconnected mode provides all the network monitoring and local security policy checking capabilities without requiring EDAMAME Hub registration.
@@ -230,7 +234,7 @@ For public repos that need access to private repos (or other restricted endpoint
     network_scan: true                      # Enable network scanning
     custom_whitelists_path: ./whitelists.json # Load and apply this whitelist
     set_custom_whitelists: true             # Required to apply the custom whitelist
-    whitelist_conformance: true             # Fail if non-compliant traffic is detected
+    exit_on_whitelist_exceptions: true      # Fail if whitelist exceptions are detected
 ```
 
 ### Full CI/CD Integration with Custom Whitelist
@@ -245,7 +249,7 @@ For public repos that need access to private repos (or other restricted endpoint
     network_scan: true
     custom_whitelists_path: ./whitelists.json
     set_custom_whitelists: true             # Required to apply the custom whitelist
-    whitelist_conformance: true
+    exit_on_whitelist_exceptions: true      # Fail if whitelist exceptions are detected
     auto_remediate: true
 ```
 
