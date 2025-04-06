@@ -72,8 +72,16 @@ inputs:
     description: "Whitelist to use for the network scan (only applicable if the background process is started)"
     required: false
     default: "github"
-  whitelist_conformance:
-    description: "Exit with error when non-compliant endpoints are detected (only applicable if the background process is started)"
+  exit_on_whitelist_exceptions:
+    description: "Exit with error when whitelist exceptions are detected (directly passed to get-sessions)"
+    required: false
+    default: "false"
+  exit_on_blacklisted_sessions:
+    description: "Exit with error when blacklisted sessions are detected (directly passed to get-sessions)"
+    required: false
+    default: "false"
+  exit_on_anomalous_sessions:
+    description: "Exit with error when anomalous sessions are detected (directly passed to get-sessions)"
     required: false
     default: "false"
   report_email:
@@ -264,7 +272,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid version
-              VERSION=v0.9.22
+              VERSION=v0.9.23
               echo "Using the latest known valid version: $VERSION"
               break
             fi
@@ -666,19 +674,6 @@ runs:
         fi
       shell: bash
 
-    - name: Dump sessions log if requested
-      run: |
-        if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
-          cd
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # Not in place due to license issues
-            echo "Dumping sessions log is not supported on Windows."
-          else
-            $EDAMAME_POSTURE_CMD get-sessions || if [[ "${{ inputs.whitelist_conformance }}" == "true" ]]; then exit 1; fi
-          fi
-        fi
-      shell: bash
-
     - name: Create custom whitelists from network sessions if requested
       run: |
         if [[ "${{ inputs.create_custom_whitelists }}" == "true" ]]; then
@@ -695,6 +690,20 @@ runs:
               # Just display the whitelist JSON
               $EDAMAME_POSTURE_CMD create-custom-whitelists
             fi
+          fi
+        fi
+      shell: bash
+
+    - name: Dump sessions log if requested
+      run: |
+        if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
+          cd
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # Not in place due to license issues
+            echo "Dumping sessions log is not supported on Windows."
+          else
+            # Format: get-sessions [ZEEK_FORMAT] [LOCAL_TRAFFIC] [CHECK_WHITELIST] [CHECK_BLACKLIST] [CHECK_ANOMALOUS]
+            $EDAMAME_POSTURE_CMD get-sessions false false "${{ inputs.exit_on_whitelist_exceptions }}" "${{ inputs.exit_on_blacklisted_sessions }}" "${{ inputs.exit_on_anomalous_sessions }}"
           fi
         fi
       shell: bash
