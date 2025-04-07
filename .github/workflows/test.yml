@@ -156,7 +156,20 @@ jobs:
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
-          slack-message: "Tests ran in ${{ github.workflow }} for ${{ github.repository }} for ${{ runner.os }} on branch ${{ github.ref }} failed: see https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          slack-message: |
+            *Test Results for ${{ github.repository }} (${{ runner.os }})*:
+            - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
+            - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Create Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-create-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
+            - Set Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-set-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
+            - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            Branch: ${{ github.ref }}
+            More details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
