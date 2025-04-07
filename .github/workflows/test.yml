@@ -135,6 +135,7 @@ jobs:
         if: steps.test-disconnected-mode.outcome == 'success'
         uses: ./
         with:
+          exit_on_whitelist_exceptions: false
           dump_sessions_log: true
         continue-on-error: true
         
