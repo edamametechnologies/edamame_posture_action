@@ -272,7 +272,7 @@ runs:
             # Max wait time
             if [[ $WAIT_TIME -gt 120 ]]; then
               # Use the latest known valid version
-              VERSION=v0.9.23
+              VERSION=v0.9.24
               echo "Using the latest known valid version: $VERSION"
               break
             fi
