@@ -88,6 +88,7 @@ jobs:
         uses: ./
         with:
           dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
         continue-on-error: true
 
       # Test create custom whitelists on macOS and Linux
