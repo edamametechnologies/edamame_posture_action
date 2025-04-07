@@ -75,7 +75,7 @@ inputs:
   exit_on_whitelist_exceptions:
     description: "Exit with error when whitelist exceptions are detected (directly passed to get-sessions)"
     required: false
-    default: "false"
+    default: "true"
   exit_on_blacklisted_sessions:
     description: "Exit with error when blacklisted sessions are detected (directly passed to get-sessions)"
     required: false
