@@ -173,7 +173,8 @@ runs:
           if ! command -v sudo &> /dev/null; then
             echo "Installing sudo..."
             # This should work without waiting for the lock as we are running in a container
-            apt-get install -y sudo
+            apt-get update -y
+            apt-get install -y --no-install-recommends sudo
           fi
 
           # Wait for apt lock to be released, up to 300 seconds
