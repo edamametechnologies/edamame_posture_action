@@ -603,6 +603,10 @@ runs:
 
           # Initialize the repo if it doesn't exist
           git init || true
+
+          # Needed if we are running in a container
+          git config --global --add safe.directory ${{ github.workspace }} || true
+
           # Add the remote if it doesn't exist
           git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
           for i in {1..10}; do
