@@ -605,7 +605,7 @@ runs:
           git init || true
 
           # Needed if we are running in a container
-          git config --global --add safe.directory ${{ github.workspace }} || true
+          git config --global --add safe.directory $(pwd) || true
 
           # Add the remote if it doesn't exist
           git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
