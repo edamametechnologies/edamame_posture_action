@@ -38,7 +38,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `wait`: Wait for a while (180 seconds) (default: false)  
 - `wait_for_api`: Wait for API access via the GitHub CLI (default: false)  
 - `token`: GitHub token to checkout the repo (default: ${{ github.token }})  
-- `display_logs`: Display posture logs (default: true)  
+- `display_logs`: Display posture logs (default: false)  
 - `whitelist`: Whitelist to use for the network scan (default: github). A platform-dependent suffix (`_windows`, `_macos`, or `_linux`) is automatically appended to this value based on the runner's operating system.
 - `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true)
 - `exit_on_blacklisted_sessions`: Exit with error when blacklisted sessions are detected (default: false)

@@ -104,6 +104,10 @@ inputs:
     description: "Stop the EDAMAME Posture process"
     required: false
     default: "false"
+  display_logs:
+    description: "Display logs"
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
@@ -756,6 +760,14 @@ runs:
             # Format: get-sessions [ZEEK_FORMAT] [LOCAL_TRAFFIC] [CHECK_WHITELIST] [CHECK_BLACKLIST] [CHECK_ANOMALOUS]
             $EDAMAME_POSTURE_CMD get-sessions false false ${{ inputs.exit_on_whitelist_exceptions }} ${{ inputs.exit_on_blacklisted_sessions }} ${{ inputs.exit_on_anomalous_sessions }}
           fi
+        fi
+      shell: bash
+
+    - name: Display logs if requested
+      run: |
+        if [[ "${{ inputs.display_logs }}" == "true" ]]; then
+          cd
+          $EDAMAME_POSTURE_CMD logs
         fi
       shell: bash
 
