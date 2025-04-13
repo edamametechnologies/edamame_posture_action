@@ -117,17 +117,24 @@ runs:
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           cd
-          # Install wget, curl, jq using Chocolatey if not already installed
+          # Install gh, wget, curl, jq using Chocolatey if not already installed
+          if ! choco list | grep -E '^gh[[:space:]]'; then
+            echo "Installing gh..."
+            choco install gh -y
+          fi
+
           if ! choco list | grep -E '^wget[[:space:]]'; then
             echo "Installing wget..."
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install wget -y | grep -v "Progress:"
           fi
+
           if ! choco list | grep -q '^curl[[:space:]]'; then
             echo "Installing curl..."
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install curl -y | grep -v "Progress:"
           fi
+
           if ! choco list | grep -q '^jq[[:space:]]'; then
             echo "Installing jq..."
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
@@ -201,6 +208,19 @@ runs:
             sudo -E apt-get install -y git
           fi
 
+          # Check/install gh
+          if ! command -v gh &> /dev/null; then
+            echo "Installing gh..."
+            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+              && sudo mkdir -p -m 755 /etc/apt/keyrings \
+                    && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                    && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+              && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+              && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+              && sudo apt update \
+              && sudo apt install gh -y
+          fi
+
           # Check/install wget
           if ! command -v wget &> /dev/null; then
             echo "Installing wget..."
@@ -244,6 +264,12 @@ runs:
             sudo -E apt-get install -y nodejs npm
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          # Check/install gh
+          if ! command -v gh &> /dev/null; then
+            echo "Installing gh..."
+            brew install gh
+          fi
+
           # Check/install wget
           if ! command -v wget &> /dev/null; then
             echo "Installing wget..."
