@@ -91,10 +91,28 @@ jobs:
             # Try to run the binary to see if it works (version check only)
             if [[ "$SELECTED_BINARY" == "gnu" ]]; then
               echo "Testing GNU binary..."
+              echo "Version check:"
               ./edamame_posture_gnu --version || echo "GNU binary execution failed"
+              
+              echo "Executing functional test (get-core-info):"
+              ./edamame_posture_gnu get-core-info
+              if [ $? -eq 0 ]; then
+                echo "GNU binary get-core-info command executed successfully"
+              else
+                echo "GNU binary get-core-info command failed"
+              fi
             else
               echo "Testing musl binary..."
+              echo "Version check:"
               ./edamame_posture_musl --version || echo "musl binary execution failed"
+              
+              echo "Executing functional test (get-core-info):"
+              ./edamame_posture_musl get-core-info
+              if [ $? -eq 0 ]; then
+                echo "musl binary get-core-info command executed successfully"
+              else
+                echo "musl binary get-core-info command failed"
+              fi
             fi
           else
             echo "Failed to download $SELECTED_BINARY binary"
