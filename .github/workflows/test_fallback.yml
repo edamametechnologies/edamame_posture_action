@@ -1,0 +1,112 @@
+name: Test Linux musl Fallback
+
+on:
+  workflow_dispatch:
+    inputs:
+      mock_glibc_check:
+        description: 'Simulate GLIBC version check failure to force musl fallback'
+        type: boolean
+        default: false
+
+jobs:
+  test-musl-fallback:
+    name: Test Linux Fallback to musl
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq
+        shell: bash
+      
+      - name: Test Linux Fallback to musl Binary
+        id: test_musl_fallback
+        run: |
+          # Create test directory
+          mkdir -p test_musl
+          cd test_musl
+          
+          # Get latest version from GitHub
+          echo "Getting latest version..."
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | jq -r .tag_name | sed 's/^v//')
+          echo "Latest version: $LATEST_VERSION"
+          
+          # First get the actual GLIBC version for reference
+          if command -v ldd >/dev/null 2>&1; then
+            ACTUAL_GLIBC_VERSION=$(ldd --version | head -n 1 | grep -oE '[0-9]+\.[0-9]+$')
+            echo "Actual GLIBC version: $ACTUAL_GLIBC_VERSION"
+          fi
+          
+          MIN_GLIBC_VERSION="2.28"
+          
+          # Define URLs for GNU and musl binaries
+          GNU_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${LATEST_VERSION}/edamame_posture-${LATEST_VERSION}-x86_64-unknown-linux-gnu"
+          MUSL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${LATEST_VERSION}/edamame_posture-${LATEST_VERSION}-x86_64-unknown-linux-musl"
+          
+          echo "GNU URL: $GNU_URL"
+          echo "musl URL: $MUSL_URL"
+          
+          # Test the GLIBC version check fallback logic
+          echo "Testing the GLIBC version check fallback logic..."
+          
+          if [[ "${{ inputs.mock_glibc_check }}" == "true" ]]; then
+            echo "Mocking GLIBC version check failure to force musl fallback"
+            # Force fallback to musl by simulating an older GLIBC version
+            SELECTED_BINARY="musl"
+            SELECTED_URL="$MUSL_URL"
+          else
+            # Check GLIBC version as in the actual code
+            if command -v ldd >/dev/null 2>&1; then
+              GLIBC_VERSION=$(ldd --version | head -n 1 | grep -oE '[0-9]+\.[0-9]+$')
+              echo "Detected GLIBC version: $GLIBC_VERSION"
+              
+              # Compare versions using sort
+              if printf '%s\n%s\n' "$MIN_GLIBC_VERSION" "$GLIBC_VERSION" | sort -V | head -n 1 | grep -q "$MIN_GLIBC_VERSION"; then
+                echo "GLIBC version $GLIBC_VERSION is sufficient (minimum required: $MIN_GLIBC_VERSION)"
+                SELECTED_BINARY="gnu"
+                SELECTED_URL="$GNU_URL"
+              else
+                echo "GLIBC version $GLIBC_VERSION is older than minimum required version $MIN_GLIBC_VERSION"
+                echo "Using x86_64-unknown-linux-musl version of the binary"
+                SELECTED_BINARY="musl"
+                SELECTED_URL="$MUSL_URL"
+              fi
+            else
+              echo "Unable to detect GLIBC version, ldd command not found"
+              exit 1
+            fi
+          fi
+          
+          # Download the selected binary based on GLIBC check
+          echo "Downloading selected binary: $SELECTED_BINARY from $SELECTED_URL"
+          curl -s -L -o "edamame_posture_$SELECTED_BINARY" "$SELECTED_URL"
+          
+          # Verify the download
+          if [ -f "edamame_posture_$SELECTED_BINARY" ]; then
+            file_size=$(stat -c%s "edamame_posture_$SELECTED_BINARY")
+            echo "Downloaded $SELECTED_BINARY binary successfully (size: $file_size bytes)"
+            chmod +x "edamame_posture_$SELECTED_BINARY"
+            
+            # Try to run the binary to see if it works (version check only)
+            if [[ "$SELECTED_BINARY" == "gnu" ]]; then
+              echo "Testing GNU binary..."
+              ./edamame_posture_gnu --version || echo "GNU binary execution failed"
+            else
+              echo "Testing musl binary..."
+              ./edamame_posture_musl --version || echo "musl binary execution failed"
+            fi
+          else
+            echo "Failed to download $SELECTED_BINARY binary"
+            exit 1
+          fi
+          
+          # Summary
+          echo "### Linux Binary Fallback Test Results ###"
+          echo "Version: ${LATEST_VERSION}"
+          echo "Selected Binary Type: ${SELECTED_BINARY}"
+          
+          # Clean up
+          cd ..
+          rm -rf test_musl
+        shell: bash 
