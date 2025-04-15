@@ -407,7 +407,7 @@ runs:
           else
             # Binary is not present, check if we have a minimum version of GLIBC installed
             echo "Binary is not present, we will download the binary based on the GLIBC version"
-            MIN_GLIBC_VERSION="2.28"
+            MIN_GLIBC_VERSION="2.29"
             echo "Minimum required GLIBC version: $MIN_GLIBC_VERSION"
             if command -v getconf >/dev/null 2>&1; then
               echo "Using getconf to determine GLIBC version"
