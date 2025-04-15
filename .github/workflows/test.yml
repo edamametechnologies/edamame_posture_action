@@ -241,8 +241,11 @@ jobs:
           git config --global --add safe.directory '*'
 
       # We don't use the EDAMAME Posture Action here, because we want to fully test the action.yml file
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Manual checkout for containers
+        run: |
+          git clone https://github.com/${{ github.repository }}.git .
+          git checkout ${{ github.ref_name }}
+        # Manual checkout because actions/checkout@v4 requires node20 which is not supported on older Ubuntu containers
 
       # Test start
       - name: Test start
@@ -329,5 +332,12 @@ jobs:
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
         run: |
-          echo "Forcing job to fail because tests did not succeed."
+          echo "## Test Results Summary"
+          echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo ""
+          echo "Forcing job to fail because some tests did not succeed."
           exit 1
