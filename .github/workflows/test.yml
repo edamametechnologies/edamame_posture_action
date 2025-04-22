@@ -67,14 +67,6 @@ jobs:
           network_scan: true
         continue-on-error: true
 
-      # Test stop
-      - name: Test stop
-        id: test-stop
-        uses: ./
-        with:
-          stop: true
-        continue-on-error: true
-        
       # Test check-policy (local)
       - name: Test check-policy (local)
         id: test-check-policy-local
@@ -140,6 +132,14 @@ jobs:
         with:
           set_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+        
+      # Test stop
+      - name: Test stop
+        id: test-stop
+        uses: ./
+        with:
+          stop: true
         continue-on-error: true
         
       # Test disconnected mode
@@ -264,14 +264,6 @@ jobs:
           network_scan: true
         continue-on-error: true
 
-      # Test stop
-      - name: Test stop
-        id: test-stop
-        uses: ./
-        with:
-          stop: true
-        continue-on-error: true
-
       # Test check-policy (local)
       - name: Test check-policy (local)
         id: test-check-policy-local
@@ -337,7 +329,15 @@ jobs:
           set_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
-        
+
+      # Test stop
+      - name: Test stop
+        id: test-stop
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
+
       # Test disconnected mode
       - name: Test disconnected mode
         id: test-disconnected-mode
@@ -493,14 +493,6 @@ jobs:
           network_scan: true
         continue-on-error: true
 
-      # Test stop
-      - name: Test stop
-        id: test-stop
-        uses: ./
-        with:
-          stop: true
-        continue-on-error: true
-
       # Test check-policy (local)
       - name: Test check-policy (local)
         id: test-check-policy-local
@@ -565,6 +557,14 @@ jobs:
         with:
           set_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+
+      # Test stop
+      - name: Test stop
+        id: test-stop
+        uses: ./
+        with:
+          stop: true
         continue-on-error: true
 
       # Test disconnected mode
