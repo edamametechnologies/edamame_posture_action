@@ -62,7 +62,6 @@ jobs:
           edamame_id: ${{ github.run_id }}-native-${{ matrix.os }}-${{ matrix.arch }}
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
-          report_email: dev@edamame.tech
           # Set to true to test the whitelist creation
           network_scan: true
         continue-on-error: true
@@ -259,7 +258,6 @@ jobs:
           edamame_id: ${{ github.run_id }}-container-${{ matrix.container_name }}
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
-          report_email: dev@edamame.tech
           # Set to true to test the whitelist creation
           network_scan: true
         continue-on-error: true
@@ -488,7 +486,6 @@ jobs:
           edamame_id: ${{ github.run_id }}-alpine-${{ matrix.arch }}-${{ matrix.target }}
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
-          report_email: dev@edamame.tech
           # Set to true to test the whitelist creation
           network_scan: true
         continue-on-error: true
