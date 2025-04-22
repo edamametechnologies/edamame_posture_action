@@ -63,7 +63,8 @@ jobs:
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
           # Set to true to test the whitelist creation
-          network_scan: true
+          # Disabled on Windows as GitHub managed Windows runners configuration makes this too slow
+          network_scan: ${{ matrix.os == 'windows' && 'false' || 'true' }}
         continue-on-error: true
 
       # Test check-policy (local)
@@ -487,6 +488,7 @@ jobs:
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
           # Set to true to test the whitelist creation
+          # Disabled on Windows as GitHub managed Windows runners configuration makes this too slow
           network_scan: true
         continue-on-error: true
 
