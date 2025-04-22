@@ -66,6 +66,14 @@ jobs:
           # Set to true to test the whitelist creation
           network_scan: true
         continue-on-error: true
+
+      # Test stop
+      - name: Test stop
+        id: test-stop
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
         
       # Test check-policy (local)
       - name: Test check-policy (local)
@@ -132,13 +140,6 @@ jobs:
         with:
           set_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
-        continue-on-error: true
-
-      - name: Test stop
-        id: test-stop
-        uses: ./
-        with:
-          stop: true
         continue-on-error: true
         
       # Test disconnected mode
@@ -262,7 +263,15 @@ jobs:
           # Set to true to test the whitelist creation
           network_scan: true
         continue-on-error: true
-        
+
+      # Test stop
+      - name: Test stop
+        id: test-stop
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
+
       # Test check-policy (local)
       - name: Test check-policy (local)
         id: test-check-policy-local
@@ -273,6 +282,62 @@ jobs:
           edamame_mandatory_prefixes: ""
         continue-on-error: true
 
+      # Test check-policy-for-domain
+      - name: Test check-policy-for-domain
+        id: test-check-policy-for-domain
+        uses: ./
+        with:
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_policy: "Github"
+        continue-on-error: true
+
+      # Test check-policy (local) with error
+      - name: Test check-policy (local) with error
+        id: test-check-policy-local-error
+        uses: ./
+        with:
+          edamame_minimum_score: 5.0
+          edamame_mandatory_threats: "no EPP"
+          edamame_mandatory_prefixes: ""
+        continue-on-error: true
+      
+      # Test check-policy-for-domain with error
+      - name: Test check-policy-for-domain with error
+        id: test-check-policy-for-domain-error
+        uses: ./
+        with:
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_policy: "Invalid policy"
+        continue-on-error: true
+
+      # Test dump sessions
+      - name: Test dump sessions
+        id: test-dump-sessions
+        uses: ./
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
+        continue-on-error: true
+
+      # Test create custom whitelists
+      - name: Test create custom whitelists
+        id: test-create-custom-whitelist
+        uses: ./
+        with:
+          create_custom_whitelists: true
+          custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+        
+      # Test set custom whitelist
+      - name: Test set custom whitelist
+        id: test-set-custom-whitelist
+        if: steps.test-create-custom-whitelist.outcome == 'success'
+        uses: ./
+        with:
+          set_custom_whitelists: true
+          custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+        
       # Test disconnected mode
       - name: Test disconnected mode
         id: test-disconnected-mode
@@ -294,23 +359,18 @@ jobs:
           exit_on_whitelist_exceptions: false
           dump_sessions_log: true
         continue-on-error: true
-        
-      - name: Pause pending edamame-posture process is terminated (required for container tests)
-        run: |
-          sleep 60
 
-      - name: Test stop
-        id: test-stop
-        uses: ./
-        with:
-          stop: true
-        continue-on-error: true
-        
       - name: Slack alerts
         # Won't work on 18.04 because of glibc version
         if: |
           (steps.test-start.outcome != 'success' || 
           steps.test-check-policy-local.outcome != 'success' || 
+          steps.test-check-policy-for-domain.outcome != 'success' ||
+          steps.test-check-policy-local-error.outcome == 'success' ||
+          steps.test-check-policy-for-domain-error.outcome == 'success' ||
+          steps.test-dump-sessions.outcome != 'success' ||
+          steps.test-create-custom-whitelist.outcome != 'success' ||
+          steps.test-set-custom-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success') && !contains(matrix.container_name, '18.04')
@@ -321,6 +381,12 @@ jobs:
             *Container Test Results for ${{ github.repository }} (${{ matrix.container_name }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
+            - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}
@@ -333,6 +399,12 @@ jobs:
         if: |
           steps.test-start.outcome != 'success' || 
           steps.test-check-policy-local.outcome != 'success' || 
+          steps.test-check-policy-for-domain.outcome != 'success' ||
+          steps.test-check-policy-local-error.outcome == 'success' ||
+          steps.test-check-policy-for-domain-error.outcome == 'success' ||
+          steps.test-dump-sessions.outcome != 'success' ||
+          steps.test-create-custom-whitelist.outcome != 'success' ||
+          steps.test-set-custom-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
@@ -340,6 +412,12 @@ jobs:
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
@@ -414,7 +492,15 @@ jobs:
           # Set to true to test the whitelist creation
           network_scan: true
         continue-on-error: true
-        
+
+      # Test stop
+      - name: Test stop
+        id: test-stop
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
+
       # Test check-policy (local)
       - name: Test check-policy (local)
         id: test-check-policy-local
@@ -423,6 +509,62 @@ jobs:
           edamame_minimum_score: 1.0
           edamame_mandatory_threats: "encrypted disk disabled"
           edamame_mandatory_prefixes: ""
+        continue-on-error: true
+
+      # Test check-policy-for-domain
+      - name: Test check-policy-for-domain
+        id: test-check-policy-for-domain
+        uses: ./
+        with:
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_policy: "Github"
+        continue-on-error: true
+
+      # Test check-policy (local) with error
+      - name: Test check-policy (local) with error
+        id: test-check-policy-local-error
+        uses: ./
+        with:
+          edamame_minimum_score: 5.0
+          edamame_mandatory_threats: "no EPP"
+          edamame_mandatory_prefixes: ""
+        continue-on-error: true
+      
+      # Test check-policy-for-domain with error
+      - name: Test check-policy-for-domain with error
+        id: test-check-policy-for-domain-error
+        uses: ./
+        with:
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_policy: "Invalid policy"
+        continue-on-error: true
+
+      # Test dump sessions
+      - name: Test dump sessions
+        id: test-dump-sessions
+        uses: ./
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
+        continue-on-error: true
+
+      # Test create custom whitelists
+      - name: Test create custom whitelists
+        id: test-create-custom-whitelist
+        uses: ./
+        with:
+          create_custom_whitelists: true
+          custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+        
+      # Test set custom whitelist
+      - name: Test set custom whitelist
+        id: test-set-custom-whitelist
+        if: steps.test-create-custom-whitelist.outcome == 'success'
+        uses: ./
+        with:
+          set_custom_whitelists: true
+          custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
 
       # Test disconnected mode
@@ -447,17 +589,16 @@ jobs:
           dump_sessions_log: true
         continue-on-error: true
         
-      - name: Test stop
-        id: test-stop
-        uses: ./
-        with:
-          stop: true
-        continue-on-error: true
-        
       - name: Slack alerts
         if: |
           steps.test-start.outcome != 'success' || 
           steps.test-check-policy-local.outcome != 'success' || 
+          steps.test-check-policy-for-domain.outcome != 'success' ||
+          steps.test-check-policy-local-error.outcome == 'success' ||
+          steps.test-check-policy-for-domain-error.outcome == 'success' ||
+          steps.test-dump-sessions.outcome != 'success' ||
+          steps.test-create-custom-whitelist.outcome != 'success' ||
+          steps.test-set-custom-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
@@ -468,6 +609,12 @@ jobs:
             *Alpine Test Results for ${{ github.repository }} (${{ matrix.arch }}-${{ matrix.target }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
+            - Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
+            - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}
@@ -488,6 +635,12 @@ jobs:
         if: |
           steps.test-start.outcome != 'success' || 
           steps.test-check-policy-local.outcome != 'success' || 
+          steps.test-check-policy-for-domain.outcome != 'success' ||
+          steps.test-check-policy-local-error.outcome == 'success' ||
+          steps.test-check-policy-for-domain-error.outcome == 'success' ||
+          steps.test-dump-sessions.outcome != 'success' ||
+          steps.test-create-custom-whitelist.outcome != 'success' ||
+          steps.test-set-custom-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
@@ -496,6 +649,12 @@ jobs:
           echo "## Test Results Summary (Alpine - ${{ matrix.arch }}-${{ matrix.target }})"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
