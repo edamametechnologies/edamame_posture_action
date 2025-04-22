@@ -173,44 +173,58 @@ runs:
               echo "wpcap.dll already exists. Skipping download."
           fi
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
-          # Wait for apt lock to be released, up to 300 seconds
-          TIMEOUT=300
-          TIME_PASSED=0
-
+          # Define function to wait for apt locks
+          wait_for_apt_locks() {
+            echo "Checking for apt lists lock..."
+            TIMEOUT=300
+            TIME_PASSED=0
+            
+            # Only check the lists lock file
+            LOCK_FILE="/var/lib/apt/lists/lock"
+            
+            while sudo fuser "$LOCK_FILE" >/dev/null 2>&1; do
+              echo "Waiting for apt lists lock to be released..."
+              sleep 5
+              TIME_PASSED=$((TIME_PASSED + 5))
+              if [ $TIME_PASSED -ge $TIMEOUT ]; then
+                echo "Timed out waiting for apt lists lock after $TIMEOUT seconds."
+                exit 1
+              fi
+            done
+            
+            echo "No apt lists lock held, proceeding..."
+          }
+          
           # Avoid prompts during apt-get install
           export DEBIAN_FRONTEND=noninteractive
-
-          # Install sudo first for compatibility
+          
+          # Wait for apt lock before any operations
+          wait_for_apt_locks
+          
+          # Install sudo if needed
           if ! command -v sudo &> /dev/null; then
             echo "Installing sudo..."
-            # This should work without waiting for the lock as we are running in a container
             apt-get update -y
             apt-get install -y --no-install-recommends sudo
-          fi
-
-          # Wait for apt lock to be released, up to 300 seconds
-          while sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
-            echo "Waiting for apt lock to be released..."
-            sleep 1
-            TIME_PASSED=$(( TIME_PASSED + 1 ))
-            if [ $TIME_PASSED -ge $TIMEOUT ]; then
-              echo "Timed out waiting for apt lock after $TIMEOUT seconds."
-              exit 1
-            fi
-          done
-
-          # Update the package list
+            
+            # Wait again after installing sudo
+            wait_for_apt_locks
+          fi          
+          # Update package lists
+          echo "Updating package lists..."
           sudo -E apt-get update
 
           # Check/install git
           if ! command -v git &> /dev/null; then
             echo "Installing git..."
+            wait_for_apt_locks
             sudo -E apt-get install -y git
           fi
 
           # Check/install gh
           if ! command -v gh &> /dev/null; then
             echo "Installing gh..."
+            wait_for_apt_locks
             (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
               && sudo mkdir -p -m 755 /etc/apt/keyrings \
                     && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -224,29 +238,34 @@ runs:
           # Check/install wget
           if ! command -v wget &> /dev/null; then
             echo "Installing wget..."
+            wait_for_apt_locks
             sudo -E apt-get install -y wget
           fi
 
           # Check/install curl
           if ! command -v curl &> /dev/null; then
             echo "Installing curl..."
+            wait_for_apt_locks
             sudo -E apt-get install -y curl
           fi
 
           # Check/install jq
           if ! command -v jq &> /dev/null; then
             echo "Installing jq..."
+            wait_for_apt_locks
             sudo -E apt-get install -y jq
           fi
 
           # Check/install libpcap0.8t64
           if ! dpkg -s libpcap0.8t64 &> /dev/null; then
             echo "Installing libpcap0.8t64..."
+            wait_for_apt_locks
             # Install libpcap0.8t64 if available, otherwise install libpcap0.8
             if ! sudo -E apt-get install -y libpcap0.8t64  &> /dev/null; then
               echo "Failed to install libpcap0.8t64, using libpcap0.8 instead"
               if ! dpkg -s libpcap0.8 &> /dev/null; then
                 echo "Installing libpcap0.8..."
+                wait_for_apt_locks
                 sudo -E apt-get install -y libpcap0.8
               fi
             fi
@@ -255,12 +274,14 @@ runs:
           # Check/install build-essential
           if ! dpkg -s build-essential &> /dev/null; then
             echo "Installing build-essential..."
+            wait_for_apt_locks
             sudo -E apt-get install -y build-essential
           fi
 
           # Check/install node + npm
           if ! command -v node &> /dev/null; then
             echo "Installing node + npm..."
+            wait_for_apt_locks
             sudo -E apt-get install -y nodejs npm
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
