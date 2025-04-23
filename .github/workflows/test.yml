@@ -627,7 +627,7 @@ jobs:
         if: always()
         run: |
           echo "--- Dumping Alpine Logs (${{ matrix.arch }}-${{ matrix.target }}) --- "
-          find "$HOME/" -name "edamame_cli_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found in HOME"
+          find "$HOME/" -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found in HOME"
           echo "--- Alpine Log Dump Complete ---"
 
       - name: Fail job if tests failed
