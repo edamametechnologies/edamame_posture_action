@@ -198,13 +198,13 @@ runs:
           # Avoid prompts during apt-get install
           export DEBIAN_FRONTEND=noninteractive
           
-          # Wait for apt lock before any operations
-          wait_for_apt_locks
-          
           # Install sudo if needed
           if ! command -v sudo &> /dev/null; then
             echo "Installing sudo..."
+            # Wait for apt lock before any operations
+            wait_for_apt_locks
             apt-get update -y
+            wait_for_apt_locks
             apt-get install -y --no-install-recommends sudo
             
             # Wait again after installing sudo
@@ -212,6 +212,7 @@ runs:
           fi          
           # Update package lists
           echo "Updating package lists..."
+          wait_for_apt_locks
           sudo -E apt-get update
 
           # Check/install git
@@ -836,8 +837,10 @@ runs:
     - name: Display logs if requested
       run: |
         if [[ "${{ inputs.display_logs }}" == "true" ]]; then
+          # Rather scan the home directory for logs in case the dameon has been killed
           cd
-          $EDAMAME_POSTURE_CMD logs
+          #$EDAMAME_POSTURE_CMD logs
+          find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
         fi
       shell: bash
 
