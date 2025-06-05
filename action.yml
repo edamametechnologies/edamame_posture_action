@@ -503,17 +503,6 @@ runs:
         fi
       shell: bash
 
-    - name: Define helper functions
-      run: |
-        # Add helper functions to $BASH_ENV so they are available in all subsequent steps
-        cat <<'EOF' >> $BASH_ENV
-dump_edamame_logs() {
-  cd
-  find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
-}
-EOF
-      shell: bash
-
     - name: Show initial posture
       run: |
         cd
@@ -650,7 +639,7 @@ EOF
             echo "Starting EDAMAME Posture..."
             $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
             echo "Waiting for connection..."
-            $EDAMAME_POSTURE_CMD wait-for-connection || { dump_edamame_logs; exit 1; }
+            $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
           fi
         elif [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
           echo "Starting EDAMAME Posture in disconnected mode..."
@@ -749,7 +738,7 @@ EOF
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            dump_edamame_logs
+            find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
             exit 1
           else
             echo "Checkout of the repo through the git CLI succeeded."
@@ -792,7 +781,7 @@ EOF
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            dump_edamame_logs
+            find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
             exit 1
           else
             echo "API access granted."
@@ -833,7 +822,7 @@ EOF
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            dump_edamame_logs
+            find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
             exit 1
           else
             echo "https access to the repo granted."
