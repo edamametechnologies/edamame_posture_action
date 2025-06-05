@@ -100,6 +100,10 @@ inputs:
     description: "Apply custom whitelists from a file specified in custom_whitelists_path"
     required: false
     default: "false"
+  augment_custom_whitelists:
+    description: "Augment the existing custom whitelists using current network sessions and merge the result back into the file specified by custom_whitelists_path. Requires network_scan=true."
+    required: false
+    default: "false"
   stop:
     description: "Stop the EDAMAME Posture process"
     required: false
@@ -499,6 +503,17 @@ runs:
         fi
       shell: bash
 
+    - name: Define helper functions
+      run: |
+        # Add helper functions to $BASH_ENV so they are available in all subsequent steps
+        cat <<'EOF' >> $BASH_ENV
+dump_edamame_logs() {
+  cd
+  find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+}
+EOF
+      shell: bash
+
     - name: Show initial posture
       run: |
         cd
@@ -635,7 +650,7 @@ runs:
             echo "Starting EDAMAME Posture..."
             $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
             echo "Waiting for connection..."
-            $EDAMAME_POSTURE_CMD wait-for-connection
+            $EDAMAME_POSTURE_CMD wait-for-connection || { dump_edamame_logs; exit 1; }
           fi
         elif [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
           echo "Starting EDAMAME Posture in disconnected mode..."
@@ -669,6 +684,33 @@ runs:
             exit 1
           fi
         fi
+      shell: bash
+
+    - name: Augment existing custom whitelists if requested
+      if: ${{ inputs.augment_custom_whitelists == 'true' }}
+      run: |
+        cd
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          echo "Augmenting custom whitelists is not fully supported on Windows due to licensing limitations."
+          exit 0
+        fi
+
+        # Ensure a path is provided
+        if [[ -z "${{ inputs.custom_whitelists_path }}" ]]; then
+          echo "Error: augment_custom_whitelists requires custom_whitelists_path to be set."
+          exit 1
+        fi
+
+        echo "Generating augmented whitelist from current sessions..."
+        AUG_JSON=$($EDAMAME_POSTURE_CMD augment-custom-whitelists)
+
+        if [[ -z "$AUG_JSON" ]]; then
+          echo "Error: augment-custom-whitelists returned empty output"
+          exit 1
+        fi
+
+        echo "$AUG_JSON" > "${{ inputs.custom_whitelists_path }}"
+        echo "Augmented whitelist saved to: ${{ inputs.custom_whitelists_path }}"
       shell: bash
 
     - name: Checkout the repo through the git CLI if requested
@@ -707,7 +749,7 @@ runs:
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            $EDAMAME_POSTURE_CMD logs
+            dump_edamame_logs
             exit 1
           else
             echo "Checkout of the repo through the git CLI succeeded."
@@ -750,7 +792,7 @@ runs:
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            $EDAMAME_POSTURE_CMD logs
+            dump_edamame_logs
             exit 1
           else
             echo "API access granted."
@@ -791,7 +833,7 @@ runs:
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            $EDAMAME_POSTURE_CMD logs
+            dump_edamame_logs
             exit 1
           else
             echo "https access to the repo granted."

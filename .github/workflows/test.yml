@@ -134,6 +134,16 @@ jobs:
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
         
+      # Test augment custom whitelist
+      - name: Test augment custom whitelist
+        id: test-augment-whitelist
+        if: (runner.os == 'macos' || runner.os == 'linux') && steps.test-set-custom-whitelist.outcome == 'success'
+        uses: ./
+        with:
+          augment_custom_whitelists: true
+          custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+
       # Test stop
       - name: Test stop
         id: test-stop
@@ -174,6 +184,7 @@ jobs:
           steps.test-dump-sessions.outcome != 'success' || 
           (runner.os != 'Windows' && steps.test-create-custom-whitelist.outcome != 'success') || 
           (runner.os != 'Windows' && steps.test-set-custom-whitelist.outcome != 'success') ||
+          (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
           steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success'
@@ -190,6 +201,7 @@ jobs:
             - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Create Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-create-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
             - Set Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-set-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
+            - Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             Branch: ${{ github.ref }}
@@ -207,6 +219,8 @@ jobs:
           steps.test-dump-sessions.outcome != 'success' || 
           (runner.os != 'Windows' && steps.test-create-custom-whitelist.outcome != 'success') || 
           (runner.os != 'Windows' && steps.test-set-custom-whitelist.outcome != 'success') ||
+          (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
+          steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success'
         run: |
@@ -329,6 +343,16 @@ jobs:
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
 
+      # Test augment custom whitelist
+      - name: Test augment custom whitelist
+        id: test-augment-whitelist
+        if: steps.test-set-custom-whitelist.outcome == 'success'
+        uses: ./
+        with:
+          augment_custom_whitelists: true
+          custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+
       # Test stop
       - name: Test stop
         id: test-stop
@@ -370,6 +394,7 @@ jobs:
           steps.test-dump-sessions.outcome != 'success' ||
           steps.test-create-custom-whitelist.outcome != 'success' ||
           steps.test-set-custom-whitelist.outcome != 'success' ||
+          steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success') && !contains(matrix.container_name, '18.04')
@@ -385,7 +410,8 @@ jobs:
             - Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
             - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Set Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-set-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
+            - Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}
@@ -404,6 +430,7 @@ jobs:
           steps.test-dump-sessions.outcome != 'success' ||
           steps.test-create-custom-whitelist.outcome != 'success' ||
           steps.test-set-custom-whitelist.outcome != 'success' ||
+          steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
@@ -416,7 +443,8 @@ jobs:
           echo "- Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Set Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-set-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
+          echo "- Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
@@ -558,6 +586,16 @@ jobs:
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
 
+      # Test augment custom whitelist
+      - name: Test augment custom whitelist
+        id: test-augment-whitelist
+        if: steps.test-set-custom-whitelist.outcome == 'success'
+        uses: ./
+        with:
+          augment_custom_whitelists: true
+          custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+
       # Test stop
       - name: Test stop
         id: test-stop
@@ -598,6 +636,7 @@ jobs:
           steps.test-dump-sessions.outcome != 'success' ||
           steps.test-create-custom-whitelist.outcome != 'success' ||
           steps.test-set-custom-whitelist.outcome != 'success' ||
+          steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
@@ -613,7 +652,8 @@ jobs:
             - Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
             - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Set Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-set-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
+            - Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}
@@ -640,6 +680,7 @@ jobs:
           steps.test-dump-sessions.outcome != 'success' ||
           steps.test-create-custom-whitelist.outcome != 'success' ||
           steps.test-set-custom-whitelist.outcome != 'success' ||
+          steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
@@ -653,7 +694,8 @@ jobs:
           echo "- Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Set Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-set-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
+          echo "- Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
