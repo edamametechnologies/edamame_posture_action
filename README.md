@@ -48,6 +48,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
 - `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
 - `stop`: Stop the background process  (default: false)
+- `augment_custom_whitelists`: When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true`.
 
 ## Steps
 
@@ -280,3 +281,51 @@ This GitHub Action is part of the broader EDAMAME security ecosystem:
 - **[GitLab Integration](https://gitlab.com/edamametechnologies/edamame_posture_action)**: Similar integration for GitLab CI/CD workflows
 - **[Threat Models](https://github.com/edamametechnologies/threatmodels)**: Threat model definitions used throughout the system
 - **[EDAMAME Hub](https://hub.edamame.tech)**: Web portal for centralized management when using these components in team environments
+
+## Incremental Whitelist Augmentation
+
+In situations where your pipeline progressively accesses new domains or endpoints over time, you can **iteratively build up a custom whitelist** in a series of "learning" runs and then lock it down for enforcement.
+
+1. **First run – generate baseline**
+   ```yaml
+   - name: Setup EDAMAME Posture (Learning Mode)
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       network_scan: true                  # Capture traffic
+       create_custom_whitelists: true      # Auto-generate whitelist JSON
+       custom_whitelists_path: whitelists.json
+   ```
+   This step records all endpoints observed during the run and saves them to `whitelists.json`.
+
+2. **Subsequent runs – augment**
+   As new endpoints appear in later executions you can merge them into the existing file instead of replacing it:
+   ```yaml
+   - name: EDAMAME Posture – Augment Whitelist
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       network_scan: true
+       augment_custom_whitelists: true      # NEW INPUT
+       custom_whitelists_path: whitelists.json
+   ```
+   The action will:
+   1. Generate an **augmented** whitelist (`augment-custom-whitelists`).
+   2. Overwrite the existing `whitelists.json` so the list steadily grows (the `augment-custom-whitelists` command already preserves existing entries).
+
+3. **Enforcement mode – lock it**
+   Once your whitelist is mature, switch to **enforcement** by simply applying it and failing on exceptions:
+   ```yaml
+   - name: EDAMAME Posture – Enforce Whitelist
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       network_scan: true
+       custom_whitelists_path: whitelists.json
+       set_custom_whitelists: true          # Apply the list
+       exit_on_whitelist_exceptions: true   # Fail if any new endpoint appears
+   ```
+
+### New Inputs
+| Name | Default | Description |
+|------|---------|-------------|
+| `augment_custom_whitelists` | `false` | When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true`. |
+
+> **Tip:** Store `whitelists.json` as a version-controlled artifact (e.g., in your repo or an S3 bucket) to share it across pipeline runs and agents.
