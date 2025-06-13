@@ -596,7 +596,7 @@ runs:
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
           if [[ "${{ steps.download_binary.outputs.binary_already_present }}" == "true" ]]; then
             echo "EDAMAME Posture binary is already present. Checking status..."
-            $EDAMAME_POSTURE_CMD status > posture_status.txt
+            $EDAMAME_POSTURE_CMD status > posture_status.txt || { cd; find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
 
             # Check if the output indicates Error getting connection status: transport error
             if grep -q "Error getting connection status: transport error" posture_status.txt; then
