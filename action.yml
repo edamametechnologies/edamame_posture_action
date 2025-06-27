@@ -666,7 +666,7 @@ runs:
           cd
           if [[ -f "${{ inputs.custom_whitelists_path }}" ]]; then
             echo "Applying custom whitelists from: ${{ inputs.custom_whitelists_path }}"
-            $EDAMAME_POSTURE_CMD set-custom-whitelists "$(cat "${{ inputs.custom_whitelists_path }}")"
+            $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "${{ inputs.custom_whitelists_path }}"
             echo "Custom whitelists applied successfully"
           else
             echo "Error: Custom whitelists file not found at ${{ inputs.custom_whitelists_path }}"
