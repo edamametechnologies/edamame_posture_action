@@ -614,7 +614,7 @@ runs:
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
           if [[ "${{ steps.download_binary.outputs.binary_already_present }}" == "true" ]]; then
             echo "EDAMAME Posture binary is already present. Checking status..."
-            $EDAMAME_POSTURE_CMD status > posture_status.txt || { cd; find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+            $EDAMAME_POSTURE_CMD status > posture_status.txt || { cd; find . -name "edamame_*.2*-*-*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
 
             # Check if the output indicates Error getting connection status: transport error
             if grep -q "Error getting connection status: transport error" posture_status.txt; then
@@ -657,7 +657,7 @@ runs:
             echo "Starting EDAMAME Posture..."
             $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
             echo "Waiting for connection..."
-            $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+            $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . -name "edamame_*.2*-*-*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
           fi
         elif [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
           echo "Starting EDAMAME Posture in disconnected mode..."
@@ -756,7 +756,7 @@ runs:
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+            find . -name "edamame_*.2*-*-*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
             exit 1
           else
             echo "Checkout of the repo through the git CLI succeeded."
@@ -799,7 +799,7 @@ runs:
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+            find . -name "edamame_*.2*-*-*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
             exit 1
           else
             echo "API access granted."
@@ -840,7 +840,7 @@ runs:
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             # Dump the logs
             cd
-            find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+            find . -name "edamame_*.2*-*-*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
             exit 1
           else
             echo "https access to the repo granted."
@@ -889,7 +889,7 @@ runs:
           # Rather scan the home directory for logs in case the dameon has been killed
           cd
           #$EDAMAME_POSTURE_CMD logs
-          find . -name "edamame_*.*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+          find . -name "edamame_*.2*-*-*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
         fi
       shell: bash
 
