@@ -3,13 +3,16 @@ name: Test
 on:
   schedule:
     # Run daily at 01:00 UTC
-    - cron: '0 1 * * *'
+    - cron: "0 1 * * *"
   workflow_dispatch:
   push:
     branches:
-      - 'dev'
-      - 'main'
-      
+      - "dev"
+      - "main"
+  pull_request:
+    branches:
+      - "**"
+
 # Auto cancel previous runs if they were not completed.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -76,7 +79,7 @@ jobs:
           edamame_mandatory_threats: "encrypted disk disabled"
           edamame_mandatory_prefixes: ""
         continue-on-error: true
-        
+
       # Test check-policy-for-domain
       - name: Test check-policy-for-domain
         id: test-check-policy-for-domain
@@ -95,7 +98,7 @@ jobs:
           edamame_mandatory_threats: "no EPP"
           edamame_mandatory_prefixes: ""
         continue-on-error: true
-      
+
       # Test check-policy-for-domain with error
       - name: Test check-policy-for-domain with error
         id: test-check-policy-for-domain-error
@@ -123,7 +126,7 @@ jobs:
           create_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
-        
+
       # Test set custom whitelist
       - name: Test set custom whitelist
         id: test-set-custom-whitelist
@@ -133,7 +136,7 @@ jobs:
           set_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
-        
+
       # Test augment custom whitelist
       - name: Test augment custom whitelist
         id: test-augment-whitelist
@@ -151,7 +154,7 @@ jobs:
         with:
           stop: true
         continue-on-error: true
-        
+
       # Test disconnected mode
       - name: Test disconnected mode
         id: test-disconnected-mode
@@ -173,7 +176,7 @@ jobs:
           exit_on_whitelist_exceptions: false
           dump_sessions_log: true
         continue-on-error: true
-        
+
       - name: Slack alerts
         if: |
           steps.test-start.outcome != 'success' || 
@@ -190,7 +193,7 @@ jobs:
           steps.test-sessions-disconnected.outcome != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
-          channel-id: 'C072J0U9TH7'
+          channel-id: "C072J0U9TH7"
           slack-message: |
             *Test Results for ${{ github.repository }} (${{ runner.os }}-${{ matrix.arch }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
@@ -305,7 +308,7 @@ jobs:
           edamame_mandatory_threats: "no EPP"
           edamame_mandatory_prefixes: ""
         continue-on-error: true
-      
+
       # Test check-policy-for-domain with error
       - name: Test check-policy-for-domain with error
         id: test-check-policy-for-domain-error
@@ -332,7 +335,7 @@ jobs:
           create_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
-        
+
       # Test set custom whitelist
       - name: Test set custom whitelist
         id: test-set-custom-whitelist
@@ -400,7 +403,7 @@ jobs:
           steps.test-stop.outcome != 'success') && !contains(matrix.container_name, '18.04')
         uses: slackapi/slack-github-action@v1.26.0
         with:
-          channel-id: 'C072J0U9TH7'
+          channel-id: "C072J0U9TH7"
           slack-message: |
             *Container Test Results for ${{ github.repository }} (${{ matrix.container_name }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
@@ -548,7 +551,7 @@ jobs:
           edamame_mandatory_threats: "no EPP"
           edamame_mandatory_prefixes: ""
         continue-on-error: true
-      
+
       # Test check-policy-for-domain with error
       - name: Test check-policy-for-domain with error
         id: test-check-policy-for-domain-error
@@ -575,7 +578,7 @@ jobs:
           create_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
-        
+
       # Test set custom whitelist
       - name: Test set custom whitelist
         id: test-set-custom-whitelist
@@ -625,7 +628,7 @@ jobs:
           exit_on_whitelist_exceptions: false
           dump_sessions_log: true
         continue-on-error: true
-        
+
       - name: Slack alerts
         if: |
           steps.test-start.outcome != 'success' || 
@@ -642,7 +645,7 @@ jobs:
           steps.test-stop.outcome != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
-          channel-id: 'C072J0U9TH7'
+          channel-id: "C072J0U9TH7"
           slack-message: |
             *Alpine Test Results for ${{ github.repository }} (${{ matrix.arch }}-${{ matrix.target }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
