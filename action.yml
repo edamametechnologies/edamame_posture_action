@@ -334,17 +334,17 @@ runs:
       run: |
         JQ=jq
         echo "jq version: $($JQ --version)"
-        
+
         # --- Determine Latest Version via Redirect ---
         LATEST_VERSION=""
         echo "Attempting to get latest version via redirect..."
         REDIRECT_OUTPUT=$(curl -s -L -I -o /dev/null -w '%{url_effective}:%{http_code}' https://github.com/edamametechnologies/edamame_posture_cli/releases/latest)
-        
+
         # Extract status code (part after the last colon) using bash parameter expansion
         HTTP_STATUS="${REDIRECT_OUTPUT##*:}"
         # Extract URL (part before the last colon and the status code) using bash parameter expansion
         LATEST_RELEASE_URL="${REDIRECT_OUTPUT%:$HTTP_STATUS}"
-        
+
         echo "Redirect URL: $LATEST_RELEASE_URL"
         echo "HTTP Status: $HTTP_STATUS"
 
@@ -394,7 +394,7 @@ runs:
             sleep 5 # Short sleep before retry on other errors
           fi
         done
-        
+
         if [[ -z "$API_FALLBACK_VERSION" ]]; then
           echo "Failed to get fallback version from API after retries."
         fi
@@ -514,7 +514,7 @@ runs:
             echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
           fi
         fi
-        
+
         # Set log level to debug if debug mode is enabled
         if [[ "${{ inputs.debug }}" == "true" ]]; then
           echo "EDAMAME_LOG_LEVEL=debug" >> $GITHUB_ENV
@@ -576,7 +576,7 @@ runs:
         fi
       shell: bash
 
-    - name: Check domain policy compliance 
+    - name: Check domain policy compliance
       run: |
         cd
         # Check if both domain and policy are provided
@@ -868,6 +868,20 @@ runs:
           fi
         fi
       shell: bash
+
+    - name: Announce artifact upload
+      if: ${{ inputs.create_custom_whitelists == 'true' }}
+      shell: bash
+      run: |
+        echo "Uploading the custom whitelist as an artifact with the name: ${{ inputs.custom_whitelists_path }}"
+
+    - name: Upload whitelist artifact
+      if: ${{ inputs.create_custom_whitelists == "true" }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.custom_whitelists_path }}
+        path: ${{ inputs.custom_whitelists_path }}
+        retention-days: 90
 
     - name: Dump sessions log if requested
       run: |
