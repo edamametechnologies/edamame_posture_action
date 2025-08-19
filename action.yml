@@ -729,12 +729,16 @@ runs:
           git init || true
 
           # Add the remote if it doesn't exist
-          git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
+          if git remote | grep -q '^origin$'; then
+            git remote set-url origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
+          else
+            git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
+          fi
           for i in {1..10}; do
             echo "Attempt $i: Checking out the repo through the git CLI..."
             if git fetch --depth=1 origin ${{ github.ref }}; then
               branch_name=$(echo "${{ github.ref }}" | sed -e "s/^refs\/heads\///")
-              if git checkout -b "$branch_name" FETCH_HEAD; then
+              if git checkout -B "$branch_name" FETCH_HEAD; then
                 if [[ "${{ inputs.checkout_submodules }}" == "true" ]]; then
                   git submodule update --init --recursive
                 fi
