@@ -334,17 +334,17 @@ runs:
       run: |
         JQ=jq
         echo "jq version: $($JQ --version)"
-        
+
         # --- Determine Latest Version via Redirect ---
         LATEST_VERSION=""
         echo "Attempting to get latest version via redirect..."
         REDIRECT_OUTPUT=$(curl -s -L -I -o /dev/null -w '%{url_effective}:%{http_code}' https://github.com/edamametechnologies/edamame_posture_cli/releases/latest)
-        
+
         # Extract status code (part after the last colon) using bash parameter expansion
         HTTP_STATUS="${REDIRECT_OUTPUT##*:}"
         # Extract URL (part before the last colon and the status code) using bash parameter expansion
         LATEST_RELEASE_URL="${REDIRECT_OUTPUT%:$HTTP_STATUS}"
-        
+
         echo "Redirect URL: $LATEST_RELEASE_URL"
         echo "HTTP Status: $HTTP_STATUS"
 
@@ -394,7 +394,7 @@ runs:
             sleep 5 # Short sleep before retry on other errors
           fi
         done
-        
+
         if [[ -z "$API_FALLBACK_VERSION" ]]; then
           echo "Failed to get fallback version from API after retries."
         fi
@@ -444,32 +444,70 @@ runs:
             echo "Binary already present"
             binary_present=true
           else
-            # Binary is not present, check if we have a minimum version of GLIBC installed
-            echo "Binary is not present, we will download the binary based on the GLIBC version"
-            MIN_GLIBC_VERSION="2.29"
-            echo "Minimum required GLIBC version: $MIN_GLIBC_VERSION"
-            if command -v getconf >/dev/null 2>&1; then
-              echo "Using getconf to determine GLIBC version"
-              GLIBC_VERSION=$(getconf GNU_LIBC_VERSION | awk '{print $2}')
-              echo "Detected GLIBC version: $GLIBC_VERSION"
-              
-              # Compare versions using sort
-              if printf '%s\n%s\n' "$MIN_GLIBC_VERSION" "$GLIBC_VERSION" | sort -V | head -n 1 | grep -q "$MIN_GLIBC_VERSION"; then
-                echo "GLIBC version $GLIBC_VERSION is sufficient (minimum required: $MIN_GLIBC_VERSION)"
-                echo "Downloading x86_64-unknown-linux-gnu version of EDAMAME Posture binary for Linux..."
-                wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
-                wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture
-              else
-                echo "Warning: GLIBC version $GLIBC_VERSION is older than minimum required version $MIN_GLIBC_VERSION"
-                echo "Fallback to using x86_64-unknown-linux-musl version of the binary"
-                echo "Downloading x86_64-unknown-linux-musl version of EDAMAME Posture binary for Linux..."
-                wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
-                wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture
-              fi
+            ARCH=$(uname -m)
+            if [[ -f /etc/os-release ]]; then
+              source /etc/os-release
             else
-              echo "Unable to detect GLIBC version, getconf command not found"
+              echo "/etc/os-release not found. Cannot determine distribution."
               exit 1
             fi
+            case "$ID" in
+              "alpine")
+                # Alpine Linux
+                if [[ "$ARCH" == "x86_64" ]]; then
+                  echo "Downloading Alpine Linux binary..."
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture
+                else
+                  echo "Downloading Alpine Linux ARM binary..."
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-aarch64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-aarch64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture
+                fi
+                ;;
+              *)
+                # Everything else (Amazon, Ubuntu, Debian, or any unknown distro)
+                if [[ "$ARCH" == "x86_64" ]]; then
+                  MIN_GLIBC_VERSION="2.29"
+                  echo "Minimum required GLIBC version: $MIN_GLIBC_VERSION"
+                  if command -v getconf >/dev/null 2>&1; then
+                    echo "Using getconf to determine GLIBC version"
+                    GLIBC_VERSION=$(getconf GNU_LIBC_VERSION | awk '{print $2}')
+                    echo "Detected GLIBC version: $GLIBC_VERSION"
+                    # Compare versions using sort
+                    if printf '%s\n%s\n' "$MIN_GLIBC_VERSION" "$GLIBC_VERSION" | sort -V | head -n 1 | grep -q "$MIN_GLIBC_VERSION"; then
+                      echo "GLIBC version $GLIBC_VERSION is sufficient (minimum required: $MIN_GLIBC_VERSION)"
+                      echo "Downloading x86_64-unknown-linux-gnu version of EDAMAME Posture binary for Linux..."
+                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture
+                    else
+                      echo "Warning: GLIBC version $GLIBC_VERSION is older than minimum required version $MIN_GLIBC_VERSION"
+                      echo "Fallback to using x86_64-unknown-linux-musl version of the binary"
+                      echo "Downloading x86_64-unknown-linux-musl version of EDAMAME Posture binary for Linux..."
+                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture
+                    fi
+                  else
+                    echo "Unable to detect GLIBC version, getconf command not found"
+                    exit 1
+                  fi
+                  # echo "Downloading Gnu Linux binary..."
+                elif [[ "$ARCH" == "i686" ]]; then
+                  echo "Downloading Gnu Linux i686 binary..."
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-i686-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-i686-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture
+                elif [[ "$ARCH" == "aarch64" ]]; then
+                  echo "Downloading Gnu Linux ARM binary..."
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-aarch64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-aarch64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture
+                elif [[ "$ARCH" == "armhf" ]]; then
+                  echo "Downloading Gnu Linux ARM binary..."
+                  wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-armv7-unknown-linux-gnueabihf${BIN_POSTFIX} -O edamame_posture || \
+                  wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-armv7-unknown-linux-gnueabihf${BIN_POSTFIX} -O edamame_posture
+                else
+                  echo "Unsupported architecture: $ARCH"
+                  exit 1
+                fi
+            esac
             chmod u+x edamame_posture
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
@@ -514,7 +552,7 @@ runs:
             echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
           fi
         fi
-        
+
         # Set log level to debug if debug mode is enabled
         if [[ "${{ inputs.debug }}" == "true" ]]; then
           echo "EDAMAME_LOG_LEVEL=debug" >> $GITHUB_ENV
@@ -576,7 +614,7 @@ runs:
         fi
       shell: bash
 
-    - name: Check domain policy compliance 
+    - name: Check domain policy compliance
       run: |
         cd
         # Check if both domain and policy are provided
