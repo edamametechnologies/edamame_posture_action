@@ -180,7 +180,7 @@ runs:
           else
               echo "wpcap.dll already exists. Skipping download."
           fi
-        elif [[ "$RUNNER_OS" == "Linux" ]]; then
+        else if [[ "$RUNNER_OS" == "Linux" ]]; then
           # Define function to wait for apt locks
           wait_for_apt_locks() {
             echo "Checking for apt lists lock..."
