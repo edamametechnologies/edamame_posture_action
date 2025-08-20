@@ -36,20 +36,13 @@ jobs:
           - os: windows
             runs-on: vm-runner-windows
             arch: x86_64
-          # Linux aarch64 tests using QEMU
           - os: ubuntu
-            runs-on: ubuntu-latest
+            runs-on: ubuntu-24.04-arm
             arch: aarch64
             target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runs-on }}
 
     steps:
-      # Set up QEMU for aarch64 emulation
-      - name: Set up QEMU
-        if: matrix.arch == 'aarch64'
-        uses: docker/setup-qemu-action@v2
-        with:
-          platforms: arm64
 
       # We don't use the EDAMAME Posture Action here, because we want to fully test the action.yml file
       - name: Checkout
@@ -470,18 +463,12 @@ jobs:
             arch: x86_64
             target: x86_64-unknown-linux-musl
           - os: ubuntu
-            runs-on: ubuntu-latest
+            runs-on: ubuntu-24.04-arm
             arch: aarch64
             target: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runs-on }}
 
     steps:
-      # Set up QEMU for aarch64 emulation
-      - name: Set up QEMU
-        if: matrix.arch == 'aarch64'
-        uses: docker/setup-qemu-action@v2
-        with:
-          platforms: arm64
 
       # Setup Alpine Linux
       - name: Setup Alpine Linux
