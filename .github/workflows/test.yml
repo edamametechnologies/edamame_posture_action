@@ -463,7 +463,8 @@ jobs:
             arch: x86_64
             target: x86_64-unknown-linux-musl
           - os: ubuntu
-            runs-on: ubuntu-24.04-arm
+            # We can't use ubuntu-24.04-arm here because of setup-alpine incompatibility
+            runs-on: ubuntu-latest
             arch: aarch64
             target: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runs-on }}
@@ -476,7 +477,6 @@ jobs:
         with:
           arch: ${{ matrix.arch }}
           branch: v3.15
-          apk-tools-url: https://gitlab.alpinelinux.org/api/v4/projects/5/packages/generic/v2.14.7/${{ matrix.arch }}/apk.static
 
       # Install dependencies with apk
       - name: Install dependencies with apk
