@@ -181,26 +181,27 @@ runs:
               echo "wpcap.dll already exists. Skipping download."
           fi
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
-          # Define function to wait for apt locks
+          # Define function to wait for apt/dpkg locks
           wait_for_apt_locks() {
-            echo "Checking for apt lists lock..."
+            echo "Checking for apt/dpkg locks..."
             TIMEOUT=300
             TIME_PASSED=0
-            
-            # Only check the lists lock file
-            LOCK_FILE="/var/lib/apt/lists/lock"
-            
-            while sudo fuser "$LOCK_FILE" >/dev/null 2>&1; do
-              echo "Waiting for apt lists lock to be released..."
+            # Check common lock files
+            LOCK_FILES=(
+              "/var/lib/apt/lists/lock"
+              "/var/lib/dpkg/lock-frontend"
+              "/var/lib/dpkg/lock"
+            )
+            while sudo fuser "${LOCK_FILES[@]}" >/dev/null 2>&1; do
+              echo "Waiting for apt/dpkg locks to be released..."
               sleep 5
               TIME_PASSED=$((TIME_PASSED + 5))
               if [ $TIME_PASSED -ge $TIMEOUT ]; then
-                echo "Timed out waiting for apt lists lock after $TIMEOUT seconds."
+                echo "Timed out waiting for apt/dpkg locks after $TIMEOUT seconds."
                 exit 1
               fi
             done
-            
-            echo "No apt lists lock held, proceeding..."
+            echo "No apt/dpkg locks held, proceeding..."
           }
           
           # Avoid prompts during apt-get install
@@ -234,14 +235,16 @@ runs:
           if ! command -v gh &> /dev/null; then
             echo "Installing gh..."
             wait_for_apt_locks
-            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+            (type -p wget >/dev/null || (wait_for_apt_locks; sudo -E apt-get update -y && wait_for_apt_locks && sudo -E apt-get install -y wget)) \
               && sudo mkdir -p -m 755 /etc/apt/keyrings \
                     && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
                     && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
               && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
               && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-              && sudo apt update \
-              && sudo apt install gh -y
+              && wait_for_apt_locks \
+              && sudo -E apt-get update -y \
+              && wait_for_apt_locks \
+              && sudo -E apt-get install -y gh
           fi
 
           # Check/install wget
