@@ -652,34 +652,34 @@ runs:
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
           if [[ "${{ steps.download_binary.outputs.binary_already_present }}" == "true" ]]; then
             echo "EDAMAME Posture binary is already present. Checking status..."
-            $EDAMAME_POSTURE_CMD status > posture_status.txt || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+            # Continue even if there are errors
+            $EDAMAME_POSTURE_CMD status > posture_status.txt || true
 
             # Check if the output indicates Error getting connection status: transport error
             if grep -q "Error getting connection status: transport error" posture_status.txt; then
-              echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
-              exit 1
+              echo "edamame_posture is installed but isn't connected"
             else
               connected=$(grep -i 'connected:' posture_status.txt | awk -F': ' '{print $2}')
-              echo "Connected: $connected"
+              echo "edamame_posture is connected: $connected"
+            fi
 
-              # Compare with inputs
-              if [[ "$connected" == "true" ]]; then
-                echo "EDAMAME Posture is already running with the specified user and domain. Skipping start process."
-                # Instead of exiting, use a variable to control the flow
-                SKIP_START=true
-              else
-                # Linux 
-                if [[ "$RUNNER_OS" == "Linux" ]]; then
-                  # We assume the edamame_posture service is installed
-                  echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
-                  exit 1
-                elif [[ "$RUNNER_OS" == "macOS" ]]; then
-                  # There are no macOS edamame_posture service package yet, so we have to start the process in the background
-                  echo "edamame_posture service is installed but isn't connected, it will be automatically started in the background"
-                elif [[ "$RUNNER_OS" == "Windows" ]]; then
-                  # There are no Windows edamame_posture service package yet, so we have to start the process in the background
-                  echo "edamame_posture service is installed but isn't connected, it will be automatically started in the background"
-                fi
+            # Compare with inputs
+            if [[ "$connected" == "true" ]]; then
+              echo "EDAMAME Posture is already running with the specified user and domain. Skipping start process."
+              # Instead of exiting, use a variable to control the flow
+              SKIP_START=true
+            else
+              # Linux 
+              if [[ "$RUNNER_OS" == "Linux" ]]; then
+                # We assume the edamame_posture service is installed
+                echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
+                exit 1
+              elif [[ "$RUNNER_OS" == "macOS" ]]; then
+                # There are no macOS edamame_posture service package yet, so we have to start the process in the background
+                echo "edamame_posture service is installed but isn't connected, it will be automatically started in the background"
+              elif [[ "$RUNNER_OS" == "Windows" ]]; then
+                # There are no Windows edamame_posture service package yet, so we have to start the process in the background
+                echo "edamame_posture service is installed but isn't connected, it will be automatically started in the background"
               fi
             fi
           fi
