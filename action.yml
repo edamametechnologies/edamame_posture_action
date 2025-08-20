@@ -652,14 +652,15 @@ runs:
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
           if [[ "${{ steps.download_binary.outputs.binary_already_present }}" == "true" ]]; then
             echo "EDAMAME Posture binary is already present. Checking status..."
-            # Continue even if there are errors
-            $EDAMAME_POSTURE_CMD status > posture_status.txt || true
+            # Continue even if there are errors; capture both stdout and stderr
+            $EDAMAME_POSTURE_CMD status > posture_status.txt 2>&1 || true
 
             # Check if the output indicates Error getting connection status: transport error
             if grep -q "Error getting connection status: transport error" posture_status.txt; then
               echo "edamame_posture is installed but isn't connected"
             else
-              connected=$(grep -i 'connected:' posture_status.txt | awk -F': ' '{print $2}')
+              connected="$({ grep -i 'connected:' posture_status.txt | awk -F': ' '{print $2}'; } || true)"
+              connected="${connected:-false}"
               echo "edamame_posture is connected: $connected"
             fi
 
