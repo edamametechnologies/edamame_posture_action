@@ -668,8 +668,18 @@ runs:
                 # Instead of exiting, use a variable to control the flow
                 SKIP_START=true
               else
-                echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
-                exit 1
+                # Linux 
+                if [[ "$RUNNER_OS" == "Linux" ]]; then
+                  # We assume the edamame_posture service is installed
+                  echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
+                  exit 1
+                else if [[ "$RUNNER_OS" == "macOS" ]]; then
+                  # There are no macOS edamame_posture service package yet, so we have to start the process in the background
+                  echo "edamame_posture service is installed but isn't connected, it will be automatically started in the background"
+                else if [[ "$RUNNER_OS" == "Windows" ]]; then
+                  # There are no Windows edamame_posture service package yet, so we have to start the process in the background
+                  echo "edamame_posture service is installed but isn't connected, it will be automatically started in the background"
+                fi
               fi
             fi
           fi
