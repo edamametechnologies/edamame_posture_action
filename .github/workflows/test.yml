@@ -34,7 +34,7 @@ jobs:
             runs-on: macos-latest
             arch: x86_64
           - os: windows
-            runs-on: vm-runner-windows
+            runs-on: windows-latest
             arch: x86_64
           - os: ubuntu
             runs-on: ubuntu-24.04-arm
