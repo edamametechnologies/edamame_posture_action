@@ -189,7 +189,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
      with:
        disconnected_mode: true
        network_scan: true
-       whitelist: github # Platform-dependent suffix (_windows, _macos, or _linux) is automatically added based on the runner's OS
+       whitelist: github_ubuntu
        
    # ... your workflow steps ...
    
@@ -262,7 +262,7 @@ For public repos that need access to private repos (or other restricted endpoint
   with:
     disconnected_mode: true                  # Run without domain authentication
     network_scan: true                       # Monitor network traffic
-    whitelist: github_linux                  # Apply appropriate whitelist
+    whitelist: github_ubuntu                 # Apply appropriate whitelist
     auto_remediate: true                     # Fix security issues automatically
     edamame_minimum_score: 2.0               # Enforce minimum security score
     edamame_mandatory_threats: "encrypted disk disabled,critical vulnerability"

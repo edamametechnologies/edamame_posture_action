@@ -402,30 +402,30 @@ runs:
           echo "Failed to get fallback version from API after retries."
         fi
 
-        # --- Set VERSION and FALLBACK_VERSION for Download ---
+        # --- Set POSTURE_VERSION and POSTURE_FALLBACK_VERSION for Download ---
         if [[ -n "$LATEST_VERSION" ]]; then
-          VERSION="$LATEST_VERSION"
+          POSTURE_VERSION="$LATEST_VERSION"
           if [[ -n "$API_FALLBACK_VERSION" ]]; then
-            FALLBACK_VERSION="$API_FALLBACK_VERSION"
+            POSTURE_FALLBACK_VERSION="$API_FALLBACK_VERSION"
           else
             echo "Using hardcoded fallback version as API fallback failed."
-            FALLBACK_VERSION="$HARDCODED_FALLBACK_VERSION"
+            POSTURE_FALLBACK_VERSION="$HARDCODED_FALLBACK_VERSION"
           fi
         else
           # Latest version via redirect failed
           if [[ -n "$API_FALLBACK_VERSION" ]]; then
             echo "Using API fallback version as primary version."
-            VERSION="$API_FALLBACK_VERSION"
-            FALLBACK_VERSION="$HARDCODED_FALLBACK_VERSION"
+            POSTURE_VERSION="$API_FALLBACK_VERSION"
+            POSTURE_FALLBACK_VERSION="$HARDCODED_FALLBACK_VERSION"
           else
             echo "Both redirect and API failed. Using hardcoded versions."
-            VERSION="$HARDCODED_FALLBACK_VERSION"
-            FALLBACK_VERSION="$HARDCODED_FALLBACK_VERSION"
+            POSTURE_VERSION="$HARDCODED_FALLBACK_VERSION"
+            POSTURE_FALLBACK_VERSION="$HARDCODED_FALLBACK_VERSION"
           fi
         fi
 
-        echo "VERSION to download: $VERSION"
-        echo "FALLBACK_VERSION to download: $FALLBACK_VERSION"
+        echo "VERSION to download: $POSTURE_VERSION"
+        echo "FALLBACK_VERSION to download: $POSTURE_FALLBACK_VERSION"
 
         # We only support edamame_posture installed in the current directory on Windows and macOS
         # Navigate to the home directory
@@ -459,13 +459,13 @@ runs:
                 # Alpine Linux
                 if [[ "$ARCH" == "x86_64" ]]; then
                   echo "Downloading Alpine Linux binary..."
-                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
-                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
                   wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture
                 else
                   echo "Downloading Alpine Linux ARM binary..."
-                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-aarch64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
-                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-aarch64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-aarch64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-aarch64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
                   wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-aarch64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture
                 fi
                 ;;
@@ -482,15 +482,15 @@ runs:
                     if printf '%s\n%s\n' "$MIN_GLIBC_VERSION" "$GLIBC_VERSION" | sort -V | head -n 1 | grep -q "$MIN_GLIBC_VERSION"; then
                       echo "GLIBC version $GLIBC_VERSION is sufficient (minimum required: $MIN_GLIBC_VERSION)"
                       echo "Downloading x86_64-unknown-linux-gnu version of EDAMAME Posture binary for Linux..."
-                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
-                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
                       wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-x86_64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture
                     else
                       echo "Warning: GLIBC version $GLIBC_VERSION is older than minimum required version $MIN_GLIBC_VERSION"
                       echo "Fallback to using x86_64-unknown-linux-musl version of the binary"
                       echo "Downloading x86_64-unknown-linux-musl version of EDAMAME Posture binary for Linux..."
-                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
-                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
+                      wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture || \
                       wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-x86_64-unknown-linux-musl${BIN_POSTFIX} -O edamame_posture
                     fi
                   else
@@ -500,18 +500,18 @@ runs:
                   # echo "Downloading Gnu Linux binary..."
                 elif [[ "$ARCH" == "i686" ]]; then
                   echo "Downloading Gnu Linux i686 binary..."
-                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-i686-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
-                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-i686-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-i686-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-i686-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
                   wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-i686-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture
                 elif [[ "$ARCH" == "aarch64" ]]; then
                   echo "Downloading Gnu Linux ARM binary..."
-                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-aarch64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
-                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-aarch64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-aarch64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
+                  wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-aarch64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture || \
                   wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-aarch64-unknown-linux-gnu${BIN_POSTFIX} -O edamame_posture
                 elif [[ "$ARCH" == "armhf" ]]; then
                   echo "Downloading Gnu Linux ARM binary..."
-                  wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-armv7-unknown-linux-gnueabihf${BIN_POSTFIX} -O edamame_posture || \
-                  wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-armv7-unknown-linux-gnueabihf${BIN_POSTFIX} -O edamame_posture || \
+                  wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-armv7-unknown-linux-gnueabihf${BIN_POSTFIX} -O edamame_posture || \
+                  wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-armv7-unknown-linux-gnueabihf${BIN_POSTFIX} -O edamame_posture || \
                   wget https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-armv7-unknown-linux-gnueabihf${BIN_POSTFIX} -O edamame_posture
                 else
                   echo "Unsupported architecture: $ARCH"
@@ -526,8 +526,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for macOS..."
-            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-universal-apple-darwin${BIN_POSTFIX} -O edamame_posture || \
-            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-universal-apple-darwin${BIN_POSTFIX} -O edamame_posture || \
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-universal-apple-darwin${BIN_POSTFIX} -O edamame_posture || \
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-universal-apple-darwin${BIN_POSTFIX} -O edamame_posture || \
             wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-universal-apple-darwin${BIN_POSTFIX} -O edamame_posture
             chmod u+x edamame_posture
           fi
@@ -537,8 +537,8 @@ runs:
             binary_present=true
           else
             echo "Downloading EDAMAME Posture binary for Windows..."
-            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${VERSION}/edamame_posture-${VERSION}-x86_64-pc-windows-msvc${BIN_POSTFIX}.exe -O edamame_posture.exe || \
-            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VERSION}/edamame_posture-${FALLBACK_VERSION}-x86_64-pc-windows-msvc${BIN_POSTFIX}.exe -O edamame_posture.exe || \
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_VERSION}/edamame_posture-${POSTURE_VERSION}-x86_64-pc-windows-msvc${BIN_POSTFIX}.exe -O edamame_posture.exe || \
+            wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${POSTURE_FALLBACK_VERSION}/edamame_posture-${POSTURE_FALLBACK_VERSION}-x86_64-pc-windows-msvc${BIN_POSTFIX}.exe -O edamame_posture.exe || \
             wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${HARDCODED_FALLBACK_VERSION}/edamame_posture-${HARDCODED_FALLBACK_VERSION}-x86_64-pc-windows-msvc${BIN_POSTFIX}.exe -O edamame_posture.exe
           fi
         else
@@ -704,13 +704,7 @@ runs:
             IDSUFFIX=$(node -e "console.log(Date.now())")
 
             if [[ "${{ inputs.whitelist }}" != "" ]]; then
-              if [[ "$RUNNER_OS" == "Windows" ]]; then
-                WHITELIST="${{ inputs.whitelist }}_windows"
-              elif [[ "$RUNNER_OS" == "macOS" ]]; then
-                WHITELIST="${{ inputs.whitelist }}_macos"
-              else
-                WHITELIST="${{ inputs.whitelist }}_linux"
-              fi
+              WHITELIST="${{ inputs.whitelist }}"
             else
               WHITELIST=""
             fi
@@ -724,13 +718,7 @@ runs:
           echo "Starting EDAMAME Posture in disconnected mode..."
 
           if [[ "${{ inputs.whitelist }}" != "" ]]; then
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              WHITELIST="${{ inputs.whitelist }}_windows"
-            elif [[ "$RUNNER_OS" == "macOS" ]]; then
-              WHITELIST="${{ inputs.whitelist }}_macos"
-            else
-              WHITELIST="${{ inputs.whitelist }}_linux"
-            fi
+            WHITELIST="${{ inputs.whitelist }}"
           else
             WHITELIST=""
           fi

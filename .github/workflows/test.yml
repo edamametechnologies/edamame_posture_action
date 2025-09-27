@@ -60,8 +60,7 @@ jobs:
           # Don't checkout the repo, we already did that in the previous step
           checkout: false
           # Set to true to test the whitelist creation
-          # Disabled on Windows as GitHub managed Windows runners configuration makes this too slow
-          network_scan: ${{ matrix.os == 'windows' && 'false' || 'true' }}
+          network_scan: true
         continue-on-error: true
 
       # Test check-policy (local)
@@ -156,7 +155,7 @@ jobs:
         with:
           disconnected_mode: true
           network_scan: true
-          whitelist: github
+          whitelist: github_${{ runner.os }}
           edamame_minimum_score: 1.0
           edamame_mandatory_threats: "encrypted disk disabled"
         continue-on-error: true
@@ -367,7 +366,7 @@ jobs:
         with:
           disconnected_mode: true
           network_scan: true
-          whitelist: github
+          whitelist: github_${{ runner.os }}
           edamame_minimum_score: 1.0
           edamame_mandatory_threats: "encrypted disk disabled"
         continue-on-error: true
@@ -606,7 +605,7 @@ jobs:
         with:
           disconnected_mode: true
           network_scan: true
-          whitelist: github
+          whitelist: github_${{ runner.os }}
           edamame_minimum_score: 1.0
           edamame_mandatory_threats: "encrypted disk disabled"
         continue-on-error: true
