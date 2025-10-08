@@ -162,24 +162,6 @@ runs:
             # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y | grep -v "Progress:"
           fi
-
-          # Check and download Packet.dll
-          if [ ! -f "Packet.dll" ]; then
-              echo "Packet.dll not found. Downloading..."
-              wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/Packet.dll -O Packet.dll
-              chmod +x Packet.dll
-          else
-              echo "Packet.dll already exists. Skipping download."
-          fi
-
-          # Check and download wpcap.dll
-          if [ ! -f "wpcap.dll" ]; then
-              echo "wpcap.dll not found. Downloading..."
-              wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/raw/refs/heads/main/windows/wpcap.dll -O wpcap.dll
-              chmod +x wpcap.dll
-          else
-              echo "wpcap.dll already exists. Skipping download."
-          fi
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
           # Define function to wait for apt/dpkg locks
           wait_for_apt_locks() {
