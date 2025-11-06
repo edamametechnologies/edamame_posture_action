@@ -33,7 +33,27 @@ inputs:
     description: "Remediations to skip when performing auto-remediations (comma separated)"
     required: false
   network_scan:
-    description: "Scan network for critical devices and capture network traffic (only applicable if the background process is started)"
+    description: "Scan network for critical devices (only applicable if the background process is started)"
+    required: false
+    default: "false"
+  packet_capture:
+    description: "Capture network traffic (auto = follow network_scan)"
+    required: false
+    default: "auto"
+  check_whitelist:
+    description: "Report and enforce whitelist exceptions when capturing network traffic (requires a whitelist name)"
+    required: false
+    default: "false"
+  check_blacklist:
+    description: "Report and enforce blacklist matches during network capture"
+    required: false
+    default: "true"
+  check_anomalous:
+    description: "Report and enforce anomalous session detection during network capture"
+    required: false
+    default: "true"
+  cancel_on_violation:
+    description: "Attempt to cancel the current CI pipeline when violations are detected"
     required: false
     default: "false"
   disconnected_mode:
@@ -41,7 +61,7 @@ inputs:
     required: false
     default: "false"
   dump_sessions_log:
-    description: "Dump sessions log (only effective if the background process is started with network_scan set to true)"
+    description: "Dump sessions log (requires background process with packet capture enabled)"
     required: false
     default: "false"
   checkout:
@@ -104,6 +124,22 @@ inputs:
     description: "Augment the existing custom whitelists using current network sessions and merge the result back into the file specified by custom_whitelists_path. Requires network_scan=true."
     required: false
     default: "false"
+  include_local_traffic:
+    description: "Include local traffic in network capture and session logs"
+    required: false
+    default: "false"
+  agentic_mode:
+    description: "AI assistant mode for automated security todo processing: auto (execute), analyze (recommendations only), or disabled"
+    required: false
+    default: "disabled"
+  agentic_provider:
+    description: "LLM provider for AI assistant: claude, openai, ollama, or none (requires EDAMAME_LLM_API_KEY environment variable)"
+    required: false
+    default: ""
+  agentic_interval:
+    description: "Interval in seconds for automated AI assistant todo processing"
+    required: false
+    default: "3600"
   stop:
     description: "Stop the EDAMAME Posture process"
     required: false
@@ -685,27 +721,105 @@ runs:
             # ms since epoch
             IDSUFFIX=$(node -e "console.log(Date.now())")
 
+            START_ARGS=(
+              start
+              --user "${{ inputs.edamame_user }}"
+              --domain "${{ inputs.edamame_domain }}"
+              --pin "${{ inputs.edamame_pin }}"
+              --device-id "${{ inputs.edamame_id }}_$IDSUFFIX"
+            )
+
+            if [[ "${{ inputs.network_scan }}" == "true" ]]; then
+              START_ARGS+=(--network-scan)
+            fi
+
+          if [[ "${{ inputs.packet_capture }}" == "true" || ( "${{ inputs.packet_capture }}" == "auto" && "${{ inputs.network_scan }}" == "true" ) ]]; then
+            START_ARGS+=(--packet-capture)
+          fi
+
             if [[ "${{ inputs.whitelist }}" != "" ]]; then
-              WHITELIST="${{ inputs.whitelist }}"
-            else
-              WHITELIST=""
+              START_ARGS+=(--whitelist "${{ inputs.whitelist }}")
+            fi
+
+            if [[ "${{ inputs.check_whitelist }}" == "true" || "${{ inputs.whitelist }}" != "" ]]; then
+              START_ARGS+=(--fail-on-whitelist)
+            fi
+
+            if [[ "${{ inputs.check_blacklist }}" == "true" ]]; then
+              START_ARGS+=(--fail-on-blacklist)
+            fi
+
+            if [[ "${{ inputs.check_anomalous }}" == "true" ]]; then
+              START_ARGS+=(--fail-on-anomalous)
+            fi
+
+            if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
+              START_ARGS+=(--cancel-on-violation)
+            fi
+
+            if [[ "${{ inputs.include_local_traffic }}" == "true" ]]; then
+              START_ARGS+=(--include-local-traffic)
+            fi
+
+            if [[ "${{ inputs.agentic_mode }}" != "disabled" && "${{ inputs.agentic_mode }}" != "" ]]; then
+              START_ARGS+=(--agentic-mode "${{ inputs.agentic_mode }}")
+            fi
+
+            if [[ "${{ inputs.agentic_provider }}" != "" ]]; then
+              START_ARGS+=(--agentic-provider "${{ inputs.agentic_provider }}")
+            fi
+
+            if [[ "${{ inputs.agentic_interval }}" != "" && "${{ inputs.agentic_interval }}" != "3600" ]]; then
+              START_ARGS+=(--agentic-interval "${{ inputs.agentic_interval }}")
             fi
 
             echo "Starting EDAMAME Posture..."
-            $EDAMAME_POSTURE_CMD start "${{ inputs.edamame_user }}" "${{ inputs.edamame_domain }}" "${{ inputs.edamame_pin }}" "${{ inputs.edamame_id }}_$IDSUFFIX" "${{ inputs.network_scan }}" $WHITELIST
+            $EDAMAME_POSTURE_CMD "${START_ARGS[@]}"
             echo "Waiting for connection..."
             $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
           fi
         elif [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
           echo "Starting EDAMAME Posture in disconnected mode..."
 
-          if [[ "${{ inputs.whitelist }}" != "" ]]; then
-            WHITELIST="${{ inputs.whitelist }}"
-          else
-            WHITELIST=""
+          START_ARGS=(background-start-disconnected)
+
+          if [[ "${{ inputs.network_scan }}" == "true" ]]; then
+            START_ARGS+=(--network-scan)
           fi
-          
-          $EDAMAME_POSTURE_CMD background-start-disconnected "${{ inputs.network_scan }}" $WHITELIST
+
+          if [[ "${{ inputs.packet_capture }}" == "true" || ( "${{ inputs.packet_capture }}" == "auto" && "${{ inputs.network_scan }}" == "true" ) ]]; then
+            START_ARGS+=(--packet-capture)
+          fi
+
+          if [[ "${{ inputs.whitelist }}" != "" ]]; then
+            START_ARGS+=(--whitelist "${{ inputs.whitelist }}")
+          fi
+
+          if [[ "${{ inputs.check_whitelist }}" == "true" || "${{ inputs.whitelist }}" != "" ]]; then
+            START_ARGS+=(--fail-on-whitelist)
+          fi
+
+          if [[ "${{ inputs.check_blacklist }}" == "true" ]]; then
+            START_ARGS+=(--fail-on-blacklist)
+          fi
+
+          if [[ "${{ inputs.check_anomalous }}" == "true" ]]; then
+            START_ARGS+=(--fail-on-anomalous)
+          fi
+
+          if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
+            START_ARGS+=(--cancel-on-violation)
+          fi
+
+          if [[ "${{ inputs.include_local_traffic }}" == "true" ]]; then
+            START_ARGS+=(--include-local-traffic)
+          fi
+
+          if [[ "${{ inputs.agentic_mode }}" != "disabled" && "${{ inputs.agentic_mode }}" != "" ]]; then
+            START_ARGS+=(--agentic-mode "${{ inputs.agentic_mode }}")
+          fi
+
+          $EDAMAME_POSTURE_CMD "${START_ARGS[@]}"
         fi
       shell: bash
 
@@ -899,8 +1013,21 @@ runs:
       run: |
         if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
           cd
-          # Format: get-sessions [ZEEK_FORMAT] [LOCAL_TRAFFIC] [CHECK_WHITELIST] [CHECK_BLACKLIST] [CHECK_ANOMALOUS]
-          $EDAMAME_POSTURE_CMD get-sessions false false ${{ inputs.exit_on_whitelist_exceptions }} ${{ inputs.exit_on_blacklisted_sessions }} ${{ inputs.exit_on_anomalous_sessions }}
+          ARGS=(get-sessions)
+
+          if [[ "${{ inputs.exit_on_whitelist_exceptions }}" == "true" ]]; then
+            ARGS+=(--fail-on-whitelist)
+          fi
+
+          if [[ "${{ inputs.exit_on_blacklisted_sessions }}" == "true" ]]; then
+            ARGS+=(--fail-on-blacklist)
+          fi
+
+          if [[ "${{ inputs.exit_on_anomalous_sessions }}" == "true" ]]; then
+            ARGS+=(--fail-on-anomalous)
+          fi
+
+          $EDAMAME_POSTURE_CMD "${ARGS[@]}"
         fi
       shell: bash
 
