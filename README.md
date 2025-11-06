@@ -29,7 +29,12 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `edamame_mandatory_prefixes`: Comma-separated list of mandatory tag prefixes covering threats that the device must not exhibit (the action will fail if the device does not have the prefixes)  
 - `auto_remediate`: Automatically remediate posture issues (default: false)  
 - `skip_remediations`: Remediations to skip (comma-separated)  
-- `network_scan`: Scan network for critical devices and capture network traffic (default: false)  
+- `network_scan`: Scan the local network for critical devices (default: false)  
+- `packet_capture`: Capture network traffic (`auto` mirrors `network_scan`; set to `true`/`false` to override)  
+- `check_whitelist`: When `true`, enforce whitelist conformance during network capture (requires `whitelist` to be set) (default: false)  
+- `check_blacklist`: When `true`, fail if blacklisted sessions are observed during capture (default: true)  
+- `check_anomalous`: When `true`, fail if anomalous sessions are detected during capture (default: true)  
+- `cancel_on_violation`: When `true`, attempt to cancel the current CI pipeline if violations are detected during capture (default: false)  
 - `disconnected_mode`: Start EDAMAME Posture in disconnected mode without requiring domain authentication (default: false)
 - `dump_sessions_log`: Dump sessions log (default: false)  
 - `checkout`: Checkout the repo through the git CLI (default: false)  
@@ -48,8 +53,12 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `create_custom_whitelists`: Create custom whitelists from captured network sessions (default: false)
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
 - `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
+- `augment_custom_whitelists`: When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true` with packet capture enabled.
+- `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
+- `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
+- `agentic_provider`: LLM provider for AI assistant: `claude`, `openai`, `ollama`, or none. Requires `EDAMAME_LLM_API_KEY` environment variable (default: "")
+- `agentic_interval`: Interval in seconds for automated AI assistant todo processing (default: 3600)
 - `stop`: Stop the background process  (default: false)
-- `augment_custom_whitelists`: When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true`.
 
 ## Steps
 
@@ -135,11 +144,12 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
        edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
        edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
        edamame_id: ${{ github.run_id }}
-       network_scan: true  # Required for network traffic capture and whitelist application
+      network_scan: true   # Discover LAN-connected peers
+      packet_capture: true # Capture network traffic (optional: defaults to auto)
        # Other configuration parameters
    ```
 
-   > **Important:** The `network_scan` parameter must be set to `true` for network traffic capture to occur and for the default whitelist to apply. Without this setting, the session dump will not contain network traffic information.
+> **Important:** Network traffic capture requires `packet_capture` to be enabled. With the default `auto` value, capture automatically turns on whenever `network_scan` is `true`.
 
 2. **Dump Sessions at Workflow End**  
    Add a second EDAMAME Posture action step at the very end of your workflow to dump and analyze the captured session logs. This provides a comprehensive view of all network activity that occurred during workflow execution and a detection of communications outside of the default or custom whitelist.
@@ -164,6 +174,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
        edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
        edamame_id: ${{ github.run_id }}
        network_scan: true
+      packet_capture: true
        custom_whitelists_path: ./whitelists.json  # Path to your predefined whitelist
        set_custom_whitelists: true  # Required to apply the custom whitelist
        
@@ -189,6 +200,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
      with:
        disconnected_mode: true
        network_scan: true
+      packet_capture: true
        whitelist: github_ubuntu
        
    # ... your workflow steps ...
@@ -224,6 +236,7 @@ For public repos that need access to private repos (or other restricted endpoint
   uses: edamametechnologies/edamame_posture_action@v0
   with:
     network_scan: true                      # Enable network scanning
+    packet_capture: true                    # Capture network traffic
     create_custom_whitelists: true           # Generate a whitelist from observed traffic
     custom_whitelists_path: ./whitelists.json # Save to this file
 ```
@@ -234,6 +247,7 @@ For public repos that need access to private repos (or other restricted endpoint
   uses: edamametechnologies/edamame_posture_action@v0
   with:
     network_scan: true                      # Enable network scanning
+    packet_capture: true                    # Capture network traffic
     custom_whitelists_path: ./whitelists.json # Load and apply this whitelist
     set_custom_whitelists: true             # Required to apply the custom whitelist
     exit_on_whitelist_exceptions: true      # Fail if whitelist exceptions are detected
@@ -249,6 +263,7 @@ For public repos that need access to private repos (or other restricted endpoint
     edamame_pin: ${{ secrets.EDAMAME_PIN }}
     edamame_id: "cicd-runner"
     network_scan: true
+    packet_capture: true
     custom_whitelists_path: ./whitelists.json
     set_custom_whitelists: true             # Required to apply the custom whitelist
     exit_on_whitelist_exceptions: true      # Fail if whitelist exceptions are detected
@@ -267,6 +282,33 @@ For public repos that need access to private repos (or other restricted endpoint
     edamame_minimum_score: 2.0               # Enforce minimum security score
     edamame_mandatory_threats: "encrypted disk disabled,critical vulnerability"
 ```
+
+### Using AI Assistant for Automated Security Todo Processing
+```yaml
+- name: EDAMAME Posture with AI Assistant
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+    edamame_id: ${{ github.run_id }}
+    network_scan: true
+    agentic_mode: analyze                     # AI provides recommendations without executing
+    agentic_provider: claude                  # Use Claude as the LLM provider
+    agentic_interval: 3600                    # Check for new todos every hour
+  env:
+    EDAMAME_LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # Required for AI features
+```
+
+**AI Assistant Modes:**
+- `disabled`: No AI assistance (default)
+- `analyze`: AI analyzes security todos and provides recommendations without executing actions
+- `auto`: AI automatically executes low-risk security actions and escalates high-risk items
+
+**Note:** AI assistant features require setting `EDAMAME_LLM_API_KEY` environment variable with your LLM provider's API key. Additional environment variables for Slack notifications:
+- `EDAMAME_AGENTIC_SLACK_BOT_TOKEN`: Slack bot token for notifications
+- `EDAMAME_AGENTIC_SLACK_ACTIONS_CHANNEL`: Channel for action notifications
+- `EDAMAME_AGENTIC_SLACK_ESCALATIONS_CHANNEL`: Channel for escalations
 
 ## EDAMAME Ecosystem
 
@@ -292,7 +334,8 @@ In situations where your pipeline progressively accesses new domains or endpoint
    - name: Setup EDAMAME Posture (Learning Mode)
      uses: edamametechnologies/edamame_posture_action@v0
      with:
-       network_scan: true                  # Capture traffic
+      network_scan: true                  # Discover LAN peers
+      packet_capture: true                # Capture traffic
        create_custom_whitelists: true      # Auto-generate whitelist JSON
        custom_whitelists_path: whitelists.json
    ```
@@ -304,7 +347,8 @@ In situations where your pipeline progressively accesses new domains or endpoint
    - name: EDAMAME Posture – Augment Whitelist
      uses: edamametechnologies/edamame_posture_action@v0
      with:
-       network_scan: true
+      network_scan: true
+      packet_capture: true
        augment_custom_whitelists: true      # NEW INPUT
        custom_whitelists_path: whitelists.json
    ```
@@ -318,7 +362,8 @@ In situations where your pipeline progressively accesses new domains or endpoint
    - name: EDAMAME Posture – Enforce Whitelist
      uses: edamametechnologies/edamame_posture_action@v0
      with:
-       network_scan: true
+      network_scan: true
+      packet_capture: true
        custom_whitelists_path: whitelists.json
        set_custom_whitelists: true          # Apply the list
        exit_on_whitelist_exceptions: true   # Fail if any new endpoint appears
@@ -327,6 +372,113 @@ In situations where your pipeline progressively accesses new domains or endpoint
 ### New Inputs
 | Name | Default | Description |
 |------|---------|-------------|
-| `augment_custom_whitelists` | `false` | When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true`. |
+| `augment_custom_whitelists` | `false` | When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true` and packet capture to be enabled. |
 
 > **Tip:** Store `whitelists.json` as a version-controlled artifact (e.g., in your repo or an S3 bucket) to share it across pipeline runs and agents.
+
+## CLI to GitHub Action Parameter Mapping
+
+This section shows how GitHub Action inputs map to CLI flags.
+
+### background-start / start Command
+
+| Action Input | CLI Flag | Type | Default | Notes |
+|--------------|----------|------|---------|-------|
+| `edamame_user` | `--user` | string | - | Required for connected mode |
+| `edamame_domain` | `--domain` | string | - | Required for connected mode |
+| `edamame_pin` | `--pin` | string | - | Required for connected mode |
+| `edamame_id` | `--device-id` | string | - | Optional suffix for device ID |
+| `network_scan` | `--network-scan` | flag | false | Enable LAN scanning |
+| `packet_capture` | `--packet-capture` | flag | auto | Enable packet capture |
+| `whitelist` | `--whitelist` | string | "github" | Whitelist name |
+| `check_whitelist` | `--fail-on-whitelist` | flag | false | Fail on whitelist violations |
+| `check_blacklist` | `--fail-on-blacklist` | flag | true | Fail on blacklist matches |
+| `check_anomalous` | `--fail-on-anomalous` | flag | true | Fail on anomalous sessions |
+| `cancel_on_violation` | `--cancel-on-violation` | flag | false | Cancel CI on violations |
+| `include_local_traffic` | `--include-local-traffic` | flag | false | Include local traffic |
+| `agentic_mode` | `--agentic-mode` | string | "disabled" | AI assistant mode |
+| `agentic_provider` | `--agentic-provider` | string | "" | LLM provider |
+| `agentic_interval` | `--agentic-interval` | number | 3600 | Processing interval (seconds) |
+
+### background-start-disconnected Command
+
+| Action Input | CLI Flag | Type | Default | Notes |
+|--------------|----------|------|---------|-------|
+| `disconnected_mode` | (command selection) | boolean | false | Triggers disconnected mode |
+| `network_scan` | `--network-scan` | flag | false | Enable LAN scanning |
+| `packet_capture` | `--packet-capture` | flag | auto | Enable packet capture |
+| `whitelist` | `--whitelist` | string | "" | Whitelist name |
+| `check_whitelist` | `--fail-on-whitelist` | flag | false | Fail on whitelist violations |
+| `check_blacklist` | `--fail-on-blacklist` | flag | true | Fail on blacklist matches |
+| `check_anomalous` | `--fail-on-anomalous` | flag | true | Fail on anomalous sessions |
+| `cancel_on_violation` | `--cancel-on-violation` | flag | false | Cancel CI on violations |
+| `include_local_traffic` | `--include-local-traffic` | flag | false | Include local traffic |
+| `agentic_mode` | `--agentic-mode` | string | "disabled" | AI assistant mode |
+
+**Note:** `agentic_provider` and `agentic_interval` are not supported in disconnected mode.
+
+### get-sessions Command
+
+| Action Input | CLI Flag | Type | Default | Notes |
+|--------------|----------|------|---------|-------|
+| `dump_sessions_log` | (triggers command) | boolean | false | Run get-sessions |
+| `exit_on_whitelist_exceptions` | `--fail-on-whitelist` | flag | true | Fail on whitelist violations |
+| `exit_on_blacklisted_sessions` | `--fail-on-blacklist` | flag | false | Fail on blacklist matches |
+| `exit_on_anomalous_sessions` | `--fail-on-anomalous` | flag | false | Fail on anomalous sessions |
+
+### Other Commands
+
+| Action Input | CLI Command | Notes |
+|--------------|-------------|-------|
+| `auto_remediate` | `remediate` | Auto-remediate posture issues |
+| `skip_remediations` | (passed as argument) | Comma-separated remediations to skip |
+| `edamame_minimum_score` | `check-policy` | Local policy check - minimum score |
+| `edamame_mandatory_threats` | `check-policy` | Local policy check - threat IDs |
+| `edamame_mandatory_prefixes` | `check-policy` | Local policy check - tag prefixes |
+| `edamame_policy` | `check-policy-for-domain` | Domain policy name |
+| `create_custom_whitelists` | `create-custom-whitelists` | Generate whitelist from sessions |
+| `set_custom_whitelists` | `set-custom-whitelists-from-file` | Apply whitelist from file |
+| `augment_custom_whitelists` | `augment-custom-whitelists` | Augment existing whitelist |
+| `stop` | `stop` | Stop background process |
+
+### Environment Variables for Advanced Features
+
+These environment variables can be set in the workflow to configure advanced features:
+
+| Variable | Purpose | Required For |
+|----------|---------|--------------|
+| `EDAMAME_LLM_API_KEY` | LLM API key | Agentic features |
+| `EDAMAME_LLM_MODEL` | Override default model | Agentic features (optional) |
+| `EDAMAME_LLM_BASE_URL` | Custom LLM endpoint | Agentic features (optional) |
+| `EDAMAME_AGENTIC_SLACK_BOT_TOKEN` | Slack bot token | Slack notifications (optional) |
+| `EDAMAME_AGENTIC_SLACK_ACTIONS_CHANNEL` | Slack channel for actions | Slack notifications (optional) |
+| `EDAMAME_AGENTIC_SLACK_ESCALATIONS_CHANNEL` | Slack channel for escalations | Slack notifications (optional) |
+| `EDAMAME_LOG_LEVEL` | Log verbosity (info/debug/trace) | Debugging (optional) |
+
+### CLI Arguments Not Exposed
+
+The following CLI arguments are intentionally not exposed in the GitHub Action:
+
+- `--zeek-format` - Not relevant for GitHub Actions output
+- Verbose flags (`-v`, `-vv`, `-vvv`) - Use debug mode instead
+- MCP server commands - Not needed in CI/CD
+- Direct device/session management commands - Not relevant for CI/CD
+
+### Special Handling
+
+#### packet_capture
+
+The action input supports three values:
+- `"true"` - Always enable packet capture
+- `"false"` - Never enable packet capture  
+- `"auto"` (default) - Enable if `network_scan` is true
+
+This is translated to `--packet-capture` flag when enabled.
+
+#### whitelist
+
+The action automatically appends OS-specific suffixes (`_windows`, `_macos`, `_linux`) to the whitelist name based on the runner OS, unless the input is empty.
+
+#### device_id
+
+The action automatically appends a timestamp suffix to avoid conflicts in matrix jobs: `${device_id}_${timestamp}`
