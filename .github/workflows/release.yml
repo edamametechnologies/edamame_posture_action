@@ -17,18 +17,18 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      #- name: Setup EDAMAME Posture
-      #  uses: edamametechnologies/edamame_posture_action@v0
-      #  with:
-      #    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
-      #    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-      #    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
-      #    edamame_id: ${{ github.run_id }}
-      #    auto_remediate: true
-      #    network_scan: true
-      #    checkout: true
-      #    # Wait for the API to be ready
-      #    wait_for_api: true
+      - name: Setup EDAMAME Posture
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}
+          auto_remediate: true
+          network_scan: true
+          checkout: true
+          # Wait for the API to be ready
+          wait_for_api: true
 
       # Set the release version
       - name: Set Release Version
