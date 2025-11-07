@@ -129,6 +129,223 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - Uses the `stop` command to gracefully terminate the posture service.
    - Useful for cleaning up resources at the end of a workflow or before starting a new posture service instance.
 
+## Automation Options
+
+This GitHub Action provides multiple automation capabilities that can be combined to create comprehensive, hands-off security workflows. These options work together to provide defense-in-depth for your CI/CD pipelines.
+
+### Overview of Automation Capabilities
+
+| Capability | Input | Type | Scope | Use Case |
+|-----------|-------|------|-------|----------|
+| **Auto-Remediation** | `auto_remediate` | One-shot | Security posture | Fix security issues before build |
+| **AI Assistant (Agentic)** | `agentic_mode` | Continuous | Security todos | Automated "Do It For Me" security management |
+| **Network Violation Detection** | `exit_on_*` | One-shot | Network traffic | Detect supply chain attacks, unauthorized connections |
+| **Pipeline Cancellation** | `cancel_on_violation` | Real-time | CI/CD pipeline | Stop builds immediately on security violations |
+
+### 1. Auto-Remediation (One-Shot)
+
+**Purpose**: Automatically fix common security issues before your build starts.
+
+**How to enable**:
+```yaml
+- uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    auto_remediate: true
+    skip_remediations: "remote_login,firewall"  # Optional: skip specific fixes
+```
+
+**Best for**:
+- Hardening CI runners before build
+- Quick security posture improvement
+- Automated compliance enforcement
+
+**Limitations**:
+- One-time action only (doesn't monitor for new issues during build)
+- Some fixes skipped by default to avoid disrupting CI environment
+
+### 2. AI Assistant (Continuous Remediation)
+
+**Purpose**: Continuous "Do It For Me" security management using LLM intelligence throughout workflow execution.
+
+**How to enable**:
+```yaml
+- uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+    edamame_id: ${{ github.run_id }}
+    agentic_mode: auto              # or 'analyze' for recommendations only
+    agentic_provider: claude        # or 'openai', 'ollama'
+    agentic_interval: 600           # Check every 10 minutes
+  env:
+    EDAMAME_LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    EDAMAME_AGENTIC_SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}  # Optional
+    EDAMAME_AGENTIC_SLACK_ACTIONS_CHANNEL: "C01234567"  # Optional
+```
+
+**Modes**:
+- **`auto`**: Automatically resolves safe/low-risk items; escalates high-risk items
+- **`analyze`**: Provides recommendations without executing actions
+- **`disabled`**: No AI processing (default)
+
+**Best for**:
+- Long-running workflows that need adaptive security
+- Reducing manual security work
+- Teams wanting AI-powered security automation
+
+**Cost**: ~$1-3/day for 24/7 operation with cloud LLMs; $0 with Ollama (local)
+
+### 3. Network Violation Detection & Exit Codes
+
+**Purpose**: Detect unauthorized network connections and fail workflows when violations occur.
+
+**How to enable**:
+```yaml
+# At workflow start
+- name: Setup EDAMAME Posture
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    network_scan: true
+    packet_capture: true
+    whitelist: github_ubuntu
+
+# At workflow end
+- name: Verify Network Activity
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    dump_sessions_log: true
+    exit_on_whitelist_exceptions: true   # Fail if traffic violates whitelist
+    exit_on_blacklisted_sessions: true   # Fail if blacklisted IPs contacted
+    exit_on_anomalous_sessions: true     # Fail if ML detects anomalies
+```
+
+**Exit Behavior**:
+- Workflow succeeds (exit 0) if no violations detected
+- Workflow fails (exit 1) if any enabled check detects violations
+- Detailed session logs show exactly what was detected
+
+**Best for**:
+- Supply chain attack prevention (like CVE-2025-30066)
+- Zero-trust CI/CD networking
+- Detecting malicious dependencies or compromised build steps
+
+### 4. Pipeline Cancellation (Real-Time)
+
+**Purpose**: Immediately stop workflows when security violations are detected during execution (not just at end).
+
+**How to enable**:
+```yaml
+- uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+    edamame_id: ${{ github.run_id }}
+    network_scan: true
+    packet_capture: true
+    whitelist: github_ubuntu
+    check_whitelist: true           # Enable real-time whitelist checking
+    check_blacklist: true           # Enable real-time blacklist checking
+    check_anomalous: true           # Enable real-time anomaly detection
+    cancel_on_violation: true       # Cancel pipeline on violation
+```
+
+**How it works**:
+- EDAMAME monitors network traffic in real-time during workflow execution
+- If a violation is detected, attempts to cancel the entire workflow immediately
+- Provides defense-in-depth beyond just exit code checking at workflow end
+
+**Best for**:
+- High-security environments where violations must stop immediately
+- Preventing data exfiltration in progress
+- Reducing wasted compute time on compromised builds
+
+### Combining Automation Options
+
+You can combine all these capabilities for comprehensive automation:
+
+```yaml
+name: Comprehensive Security Automation
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Setup with all automation enabled
+      - name: Setup EDAMAME Posture with Full Automation
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          # Authentication
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}
+          
+          # One-shot remediation
+          auto_remediate: true
+          
+          # Network monitoring with real-time cancellation
+          network_scan: true
+          packet_capture: true
+          whitelist: github_ubuntu
+          check_whitelist: true
+          check_blacklist: true
+          check_anomalous: true
+          cancel_on_violation: true
+          
+          # AI Assistant for continuous remediation
+          agentic_mode: auto
+          agentic_provider: claude
+          agentic_interval: 600
+        env:
+          EDAMAME_LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EDAMAME_AGENTIC_SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          EDAMAME_AGENTIC_SLACK_ACTIONS_CHANNEL: "C01234567"
+      
+      # 2. Your build/test steps
+      - name: Build
+        run: |
+          npm install
+          npm run build
+          npm test
+      
+      # 3. Final verification with exit on violations
+      - name: Verify Network Activity
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: true
+          exit_on_blacklisted_sessions: true
+          exit_on_anomalous_sessions: true
+```
+
+### Recommended Patterns by Environment
+
+| Environment | Auto-Remediate | AI Assistant | Network Detection | Cancellation |
+|------------|----------------|--------------|-------------------|--------------|
+| **Public Repos** | ✅ Yes | ❌ No | `exit_on_whitelist_exceptions: true` | ❌ No |
+| **Private Repos (Dev)** | ✅ Yes | `analyze` mode | `exit_on_whitelist_exceptions: true` | ❌ No |
+| **Private Repos (Prod)** | ✅ Yes | `disabled` | All exit flags | ✅ Yes |
+| **Air-Gapped CI** | ✅ Yes | `auto` (Ollama) | `exit_on_whitelist_exceptions: true` | ✅ Yes |
+
+### Disconnected Mode (No Hub Required)
+
+All automation features work in disconnected mode without requiring EDAMAME Hub authentication:
+
+```yaml
+- uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    disconnected_mode: true        # No Hub authentication needed
+    auto_remediate: true           # Still works
+    network_scan: true
+    packet_capture: true
+    whitelist: github_ubuntu
+    check_whitelist: true          # Still works
+    cancel_on_violation: true      # Still works
+    # Note: AI Assistant requires Hub connection or local Ollama
+```
+
 ## Usage Pattern
 
 For optimal security monitoring in your CI/CD workflows, follow this recommended pattern:
