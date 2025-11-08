@@ -5,6 +5,12 @@ on:
     # Run daily at 01:00 UTC
     - cron: '0 1 * * *'
   workflow_dispatch:
+    inputs:
+      reset_artifact:
+        description: 'Delete existing auto-whitelist artifact to start fresh'
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - 'dev'
@@ -169,6 +175,24 @@ jobs:
           exit_on_whitelist_exceptions: false
           dump_sessions_log: true
         continue-on-error: true
+
+      # Test auto-whitelist feature (macOS and Linux only)
+      - name: Test auto-whitelist feature
+        id: test-auto-whitelist
+        if: runner.os == 'macos' || runner.os == 'linux'
+        uses: ./
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          auto_whitelist: true
+          auto_whitelist_artifact_name: test-auto-whitelist-artifact-${{ runner.os }}-${{ matrix.arch }}
+          auto_whitelist_stability_threshold: "0"
+          auto_whitelist_stability_consecutive_runs: "3"
+          auto_whitelist_max_iterations: "10"
+          dump_sessions_log: true
+          display_logs: false
+        continue-on-error: true
         
       - name: Slack alerts
         if: |
@@ -183,7 +207,8 @@ jobs:
           (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
           steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success'
+          steps.test-sessions-disconnected.outcome != 'success' ||
+          (runner.os != 'Windows' && steps.test-auto-whitelist.outcome != 'success')
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
@@ -200,6 +225,7 @@ jobs:
             - Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Auto-Whitelist: ${{ (runner.os == 'Windows' || steps.test-auto-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
             Branch: ${{ github.ref }}
             More details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
@@ -218,8 +244,24 @@ jobs:
           (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
           steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success'
+          steps.test-sessions-disconnected.outcome != 'success' ||
+          (runner.os != 'Windows' && steps.test-auto-whitelist.outcome != 'success')
         run: |
+          echo "## Test Results Summary"
+          echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Create Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-create-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
+          echo "- Set Custom Whitelist: ${{ (runner.os == 'Windows' || steps.test-set-custom-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
+          echo "- Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
+          echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Auto-Whitelist: ${{ (runner.os == 'Windows' || steps.test-auto-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
+          echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo ""
           echo "Forcing job to fail because tests did not succeed."
           exit 1
 
@@ -381,6 +423,23 @@ jobs:
           dump_sessions_log: true
         continue-on-error: true
 
+      # Test auto-whitelist feature
+      - name: Test auto-whitelist feature
+        id: test-auto-whitelist
+        uses: ./
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          auto_whitelist: true
+          auto_whitelist_artifact_name: test-auto-whitelist-artifact-container-${{ matrix.container_name }}
+          auto_whitelist_stability_threshold: "0"
+          auto_whitelist_stability_consecutive_runs: "3"
+          auto_whitelist_max_iterations: "10"
+          dump_sessions_log: true
+          display_logs: false
+        continue-on-error: true
+
       - name: Slack alerts
         # Won't work on 18.04 because of glibc version
         if: |
@@ -395,6 +454,7 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
+          steps.test-auto-whitelist.outcome != 'success' ||
           steps.test-stop.outcome != 'success') && !contains(matrix.container_name, '18.04')
         uses: slackapi/slack-github-action@v1.26.0
         with:
@@ -412,6 +472,7 @@ jobs:
             - Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Auto-Whitelist: ${{ steps.test-auto-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             Branch: ${{ github.ref }}
             More details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -431,6 +492,7 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
+          steps.test-auto-whitelist.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
         run: |
           echo "## Test Results Summary"
@@ -445,6 +507,7 @@ jobs:
           echo "- Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Auto-Whitelist: ${{ steps.test-auto-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo ""
           echo "Forcing job to fail because some tests did not succeed."
@@ -619,6 +682,23 @@ jobs:
           exit_on_whitelist_exceptions: false
           dump_sessions_log: true
         continue-on-error: true
+
+      # Test auto-whitelist feature
+      - name: Test auto-whitelist feature
+        id: test-auto-whitelist
+        uses: ./
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          auto_whitelist: true
+          auto_whitelist_artifact_name: test-auto-whitelist-artifact-alpine-${{ matrix.arch }}-${{ matrix.target }}
+          auto_whitelist_stability_threshold: "0"
+          auto_whitelist_stability_consecutive_runs: "3"
+          auto_whitelist_max_iterations: "10"
+          dump_sessions_log: true
+          display_logs: false
+        continue-on-error: true
         
       - name: Slack alerts
         if: |
@@ -633,6 +713,7 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
+          steps.test-auto-whitelist.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
@@ -677,6 +758,7 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
+          steps.test-auto-whitelist.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
         shell: alpine.sh {0}
         run: |
@@ -692,7 +774,9 @@ jobs:
           echo "- Augment Whitelist: ${{ (runner.os == 'Windows' || steps.test-augment-whitelist.outcome == 'success') && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Auto-Whitelist: ${{ steps.test-auto-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo ""
           echo "Forcing alpine job to fail because some tests did not succeed."
           exit 1
+

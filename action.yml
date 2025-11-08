@@ -91,7 +91,7 @@ inputs:
   whitelist:
     description: "Whitelist to use for the network scan (only applicable if the background process is started)"
     required: false
-    default: "github"
+    default: ""
   exit_on_whitelist_exceptions:
     description: "Exit with error when whitelist exceptions are detected (directly passed to get-sessions)"
     required: false
@@ -124,6 +124,26 @@ inputs:
     description: "Augment the existing custom whitelists using current network sessions and merge the result back into the file specified by custom_whitelists_path. Requires network_scan=true."
     required: false
     default: "false"
+  auto_whitelist:
+    description: "Enable auto-whitelist mode: first run is listen-only, subsequent runs refine whitelist until stable. Requires disconnected_mode=true, network_scan=true, packet_capture=true."
+    required: false
+    default: "false"
+  auto_whitelist_artifact_name:
+    description: "Name for the GitHub artifact to store auto-whitelist state (default: edamame-auto-whitelist)"
+    required: false
+    default: "edamame-auto-whitelist"
+  auto_whitelist_stability_threshold:
+    description: "Percentage threshold for whitelist stability (default: 0% - no new endpoints)"
+    required: false
+    default: "0"
+  auto_whitelist_stability_consecutive_runs:
+    description: "Number of consecutive runs with no changes required for stability (default: 3)"
+    required: false
+    default: "3"
+  auto_whitelist_max_iterations:
+    description: "Maximum number of auto-whitelist iterations before declaring stable (default: 10)"
+    required: false
+    default: "20"
   include_local_traffic:
     description: "Include local traffic in network capture and session logs"
     required: false
@@ -823,6 +843,53 @@ runs:
         fi
       shell: bash
 
+    - name: Download auto-whitelist artifact if in auto-whitelist mode
+      if: ${{ inputs.auto_whitelist == 'true' }}
+      run: |
+        cd
+        # Try to download the artifact from the previous run
+        echo "Attempting to download auto-whitelist artifact: ${{ inputs.auto_whitelist_artifact_name }}"
+        
+        # Use gh CLI to download artifact
+        if gh run download --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" 2>/dev/null; then
+          echo "Auto-whitelist artifact downloaded successfully"
+          # Check if the whitelist file exists
+          if [[ -f "auto_whitelist.json" ]]; then
+            # Read iteration count
+            if [[ -f "auto_whitelist_iteration.txt" ]]; then
+              ITERATION=$(cat auto_whitelist_iteration.txt)
+              echo "Current iteration: $ITERATION"
+              echo "AUTO_WHITELIST_ITERATION=$ITERATION" >> $GITHUB_ENV
+              echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
+            else
+              echo "AUTO_WHITELIST_ITERATION=1" >> $GITHUB_ENV
+              echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
+            fi
+            
+            # Read consecutive stable runs count
+            if [[ -f "auto_whitelist_stable_count.txt" ]]; then
+              STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
+              echo "Consecutive stable runs: $STABLE_COUNT"
+              echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
+            else
+              echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+            fi
+          else
+            echo "Artifact downloaded but whitelist file not found, treating as first run"
+            echo "AUTO_WHITELIST_ITERATION=0" >> $GITHUB_ENV
+            echo "AUTO_WHITELIST_EXISTS=false" >> $GITHUB_ENV
+            echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+          fi
+        else
+          echo "No previous auto-whitelist artifact found, this is the first run (listen-only mode)"
+          echo "AUTO_WHITELIST_ITERATION=0" >> $GITHUB_ENV
+          echo "AUTO_WHITELIST_EXISTS=false" >> $GITHUB_ENV
+          echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+        fi
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+
     - name: Apply custom whitelists if provided
       run: |
         if [[ -n "${{ inputs.custom_whitelists_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" && "${{ inputs.set_custom_whitelists }}" == "true" ]]; then
@@ -834,6 +901,18 @@ runs:
           else
             echo "Error: Custom whitelists file not found at ${{ inputs.custom_whitelists_path }}"
             exit 1
+          fi
+        fi
+        
+        # Auto-whitelist mode: apply previous iteration's whitelist if it exists
+        if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
+          cd
+          if [[ "$AUTO_WHITELIST_EXISTS" == "true" && -f "auto_whitelist.json" ]]; then
+            echo "Auto-whitelist mode: Applying whitelist from iteration $AUTO_WHITELIST_ITERATION"
+            $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "auto_whitelist.json"
+            echo "Auto-whitelist applied successfully"
+          else
+            echo "Auto-whitelist mode: First run (listen-only), no whitelist to apply yet"
           fi
         fi
       shell: bash
@@ -1011,8 +1090,88 @@ runs:
 
     - name: Dump sessions log if requested
       run: |
+        cd
+        
+        # Handle auto-whitelist mode
+        if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
+          echo "=== Auto-whitelist Mode: Processing Iteration $AUTO_WHITELIST_ITERATION ==="
+          
+          # Create/augment whitelist from current sessions
+          if [[ "$AUTO_WHITELIST_EXISTS" == "false" ]]; then
+            # First run: create initial whitelist
+            echo "First run: Creating initial whitelist from captured traffic..."
+            $EDAMAME_POSTURE_CMD create-custom-whitelists > auto_whitelist_new.json
+            
+            # Save iteration count
+            echo "1" > auto_whitelist_iteration.txt
+            mv auto_whitelist_new.json auto_whitelist.json
+            
+            echo "Initial whitelist created with $(jq '.whitelists[].endpoints | length' auto_whitelist.json | awk '{s+=$1} END {print s}') endpoints"
+            echo "AUTO_WHITELIST_STATUS=created" >> $GITHUB_ENV
+            echo "AUTO_WHITELIST_STABLE=false" >> $GITHUB_ENV
+          else
+            # Subsequent run: augment and check stability
+            echo "Iteration $AUTO_WHITELIST_ITERATION: Augmenting whitelist..."
+            $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json
+            
+            # Compare old and new whitelists
+            DIFF_PERCENT=$($EDAMAME_POSTURE_CMD compare-custom-whitelists-from-files auto_whitelist.json auto_whitelist_new.json | sed 's/%//')
+            echo "Whitelist difference: ${DIFF_PERCENT}%"
+            echo "AUTO_WHITELIST_DIFF=$DIFF_PERCENT" >> $GITHUB_ENV
+            
+            # Check if this iteration is stable (below threshold)
+            if (( $(echo "$DIFF_PERCENT <= ${{ inputs.auto_whitelist_stability_threshold }}" | bc -l) )); then
+              # Increment consecutive stable runs count
+              STABLE_COUNT=$((AUTO_WHITELIST_STABLE_COUNT + 1))
+              echo "$STABLE_COUNT" > auto_whitelist_stable_count.txt
+              echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
+              
+              echo "✅ Whitelist is STABLE for this run (diff: ${DIFF_PERCENT}% <= threshold: ${{ inputs.auto_whitelist_stability_threshold }}%)"
+              echo "   Consecutive stable runs: $STABLE_COUNT / ${{ inputs.auto_whitelist_stability_consecutive_runs }} required"
+              
+              # Check if we have enough consecutive stable runs
+              if [[ $STABLE_COUNT -ge ${{ inputs.auto_whitelist_stability_consecutive_runs }} ]]; then
+                echo "🎉 Whitelist is FULLY STABLE ($STABLE_COUNT consecutive runs with no changes)"
+                # Update iteration and whitelist even when fully stable
+                NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
+                echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
+                mv auto_whitelist_new.json auto_whitelist.json
+                echo "AUTO_WHITELIST_STATUS=stable" >> $GITHUB_ENV
+                echo "AUTO_WHITELIST_STABLE=true" >> $GITHUB_ENV
+              else
+                echo "🔄 Whitelist is stable for this run, but need more consecutive confirmations"
+                # Update iteration and whitelist when stable but not fully stable
+                NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
+                echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
+                mv auto_whitelist_new.json auto_whitelist.json
+                echo "AUTO_WHITELIST_STATUS=confirming_stability" >> $GITHUB_ENV
+                echo "AUTO_WHITELIST_STABLE=false" >> $GITHUB_ENV
+              fi
+            else
+              # Whitelist changed - reset consecutive stable count
+              echo "🔄 Whitelist is EVOLVING (diff: ${DIFF_PERCENT}% > threshold: ${{ inputs.auto_whitelist_stability_threshold }}%)"
+              echo "0" > auto_whitelist_stable_count.txt
+              echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+              
+              NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
+              echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
+              mv auto_whitelist_new.json auto_whitelist.json
+              
+              # Check if max iterations reached
+              if [[ $NEXT_ITERATION -ge ${{ inputs.auto_whitelist_max_iterations }} ]]; then
+                echo "⚠️  Maximum iterations reached (${{ inputs.auto_whitelist_max_iterations }}), declaring stable"
+                echo "AUTO_WHITELIST_STATUS=max_iterations" >> $GITHUB_ENV
+                echo "AUTO_WHITELIST_STABLE=true" >> $GITHUB_ENV
+              else
+                echo "AUTO_WHITELIST_STATUS=evolving" >> $GITHUB_ENV
+                echo "AUTO_WHITELIST_STABLE=false" >> $GITHUB_ENV
+              fi
+            fi
+          fi
+        fi
+        
+        # Regular dump sessions log
         if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
-          cd
           ARGS=(get-sessions)
 
           if [[ "${{ inputs.exit_on_whitelist_exceptions }}" == "true" ]]; then
@@ -1027,6 +1186,12 @@ runs:
             ARGS+=(--fail-on-anomalous)
           fi
 
+          # In auto-whitelist mode with stable whitelist, enforce violations
+          if [[ "${{ inputs.auto_whitelist }}" == "true" && "$AUTO_WHITELIST_STABLE" == "true" ]]; then
+            echo "Auto-whitelist is stable, enforcing whitelist violations"
+            ARGS+=(--fail-on-whitelist)
+          fi
+
           $EDAMAME_POSTURE_CMD "${ARGS[@]}"
         fi
       shell: bash
@@ -1038,6 +1203,61 @@ runs:
           cd
           #$EDAMAME_POSTURE_CMD logs
           find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+        fi
+      shell: bash
+
+    - name: Upload auto-whitelist artifact
+      if: ${{ inputs.auto_whitelist == 'true' && always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.auto_whitelist_artifact_name }}
+        path: |
+          ~/auto_whitelist.json
+          ~/auto_whitelist_iteration.txt
+          ~/auto_whitelist_stable_count.txt
+        retention-days: 90
+        overwrite: true
+
+    - name: Display auto-whitelist status
+      if: ${{ inputs.auto_whitelist == 'true' }}
+      run: |
+        cd
+        echo ""
+        echo "=== Auto-whitelist Status ==="
+        echo "Iteration: $AUTO_WHITELIST_ITERATION"
+        echo "Status: $AUTO_WHITELIST_STATUS"
+        echo "Stable: $AUTO_WHITELIST_STABLE"
+        if [[ -n "$AUTO_WHITELIST_DIFF" ]]; then
+          echo "Difference: ${AUTO_WHITELIST_DIFF}%"
+        fi
+        if [[ -n "$AUTO_WHITELIST_STABLE_COUNT" ]]; then
+          echo "Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / ${{ inputs.auto_whitelist_stability_consecutive_runs }}"
+        fi
+        
+        # Display summary
+        if [[ "$AUTO_WHITELIST_STATUS" == "created" ]]; then
+          echo ""
+          echo "ℹ️  This was the first run in listen-only mode."
+          echo "   Re-run the workflow to start refining the whitelist."
+        elif [[ "$AUTO_WHITELIST_STATUS" == "evolving" ]]; then
+          echo ""
+          echo "🔄 Whitelist is still evolving (${AUTO_WHITELIST_DIFF}% change)."
+          echo "   Consecutive stable runs reset to 0."
+          echo "   Re-run the workflow to continue refinement."
+        elif [[ "$AUTO_WHITELIST_STATUS" == "confirming_stability" ]]; then
+          echo ""
+          echo "🔄 Whitelist had no changes this run (${AUTO_WHITELIST_DIFF}%)."
+          echo "   Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / ${{ inputs.auto_whitelist_stability_consecutive_runs }}"
+          echo "   Re-run the workflow to confirm stability."
+        elif [[ "$AUTO_WHITELIST_STATUS" == "stable" ]]; then
+          echo ""
+          echo "✅ Whitelist has stabilized!"
+          echo "   Achieved $AUTO_WHITELIST_STABLE_COUNT consecutive runs with no changes."
+          echo "   Future runs will enforce this whitelist and fail on violations."
+        elif [[ "$AUTO_WHITELIST_STATUS" == "max_iterations" ]]; then
+          echo ""
+          echo "⚠️  Maximum iterations reached."
+          echo "   Whitelist declared stable. Future runs will enforce this whitelist."
         fi
       shell: bash
 
