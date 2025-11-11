@@ -97,7 +97,7 @@ jobs:
           curl -s --max-time 5 https://www.github.com > /dev/null || true
           curl -s --max-time 5 https://registry.npmjs.org > /dev/null || true
           curl -s --max-time 5 https://api.github.com > /dev/null || true
-          sleep 5
+          sleep 15
 
       - name: Iteration 1 - Finalize auto-whitelist
         id: iteration1-finalize
@@ -111,6 +111,8 @@ jobs:
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
+          set_custom_whitelists: true
+          custom_whitelists_path: ~/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 1 - Stop EDAMAME Posture
@@ -133,6 +135,21 @@ jobs:
           done
           shopt -u nullglob
           ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-1" || true
+      - name: Iteration 1 - Validate whitelist contents
+        if: steps.iteration1-start.outcome == 'success'
+        run: |
+          if [[ ! -s ~/auto_whitelist.json ]]; then
+            echo 'auto_whitelist.json is missing or empty' >&2
+            ls -la ~/*.json ~/*.txt 2>/dev/null || true
+            exit 1
+          fi
+          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          echo "Endpoint count: $COUNT"
+          if [[ "$COUNT" == "0" ]]; then
+            echo 'Whitelist contains no endpoints' >&2
+            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            exit 1
+          fi
 
       - name: Iteration 1 - Summary
         if: steps.iteration1-start.outcome == 'success'
@@ -176,7 +193,7 @@ jobs:
           curl -s --max-time 5 https://api.github.com > /dev/null || true
           curl -s --max-time 5 https://www.npmjs.com > /dev/null || true
           curl -s --max-time 5 https://cdn.jsdelivr.net > /dev/null || true
-          sleep 5
+          sleep 15
 
       - name: Iteration 2 - Finalize auto-whitelist
         id: iteration2-finalize
@@ -190,6 +207,8 @@ jobs:
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
+          set_custom_whitelists: true
+          custom_whitelists_path: ~/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 2 - Stop EDAMAME Posture
@@ -212,6 +231,21 @@ jobs:
           done
           shopt -u nullglob
           ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-2" || true
+      - name: Iteration 2 - Validate whitelist contents
+        if: steps.iteration2-start.outcome == 'success'
+        run: |
+          if [[ ! -s ~/auto_whitelist.json ]]; then
+            echo 'auto_whitelist.json is missing or empty' >&2
+            ls -la ~/*.json ~/*.txt 2>/dev/null || true
+            exit 1
+          fi
+          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          echo "Endpoint count: $COUNT"
+          if [[ "$COUNT" == "0" ]]; then
+            echo 'Whitelist contains no endpoints' >&2
+            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            exit 1
+          fi
 
       - name: Iteration 2 - Summary
         if: steps.iteration2-start.outcome == 'success'
@@ -257,7 +291,7 @@ jobs:
           curl -s --max-time 5 https://cdn.jsdelivr.net > /dev/null || true
           curl -s --max-time 5 https://fonts.googleapis.com > /dev/null || true
           curl -s --max-time 5 https://www.google-analytics.com > /dev/null || true
-          sleep 5
+          sleep 15
 
       - name: Iteration 3 - Finalize auto-whitelist
         id: iteration3-finalize
@@ -271,6 +305,8 @@ jobs:
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
+          set_custom_whitelists: true
+          custom_whitelists_path: ~/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 3 - Stop EDAMAME Posture
@@ -293,6 +329,21 @@ jobs:
           done
           shopt -u nullglob
           ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-3" || true
+      - name: Iteration 3 - Validate whitelist contents
+        if: steps.iteration3-start.outcome == 'success'
+        run: |
+          if [[ ! -s ~/auto_whitelist.json ]]; then
+            echo 'auto_whitelist.json is missing or empty' >&2
+            ls -la ~/*.json ~/*.txt 2>/dev/null || true
+            exit 1
+          fi
+          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          echo "Endpoint count: $COUNT"
+          if [[ "$COUNT" == "0" ]]; then
+            echo 'Whitelist contains no endpoints' >&2
+            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            exit 1
+          fi
 
       - name: Iteration 3 - Summary
         if: steps.iteration3-start.outcome == 'success'
@@ -342,7 +393,7 @@ jobs:
           do
             curl -s --max-time 5 "$url" > /dev/null || true
           done
-          sleep 5
+          sleep 15
 
       - name: Iteration 4 - Finalize auto-whitelist
         id: iteration4-finalize
@@ -356,6 +407,8 @@ jobs:
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
+          set_custom_whitelists: true
+          custom_whitelists_path: ~/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 4 - Stop EDAMAME Posture
@@ -378,6 +431,21 @@ jobs:
           done
           shopt -u nullglob
           ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-4" || true
+      - name: Iteration 4 - Validate whitelist contents
+        if: steps.iteration4-start.outcome == 'success'
+        run: |
+          if [[ ! -s ~/auto_whitelist.json ]]; then
+            echo 'auto_whitelist.json is missing or empty' >&2
+            ls -la ~/*.json ~/*.txt 2>/dev/null || true
+            exit 1
+          fi
+          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          echo "Endpoint count: $COUNT"
+          if [[ "$COUNT" == "0" ]]; then
+            echo 'Whitelist contains no endpoints' >&2
+            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            exit 1
+          fi
 
       - name: Iteration 4 - Summary
         if: steps.iteration4-start.outcome == 'success'
@@ -427,7 +495,7 @@ jobs:
           do
             curl -s --max-time 5 "$url" > /dev/null || true
           done
-          sleep 5
+          sleep 15
 
       - name: Iteration 5 - Finalize auto-whitelist
         id: iteration5-finalize
@@ -441,6 +509,8 @@ jobs:
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
+          set_custom_whitelists: true
+          custom_whitelists_path: ~/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 5 - Stop EDAMAME Posture
@@ -463,6 +533,21 @@ jobs:
           done
           shopt -u nullglob
           ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-5" || true
+      - name: Iteration 5 - Validate whitelist contents
+        if: steps.iteration5-start.outcome == 'success'
+        run: |
+          if [[ ! -s ~/auto_whitelist.json ]]; then
+            echo 'auto_whitelist.json is missing or empty' >&2
+            ls -la ~/*.json ~/*.txt 2>/dev/null || true
+            exit 1
+          fi
+          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          echo "Endpoint count: $COUNT"
+          if [[ "$COUNT" == "0" ]]; then
+            echo 'Whitelist contains no endpoints' >&2
+            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            exit 1
+          fi
 
       - name: Iteration 5 - Summary
         if: steps.iteration5-start.outcome == 'success'
@@ -512,7 +597,7 @@ jobs:
           do
             curl -s --max-time 5 "$url" > /dev/null || true
           done
-          sleep 5
+          sleep 15
 
       - name: Iteration 6 - Finalize auto-whitelist
         id: iteration6-finalize
@@ -526,6 +611,8 @@ jobs:
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
+          set_custom_whitelists: true
+          custom_whitelists_path: ~/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 6 - Stop EDAMAME Posture
@@ -548,6 +635,21 @@ jobs:
           done
           shopt -u nullglob
           ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-6" || true
+      - name: Iteration 6 - Validate whitelist contents
+        if: steps.iteration6-start.outcome == 'success'
+        run: |
+          if [[ ! -s ~/auto_whitelist.json ]]; then
+            echo 'auto_whitelist.json is missing or empty' >&2
+            ls -la ~/*.json ~/*.txt 2>/dev/null || true
+            exit 1
+          fi
+          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          echo "Endpoint count: $COUNT"
+          if [[ "$COUNT" == "0" ]]; then
+            echo 'Whitelist contains no endpoints' >&2
+            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            exit 1
+          fi
 
       - name: Iteration 6 - Assert whitelist stability
         if: steps.iteration6-start.outcome == 'success'
@@ -601,7 +703,7 @@ jobs:
           do
             curl -s --max-time 5 "$url" > /dev/null || true
           done
-          sleep 5
+          sleep 15
 
       - name: Iteration 7 - Finalize auto-whitelist (enforcement check)
         id: iteration7-finalize
@@ -637,6 +739,21 @@ jobs:
           done
           shopt -u nullglob
           ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-7" || true
+      - name: Iteration 7 - Validate whitelist contents
+        if: steps.iteration7-start.outcome == 'success'
+        run: |
+          if [[ ! -s ~/auto_whitelist.json ]]; then
+            echo 'auto_whitelist.json is missing or empty' >&2
+            ls -la ~/*.json ~/*.txt 2>/dev/null || true
+            exit 1
+          fi
+          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          echo "Endpoint count: $COUNT"
+          if [[ "$COUNT" == "0" ]]; then
+            echo 'Whitelist contains no endpoints' >&2
+            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            exit 1
+          fi
 
       - name: Iteration 7 - Summary
         if: steps.iteration7-start.outcome == 'success'
@@ -695,7 +812,7 @@ jobs:
           echo "Sending unauthorized traffic (should trigger enforcement failure)..."
           curl -s --max-time 5 https://www.example.com > /dev/null || true
           curl -s --max-time 5 https://httpbin.org/get > /dev/null || true
-          sleep 5
+          sleep 15
 
       - name: Iteration 8 - Finalize auto-whitelist (expect failure)
         id: iteration8-finalize
