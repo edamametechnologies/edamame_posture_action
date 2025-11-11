@@ -519,6 +519,29 @@ jobs:
           path: ~/
           github-token: ${{ github.token }}
 
+      - name: Copy Artifacts to Home Directory for Action
+        run: |
+          echo "=== Copying Artifacts to Home Directory ==="
+          echo "The action uses 'cd' which goes to home directory, so we need files there"
+          echo "Checking for artifact files in ~/:"
+          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No artifact files found"
+          echo ""
+          if [[ -f ~/auto_whitelist_stable_count.txt ]]; then
+            STABLE_COUNT=$(cat ~/auto_whitelist_stable_count.txt)
+            echo "✅ Stable count file found: $STABLE_COUNT"
+            echo "Expected: 3 (enforcement should be active)"
+          else
+            echo "⚠️  Stable count file NOT found!"
+          fi
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "✅ Whitelist file found"
+            echo "File size: $(wc -c < ~/auto_whitelist.json) bytes"
+          else
+            echo "⚠️  Whitelist file NOT found!"
+          fi
+          echo ""
+          echo "Files are already in ~/ (home directory) where the action expects them"
+
       - name: Setup EDAMAME Posture - Iteration 7 (Start Background Process)
         id: iteration-7-start
         uses: ./
@@ -551,16 +574,35 @@ jobs:
           echo "Waiting for traffic to be captured..."
           sleep 5
 
+      - name: Verify Background Process Still Running - Iteration 7
+        if: steps.iteration-7-start.outcome == 'success'
+        run: |
+          echo "=== Verifying Background Process Still Running ==="
+          EDAMAME_CMD=""
+          if command -v edamame_posture &> /dev/null; then
+            EDAMAME_CMD="edamame_posture"
+          elif [[ -f ~/edamame_posture ]]; then
+            EDAMAME_CMD="~/edamame_posture"
+          fi
+          
+          if [[ -n "$EDAMAME_CMD" ]]; then
+            sudo $EDAMAME_CMD status || echo "⚠️  Process not running!"
+          fi
+
       - name: Check Sessions and Verify No Violations - Iteration 7
         id: iteration-7-pass
         if: steps.iteration-7-start.outcome == 'success'
         uses: ./
         with:
+          auto_whitelist: true
+          auto_whitelist_artifact_name: test-complex-auto-whitelist-${{ runner.os }}
+          auto_whitelist_stability_threshold: "0"
+          auto_whitelist_stability_consecutive_runs: "3"
           set_custom_whitelists: true
           custom_whitelists_path: ~/auto_whitelist.json
           dump_sessions_log: true
           exit_on_whitelist_exceptions: true
-          display_logs: false
+          display_logs: true
         continue-on-error: true
 
       - name: Verify Iteration 7 Pass Status
@@ -597,6 +639,29 @@ jobs:
           name: test-complex-auto-whitelist-${{ runner.os }}
           path: ~/
           github-token: ${{ github.token }}
+
+      - name: Copy Artifacts to Home Directory for Action
+        run: |
+          echo "=== Copying Artifacts to Home Directory ==="
+          echo "The action uses 'cd' which goes to home directory, so we need files there"
+          echo "Checking for artifact files in ~/:"
+          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No artifact files found"
+          echo ""
+          if [[ -f ~/auto_whitelist_stable_count.txt ]]; then
+            STABLE_COUNT=$(cat ~/auto_whitelist_stable_count.txt)
+            echo "✅ Stable count file found: $STABLE_COUNT"
+            echo "Expected: 3 (enforcement should be active)"
+          else
+            echo "⚠️  Stable count file NOT found!"
+          fi
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "✅ Whitelist file found"
+            echo "File size: $(wc -c < ~/auto_whitelist.json) bytes"
+          else
+            echo "⚠️  Whitelist file NOT found!"
+          fi
+          echo ""
+          echo "Files are already in ~/ (home directory) where the action expects them"
 
       - name: Setup EDAMAME Posture - Iteration 8 (Start Background Process)
         id: iteration-8-start
