@@ -90,6 +90,21 @@ jobs:
           exit_on_whitelist_exceptions: false
           display_logs: false
 
+      - name: Iteration 1 - Wait for capture readiness
+        if: steps.iteration1-start.outcome == 'success'
+        run: |
+          echo "Waiting for background process to settle..."
+          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
+          elif command -v edamame_posture &> /dev/null; then
+            edamame_posture wait-for-connection 30 || true
+          elif [[ -f ~/edamame_posture ]]; then
+            ~/edamame_posture wait-for-connection 30 || true
+          else
+            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
+          fi
+          sleep 5
+
       - name: Iteration 1 - Simulate baseline traffic
         if: steps.iteration1-start.outcome == 'success'
         run: |
@@ -143,7 +158,7 @@ jobs:
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
@@ -183,6 +198,21 @@ jobs:
           dump_sessions_log: false
           exit_on_whitelist_exceptions: false
           display_logs: false
+
+      - name: Iteration 2 - Wait for capture readiness
+        if: steps.iteration2-start.outcome == 'success'
+        run: |
+          echo "Waiting for background process to settle..."
+          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
+          elif command -v edamame_posture &> /dev/null; then
+            edamame_posture wait-for-connection 30 || true
+          elif [[ -f ~/edamame_posture ]]; then
+            ~/edamame_posture wait-for-connection 30 || true
+          else
+            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
+          fi
+          sleep 5
 
       - name: Iteration 2 - Simulate augmentation traffic
         if: steps.iteration2-start.outcome == 'success'
@@ -239,7 +269,7 @@ jobs:
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
@@ -279,6 +309,21 @@ jobs:
           dump_sessions_log: false
           exit_on_whitelist_exceptions: false
           display_logs: false
+
+      - name: Iteration 3 - Wait for capture readiness
+        if: steps.iteration3-start.outcome == 'success'
+        run: |
+          echo "Waiting for background process to settle..."
+          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
+          elif command -v edamame_posture &> /dev/null; then
+            edamame_posture wait-for-connection 30 || true
+          elif [[ -f ~/edamame_posture ]]; then
+            ~/edamame_posture wait-for-connection 30 || true
+          else
+            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
+          fi
+          sleep 5
 
       - name: Iteration 3 - Simulate additional augmentation traffic
         if: steps.iteration3-start.outcome == 'success'
@@ -337,7 +382,7 @@ jobs:
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
@@ -377,6 +422,21 @@ jobs:
           dump_sessions_log: false
           exit_on_whitelist_exceptions: false
           display_logs: false
+
+      - name: Iteration 4 - Wait for capture readiness
+        if: steps.iteration4-start.outcome == 'success'
+        run: |
+          echo "Waiting for background process to settle..."
+          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
+          elif command -v edamame_posture &> /dev/null; then
+            edamame_posture wait-for-connection 30 || true
+          elif [[ -f ~/edamame_posture ]]; then
+            ~/edamame_posture wait-for-connection 30 || true
+          else
+            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
+          fi
+          sleep 5
 
       - name: Iteration 4 - Simulate stable traffic
         if: steps.iteration4-start.outcome == 'success'
@@ -439,7 +499,7 @@ jobs:
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
@@ -479,6 +539,21 @@ jobs:
           dump_sessions_log: false
           exit_on_whitelist_exceptions: false
           display_logs: false
+
+      - name: Iteration 5 - Wait for capture readiness
+        if: steps.iteration5-start.outcome == 'success'
+        run: |
+          echo "Waiting for background process to settle..."
+          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
+          elif command -v edamame_posture &> /dev/null; then
+            edamame_posture wait-for-connection 30 || true
+          elif [[ -f ~/edamame_posture ]]; then
+            ~/edamame_posture wait-for-connection 30 || true
+          else
+            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
+          fi
+          sleep 5
 
       - name: Iteration 5 - Simulate stable traffic
         if: steps.iteration5-start.outcome == 'success'
@@ -541,7 +616,7 @@ jobs:
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
@@ -581,6 +656,21 @@ jobs:
           dump_sessions_log: false
           exit_on_whitelist_exceptions: false
           display_logs: false
+
+      - name: Iteration 6 - Wait for capture readiness
+        if: steps.iteration6-start.outcome == 'success'
+        run: |
+          echo "Waiting for background process to settle..."
+          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
+          elif command -v edamame_posture &> /dev/null; then
+            edamame_posture wait-for-connection 30 || true
+          elif [[ -f ~/edamame_posture ]]; then
+            ~/edamame_posture wait-for-connection 30 || true
+          else
+            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
+          fi
+          sleep 5
 
       - name: Iteration 6 - Simulate stable traffic
         if: steps.iteration6-start.outcome == 'success'
@@ -643,7 +733,7 @@ jobs:
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
@@ -687,6 +777,21 @@ jobs:
           dump_sessions_log: false
           exit_on_whitelist_exceptions: false
           display_logs: false
+
+      - name: Iteration 7 - Wait for capture readiness
+        if: steps.iteration7-start.outcome == 'success'
+        run: |
+          echo "Waiting for background process to settle..."
+          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
+          elif command -v edamame_posture &> /dev/null; then
+            edamame_posture wait-for-connection 30 || true
+          elif [[ -f ~/edamame_posture ]]; then
+            ~/edamame_posture wait-for-connection 30 || true
+          else
+            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
+          fi
+          sleep 5
 
       - name: Iteration 7 - Simulate whitelisted traffic (should pass)
         if: steps.iteration7-start.outcome == 'success'
@@ -747,7 +852,7 @@ jobs:
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
@@ -793,6 +898,21 @@ jobs:
           dump_sessions_log: false
           exit_on_whitelist_exceptions: false
           display_logs: false
+
+      - name: Iteration 8 - Wait for capture readiness
+        if: steps.iteration8-start.outcome == 'success'
+        run: |
+          echo "Waiting for background process to settle..."
+          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
+          elif command -v edamame_posture &> /dev/null; then
+            edamame_posture wait-for-connection 30 || true
+          elif [[ -f ~/edamame_posture ]]; then
+            ~/edamame_posture wait-for-connection 30 || true
+          else
+            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
+          fi
+          sleep 5
 
       - name: Iteration 8 - Simulate traffic with violations
         if: steps.iteration8-start.outcome == 'success'
