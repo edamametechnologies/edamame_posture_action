@@ -24,7 +24,7 @@ on:
 
 # Auto cancel previous runs if they were not completed.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 # Declare default permissions as read only.
@@ -65,6 +65,23 @@ jobs:
           curl -s --max-time 5 https://registry.npmjs.org > /dev/null || true
           curl -s --max-time 5 https://api.github.com > /dev/null || true
           sleep 2
+
+      - name: Dump Whitelist - Iteration 1
+        if: steps.iteration-1.outcome == 'success'
+        run: |
+          echo "=== Iteration 1 Whitelist Contents ==="
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "Whitelist file exists"
+            echo "File size: $(wc -c < ~/auto_whitelist.json) bytes"
+            echo "Number of endpoints: $(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo 'N/A')"
+            echo ""
+            echo "Whitelist JSON (first 2000 chars):"
+            head -c 2000 ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            echo ""
+            echo "..."
+          else
+            echo "⚠️  Whitelist file not found!"
+          fi
 
       - name: Verify Iteration 1 Status
         if: steps.iteration-1.outcome == 'success'
@@ -131,6 +148,41 @@ jobs:
           curl -s --max-time 5 https://cdn.jsdelivr.net > /dev/null || true
           sleep 2
 
+      - name: Dump Whitelist - Iteration 2
+        if: steps.iteration-2.outcome == 'success'
+        run: |
+          echo "=== Iteration 2 Whitelist Contents ==="
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "Whitelist file exists"
+            echo "File size: $(wc -c < ~/auto_whitelist.json) bytes"
+            echo "Number of endpoints: $(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo 'N/A')"
+            echo ""
+            echo "Whitelist JSON (first 2000 chars):"
+            head -c 2000 ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            echo ""
+            echo "..."
+          else
+            echo "⚠️  Whitelist file not found!"
+          fi
+
+      - name: Compare Whitelists - Iteration 2
+        if: steps.iteration-2.outcome == 'success'
+        run: |
+          echo "=== Iteration 2 Comparison ==="
+          if [[ -f ~/auto_whitelist.json ]] && [[ -f ~/auto_whitelist_old.json ]]; then
+            echo "Comparing old vs new whitelist..."
+            # The action should have done this, but let's verify
+            if command -v edamame_posture &> /dev/null; then
+              DIFF=$(edamame_posture compare-custom-whitelists-from-files ~/auto_whitelist_old.json ~/auto_whitelist.json 2>/dev/null || echo "N/A")
+              echo "Difference percentage: $DIFF"
+            else
+              echo "edamame_posture not available for comparison"
+            fi
+          else
+            echo "⚠️  Cannot compare - missing whitelist files"
+            ls -la ~/auto_whitelist*.json 2>/dev/null || echo "No whitelist files found"
+          fi
+
       - name: Verify Iteration 2 Status
         if: steps.iteration-2.outcome == 'success'
         run: |
@@ -188,6 +240,21 @@ jobs:
           curl -s --max-time 5 https://www.google-analytics.com > /dev/null || true
           sleep 2
 
+      - name: Dump Whitelist - Iteration 3
+        if: steps.iteration-3.outcome == 'success'
+        run: |
+          echo "=== Iteration 3 Whitelist Contents ==="
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "Whitelist file exists"
+            echo "File size: $(wc -c < ~/auto_whitelist.json) bytes"
+            echo "Number of endpoints: $(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo 'N/A')"
+            echo ""
+            echo "Sample endpoints (first 10):"
+            jq -r '.whitelists[0].endpoints[0:10] | .[] | "\(.domain // "N/A") | \(.ip // "N/A") | \(.port // "N/A")"' ~/auto_whitelist.json 2>/dev/null || echo "Could not parse JSON"
+          else
+            echo "⚠️  Whitelist file not found!"
+          fi
+
       - name: Verify Iteration 3 Status
         if: steps.iteration-3.outcome == 'success'
         run: |
@@ -243,6 +310,21 @@ jobs:
           curl -s --max-time 5 https://fonts.googleapis.com > /dev/null || true
           curl -s --max-time 5 https://www.google-analytics.com > /dev/null || true
           sleep 2
+
+      - name: Dump Whitelist - Iteration 4
+        if: steps.iteration-4.outcome == 'success'
+        run: |
+          echo "=== Iteration 4 Whitelist Contents ==="
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "Whitelist file exists"
+            echo "File size: $(wc -c < ~/auto_whitelist.json) bytes"
+            echo "Number of endpoints: $(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo 'N/A')"
+            echo ""
+            echo "All domains in whitelist:"
+            jq -r '.whitelists[].endpoints[] | select(.domain != null) | .domain' ~/auto_whitelist.json 2>/dev/null | sort -u | head -20 || echo "Could not extract domains"
+          else
+            echo "⚠️  Whitelist file not found!"
+          fi
 
       - name: Verify Iteration 4 Status
         if: steps.iteration-4.outcome == 'success'
@@ -356,6 +438,27 @@ jobs:
           curl -s --max-time 5 https://www.google-analytics.com > /dev/null || true
           sleep 2
 
+      - name: Dump Whitelist - Iteration 6
+        if: steps.iteration-6.outcome == 'success'
+        run: |
+          echo "=== Iteration 6 Whitelist Contents (FINAL STABLE) ==="
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "Whitelist file exists"
+            echo "File size: $(wc -c < ~/auto_whitelist.json) bytes"
+            echo "Number of endpoints: $(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo 'N/A')"
+            echo ""
+            echo "=== ALL WHITELISTED DOMAINS ==="
+            jq -r '.whitelists[].endpoints[] | select(.domain != null) | .domain' ~/auto_whitelist.json 2>/dev/null | sort -u || echo "Could not extract domains"
+            echo ""
+            echo "=== ALL WHITELISTED IPs ==="
+            jq -r '.whitelists[].endpoints[] | select(.ip != null) | .ip' ~/auto_whitelist.json 2>/dev/null | sort -u | head -20 || echo "Could not extract IPs"
+            echo ""
+            echo "=== FULL WHITELIST JSON ==="
+            cat ~/auto_whitelist.json
+          else
+            echo "⚠️  Whitelist file not found!"
+          fi
+
       - name: Verify Iteration 6 Status
         if: steps.iteration-6.outcome == 'success'
         run: |
@@ -414,6 +517,17 @@ jobs:
           curl -s --max-time 5 https://www.google-analytics.com > /dev/null || true
           sleep 2
 
+      - name: Dump Sessions - Iteration 7
+        if: steps.iteration-7-pass.outcome == 'success'
+        run: |
+          echo "=== Iteration 7 Session Logs ==="
+          if command -v edamame_posture &> /dev/null; then
+            echo "Getting sessions..."
+            edamame_posture get-sessions || echo "get-sessions failed or returned non-zero"
+          else
+            echo "edamame_posture not available"
+          fi
+
       - name: Verify Iteration 7 Pass Status
         if: steps.iteration-7-pass.outcome == 'success'
         run: |
@@ -421,6 +535,8 @@ jobs:
           echo "Expected: All traffic conforms to whitelist"
           echo "Exit code should be: 0 (success)"
           echo "No whitelist exceptions should be detected"
+          echo ""
+          echo "Actual outcome: ${{ steps.iteration-7-pass.outcome }}"
 
   # Iteration 8: Enforcement mode test (should fail on unauthorized traffic)
   auto-whitelist-iteration-8-enforcement-fail:
@@ -456,21 +572,83 @@ jobs:
           display_logs: false
         continue-on-error: true
 
+      - name: Dump Whitelist - Iteration 8 (Before Traffic)
+        run: |
+          echo "=== Iteration 8 Whitelist Contents (BEFORE TRAFFIC) ==="
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "Whitelist file exists"
+            echo "File size: $(wc -c < ~/auto_whitelist.json) bytes"
+            echo "Number of endpoints: $(jq '[.whitelists[].endpoints | length] | add' ~/auto_whitelist.json 2>/dev/null || echo 'N/A')"
+            echo ""
+            echo "=== ALL WHITELISTED DOMAINS ==="
+            jq -r '.whitelists[].endpoints[] | select(.domain != null) | .domain' ~/auto_whitelist.json 2>/dev/null | sort -u || echo "Could not extract domains"
+            echo ""
+            echo "Checking if test domains are in whitelist:"
+            echo "www.example.com in whitelist: $(jq -r '.whitelists[].endpoints[] | select(.domain != null) | .domain' ~/auto_whitelist.json 2>/dev/null | grep -q "example.com" && echo "YES" || echo "NO")"
+            echo "httpbin.org in whitelist: $(jq -r '.whitelists[].endpoints[] | select(.domain != null) | .domain' ~/auto_whitelist.json 2>/dev/null | grep -q "httpbin.org" && echo "YES" || echo "NO")"
+          else
+            echo "⚠️  Whitelist file not found!"
+          fi
+
       - name: Simulate Network Traffic - Iteration 8 (Unauthorized)
         if: steps.iteration-8-fail.outcome != 'failure'
         run: |
           echo "Simulating iteration 8 network traffic patterns (ENFORCEMENT MODE - includes unauthorized endpoint)..."
+          echo "Making connections to whitelisted endpoints..."
           # Some whitelisted endpoints
           curl -s --max-time 5 https://www.github.com > /dev/null || true
           curl -s --max-time 5 https://registry.npmjs.org > /dev/null || true
+          echo "Making connections to UNAUTHORIZED endpoints (should trigger violation)..."
           # Add UNAUTHORIZED endpoint (not in whitelist)
           curl -s --max-time 5 https://www.example.com > /dev/null || true
           curl -s --max-time 5 https://httpbin.org > /dev/null || true
-          sleep 2
+          echo "Waiting for traffic to be captured..."
+          sleep 5
+
+      - name: Dump Sessions - Iteration 8 (Detailed)
+        if: always()
+        run: |
+          echo "=== Iteration 8 Session Logs (DETAILED) ==="
+          if command -v edamame_posture &> /dev/null; then
+            echo "Getting all sessions..."
+            echo ""
+            echo "--- Full session output ---"
+            edamame_posture get-sessions || echo "get-sessions exited with code: $?"
+            echo ""
+            echo "--- Checking for exceptions ---"
+            edamame_posture get-exceptions || echo "get-exceptions exited with code: $?"
+            echo ""
+            echo "--- Checking for non-conforming sessions ---"
+            edamame_posture get-sessions 2>&1 | grep -i "nonconforming\|exception\|violation" || echo "No violations found in output"
+          else
+            echo "edamame_posture not available"
+          fi
+
+      - name: Check Whitelist Enforcement Status
+        if: always()
+        run: |
+          echo "=== Iteration 8 Enforcement Status Check ==="
+          echo "Action outcome: ${{ steps.iteration-8-fail.outcome }}"
+          echo "Action exit code: ${{ steps.iteration-8-fail.outcome == 'failure' && 'non-zero (expected)' || 'zero (unexpected)' }}"
+          echo ""
+          echo "Checking if whitelist is in enforcement mode..."
+          if [[ -f ~/auto_whitelist_stable_count.txt ]]; then
+            STABLE_COUNT=$(cat ~/auto_whitelist_stable_count.txt)
+            echo "Stable count: $STABLE_COUNT"
+            if [[ "$STABLE_COUNT" -ge "3" ]]; then
+              echo "✅ Whitelist should be in enforcement mode (stable count >= 3)"
+            else
+              echo "⚠️  Whitelist may not be in enforcement mode (stable count < 3)"
+            fi
+          else
+            echo "⚠️  Stable count file not found"
+          fi
 
       - name: Verify Iteration 8 Fail Status
+        if: always()
         run: |
           echo "=== Iteration 8 Verification (Enforcement Fail) ==="
+          echo ""
           if [[ "${{ steps.iteration-8-fail.outcome }}" == "failure" ]]; then
             echo "✅ EXPECTED: Workflow failed due to whitelist violations"
             echo "Exit code was non-zero (as expected)"
@@ -479,6 +657,12 @@ jobs:
             echo "⚠️  UNEXPECTED: Workflow did not fail"
             echo "This might indicate enforcement is not working correctly"
             echo "Or the unauthorized endpoints were not detected"
+            echo ""
+            echo "Debugging information:"
+            echo "- Action outcome: ${{ steps.iteration-8-fail.outcome }}"
+            echo "- Check session logs above for details"
+            echo "- Verify whitelist contains expected domains"
+            echo "- Check if exit_on_whitelist_exceptions is enabled"
           fi
 
   # Final summary job
