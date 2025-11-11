@@ -857,38 +857,34 @@ runs:
         # Try to download the artifact from the previous run
         echo "Attempting to download auto-whitelist artifact: ${{ inputs.auto_whitelist_artifact_name }}"
         
-        # Use gh CLI to download artifact
-        if gh run download --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" 2>/dev/null; then
-          echo "Auto-whitelist artifact downloaded successfully"
-          # Check if the whitelist file exists
-          if [[ -f "auto_whitelist.json" ]]; then
-            # Read iteration count
-            if [[ -f "auto_whitelist_iteration.txt" ]]; then
-              ITERATION=$(cat auto_whitelist_iteration.txt)
-              echo "Current iteration: $ITERATION"
-              echo "AUTO_WHITELIST_ITERATION=$ITERATION" >> $GITHUB_ENV
-              echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
-            else
-              echo "AUTO_WHITELIST_ITERATION=1" >> $GITHUB_ENV
-              echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
-            fi
-            
-            # Read consecutive stable runs count
-            if [[ -f "auto_whitelist_stable_count.txt" ]]; then
-              STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
-              echo "Consecutive stable runs: $STABLE_COUNT"
-              echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
-            else
-              echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
-            fi
+        # Use gh CLI to download artifact from previous workflow run
+        # Note: This only works for artifacts from previous workflow runs, not from previous jobs in the same workflow
+        gh run download --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" 2>/dev/null || echo "No artifact found from previous workflow run (this may be expected in same-workflow scenarios)"
+        
+        # Check if the whitelist file exists (either from gh run download or manually downloaded via actions/download-artifact)
+        if [[ -f "auto_whitelist.json" ]]; then
+          echo "Whitelist file found"
+          # Read iteration count
+          if [[ -f "auto_whitelist_iteration.txt" ]]; then
+            ITERATION=$(cat auto_whitelist_iteration.txt)
+            echo "Current iteration: $ITERATION"
+            echo "AUTO_WHITELIST_ITERATION=$ITERATION" >> $GITHUB_ENV
+            echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
           else
-            echo "Artifact downloaded but whitelist file not found, treating as first run"
-            echo "AUTO_WHITELIST_ITERATION=0" >> $GITHUB_ENV
-            echo "AUTO_WHITELIST_EXISTS=false" >> $GITHUB_ENV
+            echo "AUTO_WHITELIST_ITERATION=1" >> $GITHUB_ENV
+            echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
+          fi
+          
+          # Read consecutive stable runs count
+          if [[ -f "auto_whitelist_stable_count.txt" ]]; then
+            STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
+            echo "Consecutive stable runs: $STABLE_COUNT"
+            echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
+          else
             echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
           fi
         else
-          echo "No previous auto-whitelist artifact found, this is the first run (listen-only mode)"
+          echo "No whitelist file found, treating as first run (listen-only mode)"
           echo "AUTO_WHITELIST_ITERATION=0" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_EXISTS=false" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
