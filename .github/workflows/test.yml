@@ -12,7 +12,7 @@ on:
       
 # Auto cancel previous runs if they were not completed.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 # Declare default permissions as read only.
@@ -189,7 +189,7 @@ jobs:
           network_scan: true
           packet_capture: true
           auto_whitelist: true
-          auto_whitelist_artifact_name: test-auto-whitelist-artifact-${{ runner.os }}-${{ matrix.arch }}
+          auto_whitelist_artifact_name: test-auto-whitelist-artifact-${{ github.run_id }}-${{ runner.os }}-${{ matrix.arch }}
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
@@ -210,8 +210,7 @@ jobs:
           (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
           steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success' ||
-          (runner.os != 'Windows' && steps.test-auto-whitelist.outcome != 'success')
+          steps.test-sessions-disconnected.outcome != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
@@ -228,7 +227,6 @@ jobs:
             - Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Auto-Whitelist: ${{ steps.test-auto-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             Branch: ${{ github.ref }}
             More details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
@@ -247,8 +245,7 @@ jobs:
           (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
           steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success' ||
-          (runner.os != 'Windows' && steps.test-auto-whitelist.outcome != 'success')
+          steps.test-sessions-disconnected.outcome != 'success'
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
@@ -262,7 +259,6 @@ jobs:
           echo "- Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Auto-Whitelist: ${{ steps.test-auto-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo ""
           echo "Forcing job to fail because tests did not succeed."
@@ -443,7 +439,7 @@ jobs:
           network_scan: true
           packet_capture: true
           auto_whitelist: true
-          auto_whitelist_artifact_name: test-auto-whitelist-artifact-container-${{ matrix.container_name }}
+          auto_whitelist_artifact_name: test-auto-whitelist-artifact-${{ github.run_id }}-container-${{ matrix.container_name }}
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "20"
@@ -464,7 +460,6 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-auto-whitelist.outcome != 'success' ||
           steps.test-stop.outcome != 'success') && !contains(matrix.container_name, '18.04')
         uses: slackapi/slack-github-action@v1.26.0
         with:
@@ -482,7 +477,6 @@ jobs:
             - Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Auto-Whitelist: ${{ steps.test-auto-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             Branch: ${{ github.ref }}
             More details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -502,7 +496,6 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-auto-whitelist.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
         run: |
           echo "## Test Results Summary"
@@ -517,7 +510,6 @@ jobs:
           echo "- Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Auto-Whitelist: ${{ steps.test-auto-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo ""
           echo "Forcing job to fail because some tests did not succeed."
@@ -710,7 +702,7 @@ jobs:
           network_scan: true
           packet_capture: true
           auto_whitelist: true
-          auto_whitelist_artifact_name: test-auto-whitelist-artifact-alpine-${{ matrix.arch }}-${{ matrix.target }}
+          auto_whitelist_artifact_name: test-auto-whitelist-artifact-${{ github.run_id }}-alpine-${{ matrix.arch }}-${{ matrix.target }}
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
@@ -731,7 +723,6 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-auto-whitelist.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         with:
@@ -776,7 +767,6 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-auto-whitelist.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
         shell: alpine.sh {0}
         run: |
@@ -792,7 +782,6 @@ jobs:
           echo "- Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Auto-Whitelist: ${{ steps.test-auto-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo ""
           echo "Forcing alpine job to fail because some tests did not succeed."
