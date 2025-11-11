@@ -549,8 +549,8 @@ jobs:
           path: ~/
           github-token: ${{ github.token }}
 
-      - name: Setup EDAMAME Posture - Iteration 8 (Enforcement Fail)
-        id: iteration-8-fail
+      - name: Setup EDAMAME Posture - Iteration 8 (Start Background Process)
+        id: iteration-8-start
         uses: ./
         with:
           disconnected_mode: true
@@ -561,8 +561,8 @@ jobs:
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: true
+          dump_sessions_log: false
+          exit_on_whitelist_exceptions: false
           display_logs: false
         continue-on-error: true
 
@@ -585,7 +585,7 @@ jobs:
           fi
 
       - name: Simulate Network Traffic - Iteration 8 (Unauthorized)
-        if: steps.iteration-8-fail.outcome != 'failure'
+        if: steps.iteration-8-start.outcome == 'success'
         run: |
           echo "Simulating iteration 8 network traffic patterns (ENFORCEMENT MODE - includes unauthorized endpoint)..."
           echo "Making connections to whitelisted endpoints..."
@@ -599,43 +599,50 @@ jobs:
           echo "Waiting for traffic to be captured..."
           sleep 5
 
-      - name: Dump Sessions - Iteration 8 (Detailed)
-        if: always()
-        run: |
-          echo "=== Iteration 8 Session Logs (DETAILED) ==="
-          if command -v edamame_posture &> /dev/null; then
-            echo "Getting all sessions..."
-            echo ""
-            echo "--- Full session output ---"
-            edamame_posture get-sessions || echo "get-sessions exited with code: $?"
-            echo ""
-            echo "--- Checking for exceptions ---"
-            edamame_posture get-exceptions || echo "get-exceptions exited with code: $?"
-            echo ""
-            echo "--- Checking for non-conforming sessions ---"
-            edamame_posture get-sessions 2>&1 | grep -i "nonconforming\|exception\|violation" || echo "No violations found in output"
-          else
-            echo "edamame_posture not available"
-          fi
+      - name: Check Sessions and Verify Violations - Iteration 8
+        id: iteration-8-fail
+        if: steps.iteration-8-start.outcome == 'success'
+        uses: ./
+        with:
+          disconnected_mode: true
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: true
+          display_logs: false
+        continue-on-error: true
 
       - name: Check Whitelist Enforcement Status
         if: always()
         run: |
           echo "=== Iteration 8 Enforcement Status Check ==="
           echo "Action outcome: ${{ steps.iteration-8-fail.outcome }}"
-          echo "Action exit code: ${{ steps.iteration-8-fail.outcome == 'failure' && 'non-zero (expected)' || 'zero (unexpected)' }}"
           echo ""
           echo "Checking if whitelist is in enforcement mode..."
           if [[ -f ~/auto_whitelist_stable_count.txt ]]; then
             STABLE_COUNT=$(cat ~/auto_whitelist_stable_count.txt)
             echo "Stable count: $STABLE_COUNT"
+            echo "Required stable count: 3"
             if [[ "$STABLE_COUNT" -ge "3" ]]; then
               echo "✅ Whitelist should be in enforcement mode (stable count >= 3)"
+              ENFORCEMENT_ACTIVE=true
             else
-              echo "⚠️  Whitelist may not be in enforcement mode (stable count < 3)"
+              echo "⚠️  Whitelist is NOT in enforcement mode yet (stable count < 3)"
+              echo "   Enforcement only activates after 3 consecutive stable runs"
+              echo "   Current stable count: $STABLE_COUNT / 3"
+              ENFORCEMENT_ACTIVE=false
             fi
+            echo "ENFORCEMENT_ACTIVE=$ENFORCEMENT_ACTIVE" >> $GITHUB_ENV
           else
             echo "⚠️  Stable count file not found"
+            echo "ENFORCEMENT_ACTIVE=false" >> $GITHUB_ENV
+          fi
+          
+          echo ""
+          echo "Checking iteration count..."
+          if [[ -f ~/auto_whitelist_iteration.txt ]]; then
+            ITERATION=$(cat ~/auto_whitelist_iteration.txt)
+            echo "Current iteration: $ITERATION"
+          else
+            echo "⚠️  Iteration file not found"
           fi
 
       - name: Verify Iteration 8 Fail Status
@@ -643,20 +650,36 @@ jobs:
         run: |
           echo "=== Iteration 8 Verification (Enforcement Fail) ==="
           echo ""
-          if [[ "${{ steps.iteration-8-fail.outcome }}" == "failure" ]]; then
-            echo "✅ EXPECTED: Workflow failed due to whitelist violations"
-            echo "Exit code was non-zero (as expected)"
-            echo "Unauthorized endpoints were detected and blocked"
+          echo "Key Findings:"
+          echo "- Stable count: $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo 'unknown')"
+          echo "- Enforcement active: ${ENFORCEMENT_ACTIVE:-false}"
+          echo "- Action outcome: ${{ steps.iteration-8-fail.outcome }}"
+          echo ""
+          
+          if [[ "${ENFORCEMENT_ACTIVE:-false}" == "true" ]]; then
+            if [[ "${{ steps.iteration-8-fail.outcome }}" == "failure" ]]; then
+              echo "✅ EXPECTED: Enforcement is active and violations were detected"
+              echo "   The action failed as expected when exit_on_whitelist_exceptions=true"
+              echo "   This indicates unauthorized endpoints were detected and blocked"
+            else
+              echo "⚠️  UNEXPECTED: Enforcement is active but action did not fail"
+              echo "   This might mean:"
+              echo "   1. The unauthorized endpoints were not captured"
+              echo "   2. The endpoints matched the whitelist somehow"
+              echo "   3. The background process wasn't running during traffic simulation"
+            fi
           else
-            echo "⚠️  UNEXPECTED: Workflow did not fail"
-            echo "This might indicate enforcement is not working correctly"
-            echo "Or the unauthorized endpoints were not detected"
+            echo "ℹ️  Enforcement mode is NOT active yet (stable count < 3)"
+            echo "   This test expects enforcement to be active, but it hasn't reached"
+            echo "   the required 3 consecutive stable runs yet."
             echo ""
-            echo "Debugging information:"
-            echo "- Action outcome: ${{ steps.iteration-8-fail.outcome }}"
-            echo "- Check session logs above for details"
-            echo "- Verify whitelist contains expected domains"
-            echo "- Check if exit_on_whitelist_exceptions is enabled"
+            echo "   To fix this test:"
+            echo "   - Ensure iterations 4, 5, and 6 all complete successfully"
+            echo "   - Each should have 0% difference and increment stable count"
+            echo "   - Only then will enforcement mode activate"
+            echo ""
+            echo "   Note: Even if enforcement isn't active, violations should still be"
+            echo "   detected when exit_on_whitelist_exceptions=true is set"
           fi
 
   # Final summary job
