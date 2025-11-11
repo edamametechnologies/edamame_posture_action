@@ -68,7 +68,7 @@ jobs:
 
       - name: Initialize auto-whitelist state
         run: |
-          rm -f ~/auto_whitelist.json ~/auto_whitelist_iteration.txt ~/auto_whitelist_stable_count.txt
+          rm -f $HOME/auto_whitelist.json ~/auto_whitelist_iteration.txt ~/auto_whitelist_stable_count.txt
           rm -rf "$AUTO_WHITELIST_STATE_DIR"
           mkdir -p "$AUTO_WHITELIST_STATE_DIR/latest"
           echo "Initialized state directory: $AUTO_WHITELIST_STATE_DIR"
@@ -126,8 +126,6 @@ jobs:
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
-          set_custom_whitelists: true
-          custom_whitelists_path: ~/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 1 - Stop EDAMAME Posture
@@ -153,16 +151,16 @@ jobs:
       - name: Iteration 1 - Validate whitelist contents
         if: steps.iteration1-start.outcome == 'success'
         run: |
-          if [[ ! -s ~/auto_whitelist.json ]]; then
+          if [[ ! -s $HOME/auto_whitelist.json ]]; then
             echo 'auto_whitelist.json is missing or empty' >&2
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
-            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
             exit 1
           fi
 
@@ -238,7 +236,7 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
           set_custom_whitelists: true
-          custom_whitelists_path: ~/auto_whitelist.json
+          custom_whitelists_path: $HOME/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 2 - Stop EDAMAME Posture
@@ -264,16 +262,16 @@ jobs:
       - name: Iteration 2 - Validate whitelist contents
         if: steps.iteration2-start.outcome == 'success'
         run: |
-          if [[ ! -s ~/auto_whitelist.json ]]; then
+          if [[ ! -s $HOME/auto_whitelist.json ]]; then
             echo 'auto_whitelist.json is missing or empty' >&2
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
-            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
             exit 1
           fi
 
@@ -351,7 +349,7 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
           set_custom_whitelists: true
-          custom_whitelists_path: ~/auto_whitelist.json
+          custom_whitelists_path: $HOME/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 3 - Stop EDAMAME Posture
@@ -377,16 +375,16 @@ jobs:
       - name: Iteration 3 - Validate whitelist contents
         if: steps.iteration3-start.outcome == 'success'
         run: |
-          if [[ ! -s ~/auto_whitelist.json ]]; then
+          if [[ ! -s $HOME/auto_whitelist.json ]]; then
             echo 'auto_whitelist.json is missing or empty' >&2
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
-            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
             exit 1
           fi
 
@@ -468,7 +466,7 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
           set_custom_whitelists: true
-          custom_whitelists_path: ~/auto_whitelist.json
+          custom_whitelists_path: $HOME/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 4 - Stop EDAMAME Posture
@@ -494,16 +492,16 @@ jobs:
       - name: Iteration 4 - Validate whitelist contents
         if: steps.iteration4-start.outcome == 'success'
         run: |
-          if [[ ! -s ~/auto_whitelist.json ]]; then
+          if [[ ! -s $HOME/auto_whitelist.json ]]; then
             echo 'auto_whitelist.json is missing or empty' >&2
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
-            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
             exit 1
           fi
 
@@ -585,7 +583,7 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
           set_custom_whitelists: true
-          custom_whitelists_path: ~/auto_whitelist.json
+          custom_whitelists_path: $HOME/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 5 - Stop EDAMAME Posture
@@ -611,16 +609,16 @@ jobs:
       - name: Iteration 5 - Validate whitelist contents
         if: steps.iteration5-start.outcome == 'success'
         run: |
-          if [[ ! -s ~/auto_whitelist.json ]]; then
+          if [[ ! -s $HOME/auto_whitelist.json ]]; then
             echo 'auto_whitelist.json is missing or empty' >&2
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
-            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
             exit 1
           fi
 
@@ -702,7 +700,7 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
           set_custom_whitelists: true
-          custom_whitelists_path: ~/auto_whitelist.json
+          custom_whitelists_path: $HOME/auto_whitelist.json
           display_logs: true
 
       - name: Iteration 6 - Stop EDAMAME Posture
@@ -728,16 +726,16 @@ jobs:
       - name: Iteration 6 - Validate whitelist contents
         if: steps.iteration6-start.outcome == 'success'
         run: |
-          if [[ ! -s ~/auto_whitelist.json ]]; then
+          if [[ ! -s $HOME/auto_whitelist.json ]]; then
             echo 'auto_whitelist.json is missing or empty' >&2
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
-            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
             exit 1
           fi
 
@@ -847,16 +845,16 @@ jobs:
       - name: Iteration 7 - Validate whitelist contents
         if: steps.iteration7-start.outcome == 'success'
         run: |
-          if [[ ! -s ~/auto_whitelist.json ]]; then
+          if [[ ! -s $HOME/auto_whitelist.json ]]; then
             echo 'auto_whitelist.json is missing or empty' >&2
             ls -la ~/*.json ~/*.txt 2>/dev/null || true
             exit 1
           fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' ~/auto_whitelist.json 2>/dev/null || echo '0')
+          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
           echo "Endpoint count: $COUNT"
           if [[ "$COUNT" == "0" ]]; then
             echo 'Whitelist contains no endpoints' >&2
-            head ~/auto_whitelist.json || cat ~/auto_whitelist.json
+            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
             exit 1
           fi
 
