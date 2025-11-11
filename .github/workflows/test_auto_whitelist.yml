@@ -11,6 +11,12 @@ name: Test Auto-Whitelist Complex
 
 on:
   workflow_dispatch:
+    inputs:
+      reset_artifact:
+        description: 'Delete existing auto-whitelist artifact to start fresh'
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - 'dev'
@@ -21,8 +27,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
-# Declare default permissions as read only.
-permissions: read-all
+# Permissions needed for artifact cleanup and auto-whitelist artifact management
+permissions:
+  contents: read
+  actions: write  # Needed to delete artifacts
 
 jobs:
   # Iteration 1: Initial whitelist creation (listen-only mode)
@@ -33,6 +41,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Clean up existing auto-whitelist artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        continue-on-error: true
+        run: |
+          echo "Cleaning up existing auto-whitelist artifact to ensure fresh start..."
+          ARTIFACT_NAME="test-complex-auto-whitelist-${{ runner.os }}"
+          
+          # List all artifacts with this name and delete them
+          echo "Searching for artifacts named: $ARTIFACT_NAME"
+          ARTIFACT_IDS=$(gh api repos/${{ github.repository }}/actions/artifacts --paginate --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id" 2>/dev/null || echo "")
+          
+          if [[ -n "$ARTIFACT_IDS" ]]; then
+            echo "Found existing artifacts to delete:"
+            echo "$ARTIFACT_IDS" | while read ARTIFACT_ID; do
+              if [[ -n "$ARTIFACT_ID" ]]; then
+                echo "  - Deleting artifact ID: $ARTIFACT_ID"
+                gh api repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID -X DELETE 2>/dev/null && echo "    ✅ Deleted" || echo "    ⚠️  Failed to delete (may already be expired)"
+              fi
+            done
+            echo "Artifact cleanup completed"
+          else
+            echo "✅ No existing artifacts found - starting fresh"
+          fi
 
       - name: Setup EDAMAME Posture - Iteration 1
         id: iteration-1
@@ -47,6 +80,7 @@ jobs:
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
           display_logs: false
         continue-on-error: true
 
@@ -126,6 +160,7 @@ jobs:
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
           display_logs: false
         continue-on-error: true
 
@@ -216,6 +251,7 @@ jobs:
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
           display_logs: false
         continue-on-error: true
 
@@ -288,6 +324,7 @@ jobs:
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
           display_logs: false
         continue-on-error: true
 
@@ -359,6 +396,7 @@ jobs:
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
           display_logs: false
         continue-on-error: true
 
@@ -415,6 +453,7 @@ jobs:
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
           display_logs: false
         continue-on-error: true
 
@@ -480,8 +519,8 @@ jobs:
           path: ~/
           github-token: ${{ github.token }}
 
-      - name: Setup EDAMAME Posture - Iteration 7 (Enforcement Pass)
-        id: iteration-7-pass
+      - name: Setup EDAMAME Posture - Iteration 7 (Start Background Process)
+        id: iteration-7-start
         uses: ./
         with:
           disconnected_mode: true
@@ -492,13 +531,13 @@ jobs:
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: true
+          dump_sessions_log: false
+          exit_on_whitelist_exceptions: false
           display_logs: false
         continue-on-error: true
 
       - name: Simulate Network Traffic - Iteration 7 (Only Whitelisted)
-        if: steps.iteration-7-pass.outcome == 'success'
+        if: steps.iteration-7-start.outcome == 'success'
         run: |
           echo "Simulating iteration 7 network traffic patterns (ENFORCEMENT MODE - only whitelisted endpoints)..."
           # Only use endpoints that are already in the whitelist
@@ -509,28 +548,38 @@ jobs:
           curl -s --max-time 5 https://cdn.jsdelivr.net > /dev/null || true
           curl -s --max-time 5 https://fonts.googleapis.com > /dev/null || true
           curl -s --max-time 5 https://www.google-analytics.com > /dev/null || true
-          sleep 2
+          echo "Waiting for traffic to be captured..."
+          sleep 5
 
-      - name: Dump Sessions - Iteration 7
-        if: steps.iteration-7-pass.outcome == 'success'
-        run: |
-          echo "=== Iteration 7 Session Logs ==="
-          if command -v edamame_posture &> /dev/null; then
-            echo "Getting sessions..."
-            edamame_posture get-sessions || echo "get-sessions failed or returned non-zero"
-          else
-            echo "edamame_posture not available"
-          fi
+      - name: Check Sessions and Verify No Violations - Iteration 7
+        id: iteration-7-pass
+        if: steps.iteration-7-start.outcome == 'success'
+        uses: ./
+        with:
+          set_custom_whitelists: true
+          custom_whitelists_path: ~/auto_whitelist.json
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: true
+          display_logs: false
+        continue-on-error: true
 
       - name: Verify Iteration 7 Pass Status
-        if: steps.iteration-7-pass.outcome == 'success'
+        if: always()
         run: |
           echo "=== Iteration 7 Verification (Enforcement Pass) ==="
           echo "Expected: All traffic conforms to whitelist"
-          echo "Exit code should be: 0 (success)"
-          echo "No whitelist exceptions should be detected"
+          echo "Action outcome: ${{ steps.iteration-7-pass.outcome }}"
           echo ""
-          echo "Actual outcome: ${{ steps.iteration-7-pass.outcome }}"
+          if [[ "${{ steps.iteration-7-pass.outcome }}" == "success" ]]; then
+            echo "✅ SUCCESS: No whitelist violations detected"
+            echo "   All traffic conformed to the whitelist as expected"
+          else
+            echo "⚠️  UNEXPECTED: Action failed (violations detected)"
+            echo "   This might indicate:"
+            echo "   1. Some endpoints weren't in the whitelist"
+            echo "   2. Enforcement is too strict"
+            echo "   3. Background process captured unexpected traffic"
+          fi
 
   # Iteration 8: Enforcement mode test (should fail on unauthorized traffic)
   auto-whitelist-iteration-8-enforcement-fail:
@@ -566,6 +615,41 @@ jobs:
           display_logs: false
         continue-on-error: true
 
+      - name: Verify Background Process Started and Whitelist Applied
+        if: steps.iteration-8-start.outcome == 'success'
+        run: |
+          echo "=== Verifying Background Process ==="
+          # Check if edamame_posture binary is available
+          EDAMAME_CMD=""
+          if command -v edamame_posture &> /dev/null; then
+            EDAMAME_CMD="edamame_posture"
+            echo "✅ edamame_posture found in PATH"
+          elif [[ -f ~/edamame_posture ]]; then
+            EDAMAME_CMD="~/edamame_posture"
+            echo "✅ edamame_posture found in home directory"
+          else
+            echo "⚠️  edamame_posture binary not found"
+            exit 1
+          fi
+          
+          echo "Checking background process status..."
+          sudo $EDAMAME_CMD status || echo "⚠️  Status check failed (process may still be starting)"
+          
+          echo ""
+          echo "Checking if whitelist is applied..."
+          if [[ -f ~/auto_whitelist.json ]]; then
+            echo "✅ Whitelist file exists: ~/auto_whitelist.json"
+            sudo $EDAMAME_CMD get-whitelist-name || echo "⚠️  Could not get whitelist name"
+            echo ""
+            echo "Verifying whitelist is set in background process..."
+            # The whitelist should be applied automatically by the action when auto_whitelist=true
+          else
+            echo "⚠️  Whitelist file not found!"
+          fi
+          
+          echo "Waiting a moment for background process to fully initialize..."
+          sleep 5
+
       - name: Dump Whitelist - Iteration 8 (Before Traffic)
         run: |
           echo "=== Iteration 8 Whitelist Contents (BEFORE TRAFFIC) ==="
@@ -588,26 +672,63 @@ jobs:
         if: steps.iteration-8-start.outcome == 'success'
         run: |
           echo "Simulating iteration 8 network traffic patterns (ENFORCEMENT MODE - includes unauthorized endpoint)..."
-          echo "Making connections to whitelisted endpoints..."
+          echo ""
+          echo "Step 1: Making connections to whitelisted endpoints..."
           # Some whitelisted endpoints
-          curl -s --max-time 5 https://www.github.com > /dev/null || true
-          curl -s --max-time 5 https://registry.npmjs.org > /dev/null || true
-          echo "Making connections to UNAUTHORIZED endpoints (should trigger violation)..."
-          # Add UNAUTHORIZED endpoint (not in whitelist)
-          curl -s --max-time 5 https://www.example.com > /dev/null || true
-          curl -s --max-time 5 https://httpbin.org > /dev/null || true
-          echo "Waiting for traffic to be captured..."
-          sleep 5
+          curl -v --max-time 5 https://www.github.com 2>&1 | head -20 || true
+          curl -v --max-time 5 https://registry.npmjs.org 2>&1 | head -20 || true
+          echo ""
+          echo "Step 2: Making connections to UNAUTHORIZED endpoints (should trigger violation)..."
+          echo "  - www.example.com (should NOT be in whitelist)"
+          curl -v --max-time 5 https://www.example.com 2>&1 | head -20 || true
+          echo ""
+          echo "  - httpbin.org (should NOT be in whitelist)"
+          curl -v --max-time 5 https://httpbin.org/get 2>&1 | head -20 || true
+          echo ""
+          echo "Waiting for traffic to be captured and processed..."
+          sleep 10
+          echo "Traffic simulation complete"
+
+      - name: Verify Background Process Still Running
+        if: steps.iteration-8-start.outcome == 'success'
+        run: |
+          echo "=== Verifying Background Process Still Running ==="
+          EDAMAME_CMD=""
+          if command -v edamame_posture &> /dev/null; then
+            EDAMAME_CMD="edamame_posture"
+          elif [[ -f ~/edamame_posture ]]; then
+            EDAMAME_CMD="~/edamame_posture"
+          fi
+          
+          if [[ -n "$EDAMAME_CMD" ]]; then
+            sudo $EDAMAME_CMD status || echo "⚠️  Process not running!"
+            echo ""
+            echo "=== Manual Session Check (Before Action Call) ==="
+            echo "Getting all sessions..."
+            sudo $EDAMAME_CMD get-sessions --include-local-traffic | head -50 || echo "⚠️  Could not get sessions"
+            echo ""
+            echo "Getting whitelist exceptions..."
+            sudo $EDAMAME_CMD get-exceptions || echo "⚠️  Could not get exceptions"
+            echo ""
+            echo "Checking whitelist conformance..."
+            # Try to get whitelist conformance status
+            sudo $EDAMAME_CMD get-sessions --fail-on-whitelist 2>&1 || echo "⚠️  Whitelist violations detected (exit code: $?)"
+          fi
 
       - name: Check Sessions and Verify Violations - Iteration 8
         id: iteration-8-fail
         if: steps.iteration-8-start.outcome == 'success'
         uses: ./
         with:
-          disconnected_mode: true
+          auto_whitelist: true
+          auto_whitelist_artifact_name: test-complex-auto-whitelist-${{ runner.os }}
+          auto_whitelist_stability_threshold: "0"
+          auto_whitelist_stability_consecutive_runs: "3"
+          set_custom_whitelists: true
+          custom_whitelists_path: ~/auto_whitelist.json
           dump_sessions_log: true
           exit_on_whitelist_exceptions: true
-          display_logs: false
+          display_logs: true
         continue-on-error: true
 
       - name: Check Whitelist Enforcement Status
@@ -680,6 +801,10 @@ jobs:
             echo ""
             echo "   Note: Even if enforcement isn't active, violations should still be"
             echo "   detected when exit_on_whitelist_exceptions=true is set"
+            echo ""
+            echo "   IMPORTANT: When auto_whitelist=true AND whitelist is stable,"
+            echo "   the action automatically enforces violations regardless of"
+            echo "   exit_on_whitelist_exceptions setting (see action.yml lines 1197-1200)"
           fi
 
   # Final summary job
