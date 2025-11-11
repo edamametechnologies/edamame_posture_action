@@ -800,6 +800,13 @@ runs:
           fi
         elif [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
           echo "Starting EDAMAME Posture in disconnected mode..."
+          
+          # Stop any existing posture process before starting in disconnected mode
+          # background-start-disconnected will fail with "Core services are already running" if posture is running
+          echo "Stopping any existing EDAMAME Posture process before starting in disconnected mode..."
+          $EDAMAME_POSTURE_CMD stop > /dev/null 2>&1 || echo "No existing posture process to stop (or stop failed, continuing anyway)..."
+          # Give it a moment to fully stop
+          sleep 2
 
           START_ARGS=(background-start-disconnected)
 

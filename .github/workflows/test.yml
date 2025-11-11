@@ -176,6 +176,15 @@ jobs:
           dump_sessions_log: true
         continue-on-error: true
 
+      # Stop posture before auto-whitelist test
+      - name: Stop posture before auto-whitelist test
+        id: test-stop-before-auto-whitelist
+        if: runner.os == 'macos' || runner.os == 'linux'
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
+
       # Test auto-whitelist feature (macOS and Linux only)
       - name: Test auto-whitelist feature
         id: test-auto-whitelist
@@ -423,6 +432,14 @@ jobs:
           dump_sessions_log: true
         continue-on-error: true
 
+      # Stop posture before auto-whitelist test
+      - name: Stop posture before auto-whitelist test
+        id: test-stop-before-auto-whitelist
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
+
       # Test auto-whitelist feature
       - name: Test auto-whitelist feature
         id: test-auto-whitelist
@@ -435,9 +452,8 @@ jobs:
           auto_whitelist_artifact_name: test-auto-whitelist-artifact-container-${{ matrix.container_name }}
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
+          auto_whitelist_max_iterations: "20"
           dump_sessions_log: true
-          display_logs: false
         continue-on-error: true
 
       - name: Slack alerts
@@ -681,6 +697,14 @@ jobs:
         with:
           exit_on_whitelist_exceptions: false
           dump_sessions_log: true
+        continue-on-error: true
+
+      # Stop posture before auto-whitelist test
+      - name: Stop posture before auto-whitelist test
+        id: test-stop-before-auto-whitelist
+        uses: ./
+        with:
+          stop: true
         continue-on-error: true
 
       # Test auto-whitelist feature
