@@ -11,12 +11,6 @@ name: Test Auto-Whitelist Complex
 
 on:
   workflow_dispatch:
-    inputs:
-      reset_artifact:
-        description: 'Delete existing auto-whitelist artifact to start fresh'
-        required: false
-        default: false
-        type: boolean
   push:
     branches:
       - 'dev'
