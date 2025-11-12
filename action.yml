@@ -874,11 +874,10 @@ runs:
         echo "Looking for artifact: ${{ inputs.auto_whitelist_artifact_name }}"
         
         # Get list of recent successful runs for this workflow (excluding current run)
-        # Use workflow file path: .github/workflows/<workflow_name>.yml
-        WORKFLOW_FILE=".github/workflows/${{ github.workflow }}"
-        echo "Looking for runs in workflow: $WORKFLOW_FILE"
+        WORKFLOW_NAME="${{ github.workflow }}"
+        echo "Looking for runs in workflow name: $WORKFLOW_NAME"
         
-        RUN_IDS=$(gh run list --workflow="$WORKFLOW_FILE" --repo ${{ github.repository }} --limit $MAX_ATTEMPTS --json databaseId,conclusion --jq ".[] | select(.conclusion == \"success\" and .databaseId != $CURRENT_RUN_ID) | .databaseId" 2>/dev/null || echo "")
+        RUN_IDS=$(gh run list --workflow="$WORKFLOW_NAME" --repo ${{ github.repository }} --limit $MAX_ATTEMPTS --json databaseId,conclusion --jq ".[] | select(.conclusion == \"success\" and .databaseId != $CURRENT_RUN_ID) | .databaseId" 2>/dev/null || echo "")
         
         if [[ -z "$RUN_IDS" ]]; then
           echo "No previous successful runs found"

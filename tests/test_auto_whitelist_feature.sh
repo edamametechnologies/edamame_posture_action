@@ -87,6 +87,8 @@ echo -e "${YELLOW}Step 2: Triggering sequential workflow runs...${NC}"
 
 declare -a RUN_IDS=()
 declare -a RUN_STATUSES=()
+declare -a ENDPOINT_HISTORY=()
+LAST_ENDPOINT_COUNT="unknown"
 
 for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
@@ -170,10 +172,14 @@ for i in $(seq 1 $MAX_ITERATIONS); do
         ARTIFACT_DOWNLOADED=true
     fi
     
+    CURRENT_ENDPOINT_COUNT="$LAST_ENDPOINT_COUNT"
+
     if [[ "$ARTIFACT_DOWNLOADED" == "true" ]]; then
         if [[ -f "/tmp/auto_whitelist_test_$i/auto_whitelist.json" ]]; then
             ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "/tmp/auto_whitelist_test_$i/auto_whitelist.json" 2>/dev/null || echo "0")
             echo "    Whitelist contains $ENDPOINT_COUNT endpoints"
+            CURRENT_ENDPOINT_COUNT="$ENDPOINT_COUNT"
+            LAST_ENDPOINT_COUNT="$ENDPOINT_COUNT"
             
             if [[ -f "/tmp/auto_whitelist_test_$i/auto_whitelist_stable_count.txt" ]]; then
                 STABLE_COUNT=$(cat "/tmp/auto_whitelist_test_$i/auto_whitelist_stable_count.txt")
@@ -188,6 +194,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     else
         echo "    No artifact found (may be first run)"
     fi
+
+    ENDPOINT_HISTORY+=("$CURRENT_ENDPOINT_COUNT")
+    echo "    ▶ Whitelist endpoints after iteration $i: $CURRENT_ENDPOINT_COUNT"
     
     # Small delay between runs
     if [[ $i -lt $MAX_ITERATIONS ]]; then
@@ -209,11 +218,12 @@ for i in "${!RUN_IDS[@]}"; do
     ITER=$((i + 1))
     STATUS="${RUN_STATUSES[$i]}"
     RUN_ID="${RUN_IDS[$i]}"
+    ENDPOINTS="${ENDPOINT_HISTORY[$i]:-unknown}"
     
     if [[ "$STATUS" == "success" ]]; then
-        echo -e "${GREEN}Iteration $ITER: SUCCESS${NC} (Run ID: $RUN_ID)"
+        echo -e "${GREEN}Iteration $ITER: SUCCESS${NC} (Run ID: $RUN_ID) - Whitelist endpoints: $ENDPOINTS"
     else
-        echo -e "${RED}Iteration $ITER: FAILED${NC} (Status: $STATUS, Run ID: $RUN_ID)"
+        echo -e "${RED}Iteration $ITER: FAILED${NC} (Status: $STATUS, Run ID: $RUN_ID, Whitelist endpoints: $ENDPOINTS)"
         ALL_SUCCESS=false
     fi
 done
