@@ -163,28 +163,57 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     # Download and check artifact with retries
     echo "  Checking artifact status..."
     ARTIFACT_DOWNLOADED=false
-    MAX_ARTIFACT_ATTEMPTS=12
-    ARTIFACT_WAIT=10
+    MAX_WAIT_TIME=180  # 3 minutes max wait
+    CHECK_INTERVAL=10
+    ELAPSED=0
     
-    for attempt in $(seq 1 $MAX_ARTIFACT_ATTEMPTS); do
-        if [[ $attempt -eq 1 ]]; then
-            echo "  Waiting for artifact to become available..."
-            sleep 15  # Initial wait for artifact processing
-        fi
+    # Clean up any existing temp directory
+    TEMP_DIR="/tmp/auto_whitelist_test_$i"
+    rm -rf "$TEMP_DIR"
+    mkdir -p "$TEMP_DIR"
+    
+    # Wait for artifact to be finalized by GitHub
+    # GitHub needs time to finalize artifacts after workflow completion
+    echo "  Waiting for artifact to be uploaded and finalized..."
+    
+    while [[ $ELAPSED -lt $MAX_WAIT_TIME ]]; do
+        # Check if artifact exists via API first
+        ARTIFACT_EXISTS=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME_PREFIX-$BRANCH\") | .id" 2>/dev/null || echo "")
         
-        if gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME_PREFIX-$BRANCH" --dir "/tmp/auto_whitelist_test_$i" 2>/dev/null; then
-            ARTIFACT_DOWNLOADED=true
-            echo "  ✓ Artifact downloaded successfully on attempt $attempt"
-            break
-        else
-            if [[ $attempt -lt $MAX_ARTIFACT_ATTEMPTS ]]; then
-                if [[ $((attempt % 3)) -eq 0 ]]; then
-                    echo "  Still waiting for artifact (attempt $attempt/$MAX_ARTIFACT_ATTEMPTS)..."
+        if [[ -n "$ARTIFACT_EXISTS" ]]; then
+            # Artifact exists in API, try to download it
+            DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME_PREFIX-$BRANCH" --dir "$TEMP_DIR" 2>&1)
+            DOWNLOAD_EXIT=$?
+            
+            if [[ $DOWNLOAD_EXIT -eq 0 && -f "$TEMP_DIR/auto_whitelist.json" ]]; then
+                ARTIFACT_DOWNLOADED=true
+                echo "  ✓ Artifact downloaded successfully (waited ${ELAPSED}s)"
+                break
+            else
+                echo "  Artifact found via API but download failed, retrying..."
+                if [[ $DOWNLOAD_EXIT -ne 0 ]]; then
+                    echo "    Error: $(echo "$DOWNLOAD_OUTPUT" | head -1)"
                 fi
-                sleep $ARTIFACT_WAIT
+            fi
+        else
+            if [[ $((ELAPSED % 30)) -eq 0 && $ELAPSED -gt 0 ]]; then
+                echo "  Still waiting for artifact (${ELAPSED}s elapsed)..."
             fi
         fi
+        
+        sleep $CHECK_INTERVAL
+        ELAPSED=$((ELAPSED + CHECK_INTERVAL))
     done
+    
+    if [[ "$ARTIFACT_DOWNLOADED" == "false" ]]; then
+        echo "  ⚠️ Artifact not available after ${MAX_WAIT_TIME}s"
+        # Check if this is expected for first iteration
+        if [[ $i -eq 1 ]]; then
+            echo "     This is expected for iteration 1 (creates initial whitelist)"
+        else
+            echo "     This is unexpected - previous iteration should have created an artifact"
+        fi
+    fi
     
     CURRENT_ENDPOINT_COUNT="$LAST_ENDPOINT_COUNT"
 
