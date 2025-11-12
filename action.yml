@@ -905,6 +905,24 @@ runs:
         if [[ -n "${{ inputs.custom_whitelists_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" && "${{ inputs.set_custom_whitelists }}" == "true" ]]; then
           cd
           if [[ -f "${{ inputs.custom_whitelists_path }}" ]]; then
+            # Check if whitelist file has endpoints before loading
+            if command -v jq &> /dev/null; then
+              ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "${{ inputs.custom_whitelists_path }}" 2>/dev/null || echo "0")
+              echo "Whitelist file contains $ENDPOINT_COUNT endpoints"
+              
+              if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
+                echo "⚠️ Warning: Whitelist file '${{ inputs.custom_whitelists_path }}' is empty (no endpoints)"
+                echo "Skipping whitelist load - empty whitelists would mark all sessions as non-conforming"
+                echo "This can happen if:"
+                echo "  - No network sessions were captured yet"
+                echo "  - Only ingress (local-to-local) sessions exist (these are excluded from whitelists)"
+                echo "  - The whitelist was created before any traffic was captured"
+                exit 0
+              fi
+            else
+              echo "⚠️ Warning: jq not available, cannot verify whitelist endpoints. Proceeding anyway..."
+            fi
+            
             echo "Applying custom whitelists from: ${{ inputs.custom_whitelists_path }}"
             $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "${{ inputs.custom_whitelists_path }}"
             echo "Custom whitelists applied successfully"
@@ -918,6 +936,19 @@ runs:
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
           cd
           if [[ "$AUTO_WHITELIST_EXISTS" == "true" && -f "auto_whitelist.json" ]]; then
+            # Check if auto-whitelist has endpoints before loading
+            if command -v jq &> /dev/null; then
+              ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
+              echo "Auto-whitelist file contains $ENDPOINT_COUNT endpoints"
+              
+              if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
+                echo "⚠️ Warning: Auto-whitelist file 'auto_whitelist.json' is empty (no endpoints)"
+                echo "Skipping whitelist load - empty whitelists would mark all sessions as non-conforming"
+                echo "This can happen if no network sessions were captured in the previous iteration"
+                exit 0
+              fi
+            fi
+            
             echo "Auto-whitelist mode: Applying whitelist from iteration $AUTO_WHITELIST_ITERATION"
             $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "auto_whitelist.json"
             echo "Auto-whitelist applied successfully"
@@ -1090,6 +1121,22 @@ runs:
           if [[ -n "${{ inputs.custom_whitelists_path }}" ]]; then
             # Save to the specified file
             $EDAMAME_POSTURE_CMD create-custom-whitelists > "${{ inputs.custom_whitelists_path }}"
+            
+            # Check if the created whitelist has endpoints
+            if command -v jq &> /dev/null; then
+              ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "${{ inputs.custom_whitelists_path }}" 2>/dev/null || echo "0")
+              echo "Created whitelist contains $ENDPOINT_COUNT endpoints"
+              
+              if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
+                echo "⚠️ Warning: Created whitelist is empty (no endpoints)"
+                echo "This can happen if:"
+                echo "  - No network sessions were captured yet (wait longer before creating whitelist)"
+                echo "  - Only ingress (local-to-local) sessions exist (these are excluded from whitelists)"
+                echo "  - All sessions were filtered out"
+                echo "The whitelist file was created but will not be loaded automatically if empty"
+              fi
+            fi
+            
             echo "Custom whitelists saved to: ${{ inputs.custom_whitelists_path }}"
           else
             # Just display the whitelist JSON
@@ -1117,8 +1164,15 @@ runs:
             mv auto_whitelist_new.json auto_whitelist.json
             
             # Count endpoints with error handling
-            ENDPOINT_COUNT=$(jq '[.whitelists[]?.endpoints? | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
+            ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
             echo "Initial whitelist created with $ENDPOINT_COUNT endpoints"
+            
+            if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
+              echo "⚠️ Warning: Initial auto-whitelist is empty (no endpoints)"
+              echo "This can happen if no network sessions were captured yet"
+              echo "The whitelist will not be loaded automatically if empty"
+            fi
+            
             echo "AUTO_WHITELIST_STATUS=created" >> $GITHUB_ENV
             echo "AUTO_WHITELIST_STABLE=false" >> $GITHUB_ENV
           else
