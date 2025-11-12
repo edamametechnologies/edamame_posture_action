@@ -163,18 +163,24 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     # Download and check artifact with retries
     echo "  Checking artifact status..."
     ARTIFACT_DOWNLOADED=false
-    MAX_ARTIFACT_ATTEMPTS=6
-    ARTIFACT_WAIT=5
+    MAX_ARTIFACT_ATTEMPTS=12
+    ARTIFACT_WAIT=10
     
     for attempt in $(seq 1 $MAX_ARTIFACT_ATTEMPTS); do
-        echo "  Attempting to download artifact (attempt $attempt/$MAX_ARTIFACT_ATTEMPTS)..."
+        if [[ $attempt -eq 1 ]]; then
+            echo "  Waiting for artifact to become available..."
+            sleep 15  # Initial wait for artifact processing
+        fi
+        
         if gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME_PREFIX-$BRANCH" --dir "/tmp/auto_whitelist_test_$i" 2>/dev/null; then
             ARTIFACT_DOWNLOADED=true
-            echo "  ✓ Artifact downloaded successfully"
+            echo "  ✓ Artifact downloaded successfully on attempt $attempt"
             break
         else
             if [[ $attempt -lt $MAX_ARTIFACT_ATTEMPTS ]]; then
-                echo "  Artifact not yet available, waiting ${ARTIFACT_WAIT}s..."
+                if [[ $((attempt % 3)) -eq 0 ]]; then
+                    echo "  Still waiting for artifact (attempt $attempt/$MAX_ARTIFACT_ATTEMPTS)..."
+                fi
                 sleep $ARTIFACT_WAIT
             fi
         fi
