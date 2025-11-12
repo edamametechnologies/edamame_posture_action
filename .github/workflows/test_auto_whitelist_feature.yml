@@ -1,0 +1,87 @@
+name: Test Auto-Whitelist Feature
+
+# This workflow tests the actual auto_whitelist: true feature
+# It should be triggered sequentially by a test script to verify:
+# 1. First run creates initial whitelist
+# 2. Subsequent runs augment and check stability
+# 3. Eventually reaches stable state
+
+on:
+  workflow_dispatch:
+    inputs:
+      iteration:
+        description: 'Iteration number (for tracking)'
+        required: false
+        default: '1'
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Allow sequential runs
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  test-auto-whitelist:
+    name: Auto-Whitelist Test Iteration ${{ inputs.iteration }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start EDAMAME Posture with Auto-Whitelist
+        uses: ./
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          auto_whitelist: true
+          auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
+          auto_whitelist_stability_threshold: "0"
+          auto_whitelist_stability_consecutive_runs: "3"
+          auto_whitelist_max_iterations: "10"
+          include_local_traffic: false
+          display_logs: false
+
+      - name: Wait for capture readiness
+        run: |
+          echo "Waiting for EDAMAME Posture to be ready..."
+          sleep 30
+
+      - name: Generate test traffic
+        run: |
+          echo "Generating test traffic for iteration ${{ inputs.iteration }}..."
+          
+          # Generate consistent traffic patterns
+          curl -s --max-time 10 https://api.github.com/zen > /dev/null || true
+          curl -s --max-time 10 https://github.com/robots.txt > /dev/null || true
+          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null || true
+          
+          # Add variation based on iteration to test augmentation
+          if [[ "${{ inputs.iteration }}" == "2" ]]; then
+            echo "Iteration 2: Adding new endpoints..."
+            curl -s --max-time 10 https://www.npmjs.com/ > /dev/null || true
+            curl -s --max-time 10 https://cdn.jsdelivr.net/npm/ > /dev/null || true
+          fi
+          
+          echo "Waiting for traffic capture..."
+          sleep 30
+
+      - name: Check Auto-Whitelist Status
+        uses: ./
+        with:
+          dump_sessions_log: true
+          display_logs: true
+
+      - name: Stop EDAMAME Posture
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
+
+      # Note: Artifacts are automatically uploaded by the action when auto_whitelist: true
+      # The action uploads: auto_whitelist.json, auto_whitelist_iteration.txt, auto_whitelist_stable_count.txt
+

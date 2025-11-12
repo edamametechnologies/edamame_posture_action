@@ -976,6 +976,26 @@ runs:
           exit 1
         fi
 
+        # Check if augmented whitelist has endpoints
+        if command -v jq &> /dev/null; then
+          ENDPOINT_COUNT=$(echo "$AUG_JSON" | jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' 2>/dev/null || echo "0")
+          echo "Augmented whitelist contains $ENDPOINT_COUNT endpoints"
+          
+          if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
+            echo "⚠️ Warning: Augmented whitelist is empty (no endpoints)"
+            echo "This can happen if:"
+            echo "  - No baseline whitelist was loaded before augmentation (use set_custom_whitelists: true first)"
+            echo "  - No network sessions were captured yet"
+            echo "  - No whitelist exceptions (non-conforming sessions) exist to add"
+            echo ""
+            echo "Augmentation requires:"
+            echo "  1. A baseline whitelist loaded into the system (via set_custom_whitelists)"
+            echo "  2. Network sessions captured"
+            echo "  3. Some non-conforming sessions to add as exceptions"
+            exit 1
+          fi
+        fi
+
         echo "$AUG_JSON" > "${{ inputs.custom_whitelists_path }}"
         echo "Augmented whitelist saved to: ${{ inputs.custom_whitelists_path }}"
       shell: bash

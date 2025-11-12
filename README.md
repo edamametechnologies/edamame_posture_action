@@ -531,15 +531,21 @@ As your workflow evolves and legitimately needs to access new endpoints, you can
     name: custom-whitelist
     path: .
 
-- name: Setup EDAMAME Posture (Augmentation Mode)
+- name: Start EDAMAME Posture
   uses: edamametechnologies/edamame_posture_action@v0
   with:
     network_scan: true
     packet_capture: true
-    augment_custom_whitelists: true         # Merge new + existing entries
-    custom_whitelists_path: ./whitelists.json  # Read from and write to this file
+    custom_whitelists_path: ./whitelists.json
+    set_custom_whitelists: true             # Load baseline whitelist first
 
 # ... your build/test steps that may access new endpoints ...
+
+- name: Augment Whitelist with New Endpoints
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    augment_custom_whitelists: true         # Merge new + existing entries
+    custom_whitelists_path: ./whitelists.json  # Read from and write to this file
 
 - name: Save Updated Whitelist
   uses: actions/upload-artifact@v4
@@ -549,11 +555,12 @@ As your workflow evolves and legitimately needs to access new endpoints, you can
 ```
 
 **What happens**:
-1. EDAMAME loads the existing whitelist from `whitelists.json`
-2. Monitors network traffic during workflow execution
-3. Identifies any new endpoints not in the existing whitelist
-4. Merges the new endpoints with existing entries (preserves all previous entries)
-5. Overwrites `whitelists.json` with the augmented version
+1. Download the existing baseline whitelist file
+2. Start EDAMAME Posture and load the baseline whitelist into memory (`set_custom_whitelists: true`)
+3. Monitor network traffic during workflow execution
+4. Run augmentation to identify any new endpoints not in the existing whitelist
+5. Merge the new endpoints with existing entries (preserves all previous entries)
+6. Overwrite `whitelists.json` with the augmented version
 
 **When to use**:
 - Adding new dependencies or services to your workflow
@@ -674,6 +681,15 @@ jobs:
         with:
           network_scan: true
           packet_capture: true
+          custom_whitelists_path: ./whitelists.json
+          set_custom_whitelists: true        # Load baseline whitelist first
+
+      # ... your build/test steps that may access new endpoints ...
+
+      - name: Augment Whitelist
+        if: inputs.mode == 'augmentation'
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
           augment_custom_whitelists: true
           custom_whitelists_path: ./whitelists.json
 
@@ -1033,17 +1049,27 @@ In situations where your pipeline progressively accesses new domains or endpoint
 2. **Subsequent runs – augment**
    As new endpoints appear in later executions you can merge them into the existing file instead of replacing it:
    ```yaml
-   - name: EDAMAME Posture – Augment Whitelist
+   - name: Start EDAMAME Posture
      uses: edamametechnologies/edamame_posture_action@v0
      with:
       network_scan: true
       packet_capture: true
-       augment_custom_whitelists: true      # NEW INPUT
-       custom_whitelists_path: whitelists.json
+      custom_whitelists_path: whitelists.json
+      set_custom_whitelists: true           # Load baseline whitelist first
+
+   # ... your build/test steps ...
+
+   - name: Augment Whitelist
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+      augment_custom_whitelists: true       # Merge new + existing entries
+      custom_whitelists_path: whitelists.json
    ```
    The action will:
-   1. Generate an **augmented** whitelist (`augment-custom-whitelists`).
-   2. Overwrite the existing `whitelists.json` so the list steadily grows (the `augment-custom-whitelists` command already preserves existing entries).
+   1. Load the existing baseline whitelist into memory (`set_custom_whitelists: true`)
+   2. Monitor network traffic during workflow execution
+   3. Generate an **augmented** whitelist (`augment-custom-whitelists`) that merges new endpoints with the baseline
+   4. Overwrite the existing `whitelists.json` so the list steadily grows (the `augment-custom-whitelists` command preserves existing entries)
 
 3. **Enforcement mode – lock it**
    Once your whitelist is mature, switch to **enforcement** by simply applying it and failing on exceptions:

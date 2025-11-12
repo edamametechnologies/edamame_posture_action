@@ -1,11 +1,14 @@
-name: Test Auto-Whitelist Lifecycle
+name: Test Custom Whitelist Lifecycle
 
-# This workflow tests the complete auto-whitelist lifecycle including:
+# This workflow tests the complete manual custom whitelist lifecycle including:
 # 1. Learning phase: Generate baseline whitelist from legitimate traffic
 # 2. Augmentation phase: Add new endpoints to existing whitelist
 # 3. Enforcement phase (pass): Verify authorized traffic is allowed
 # 4. Enforcement phase (fail): Detect violations when unauthorized traffic occurs
 # 5. Artifact persistence: Upload/download whitelist across workflow runs
+#
+# Note: This tests manual whitelist operations (create_custom_whitelists, augment_custom_whitelists).
+# For testing the automated auto_whitelist feature, see test.yml which includes auto_whitelist: true tests.
 #
 # Important notes:
 # - Uses include_local_traffic: false to avoid capturing localhost/runner system traffic
@@ -189,6 +192,13 @@ jobs:
         run: |
           echo "Waiting for EDAMAME Posture to be ready and background traffic to settle..."
           sleep 30
+
+      - name: Load baseline whitelist before augmentation
+        uses: ./
+        with:
+          custom_whitelists_path: ${{ github.workspace }}/baseline_whitelist.json
+          set_custom_whitelists: true
+          display_logs: false
 
       - name: Generate additional traffic (new endpoints)
         run: |
@@ -412,7 +422,7 @@ jobs:
           ENFORCEMENT_PASS_RESULT: ${{ needs.enforcement-phase-pass.result }}
           ENFORCEMENT_FAIL_RESULT: ${{ needs.enforcement-phase-fail.result }}
         run: |
-          echo "=== Auto-Whitelist Lifecycle Test Results ==="
+          echo "=== Custom Whitelist Lifecycle Test Results ==="
           echo "Learning Phase:            $LEARNING_RESULT"
           echo "Augmentation Phase:        $AUGMENTATION_RESULT"
           echo "Enforcement (Pass):        $ENFORCEMENT_PASS_RESULT"
@@ -443,11 +453,11 @@ jobs:
           
           if [[ "$FAILED" == "true" ]]; then
             echo ""
-            echo "❌ OVERALL: Auto-whitelist lifecycle test FAILED"
+            echo "❌ OVERALL: Custom whitelist lifecycle test FAILED"
             exit 1
           else
             echo ""
-            echo "✅ OVERALL: Auto-whitelist lifecycle test PASSED"
+            echo "✅ OVERALL: Custom whitelist lifecycle test PASSED"
             echo "All phases completed successfully:"
             echo "  ✅ Whitelist creation from traffic"
             echo "  ✅ Artifact upload/download"
@@ -462,7 +472,7 @@ jobs:
         with:
           channel-id: 'C072J0U9TH7'
           slack-message: |
-            ❌ Auto-Whitelist Lifecycle Test Failed
+            ❌ Custom Whitelist Lifecycle Test Failed
             Repository: ${{ github.repository }}
             Branch: ${{ github.ref }}
             Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
