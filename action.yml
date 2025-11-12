@@ -306,6 +306,13 @@ runs:
             sudo -E apt-get install -y jq
           fi
 
+          # Check/install bc (needed for auto-whitelist floating-point comparisons)
+          if ! command -v bc &> /dev/null; then
+            echo "Installing bc..."
+            wait_for_apt_locks
+            sudo -E apt-get install -y bc
+          fi
+
           # Check/install libpcap0.8t64
           if ! dpkg -s libpcap0.8t64 &> /dev/null; then
             echo "Installing libpcap0.8t64..."
@@ -1109,7 +1116,9 @@ runs:
             echo "1" > auto_whitelist_iteration.txt
             mv auto_whitelist_new.json auto_whitelist.json
             
-            echo "Initial whitelist created with $(jq '.whitelists[].endpoints | length' auto_whitelist.json | awk '{s+=$1} END {print s}') endpoints"
+            # Count endpoints with error handling
+            ENDPOINT_COUNT=$(jq '[.whitelists[]?.endpoints? | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
+            echo "Initial whitelist created with $ENDPOINT_COUNT endpoints"
             echo "AUTO_WHITELIST_STATUS=created" >> $GITHUB_ENV
             echo "AUTO_WHITELIST_STABLE=false" >> $GITHUB_ENV
           else
@@ -1118,12 +1127,23 @@ runs:
             $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json
             
             # Compare old and new whitelists
-            DIFF_PERCENT=$($EDAMAME_POSTURE_CMD compare-custom-whitelists-from-files auto_whitelist.json auto_whitelist_new.json | sed 's/%//')
+            DIFF_PERCENT=$($EDAMAME_POSTURE_CMD compare-custom-whitelists-from-files auto_whitelist.json auto_whitelist_new.json | sed 's/%//' || echo "100")
             echo "Whitelist difference: ${DIFF_PERCENT}%"
             echo "AUTO_WHITELIST_DIFF=$DIFF_PERCENT" >> $GITHUB_ENV
             
             # Check if this iteration is stable (below threshold)
-            if (( $(echo "$DIFF_PERCENT <= ${{ inputs.auto_whitelist_stability_threshold }}" | bc -l) )); then
+            # Use bc for floating-point comparison if available, otherwise use integer comparison
+            if command -v bc &> /dev/null; then
+              IS_STABLE=$(echo "$DIFF_PERCENT <= ${{ inputs.auto_whitelist_stability_threshold }}" | bc -l)
+            else
+              # Fallback to integer comparison (convert to int)
+              DIFF_INT=${DIFF_PERCENT%.*}
+              THRESHOLD_INT=${{ inputs.auto_whitelist_stability_threshold }}
+              THRESHOLD_INT=${THRESHOLD_INT%.*}
+              [[ $DIFF_INT -le $THRESHOLD_INT ]] && IS_STABLE=1 || IS_STABLE=0
+            fi
+            
+            if [[ "$IS_STABLE" == "1" ]]; then
               # Increment consecutive stable runs count
               STABLE_COUNT=$((AUTO_WHITELIST_STABLE_COUNT + 1))
               echo "$STABLE_COUNT" > auto_whitelist_stable_count.txt
@@ -1220,6 +1240,7 @@ runs:
           ~/auto_whitelist_stable_count.txt
         retention-days: 90
         overwrite: true
+        if-no-files-found: warn
 
     - name: Display auto-whitelist status
       if: ${{ inputs.auto_whitelist == 'true' }}

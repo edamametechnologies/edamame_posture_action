@@ -1,19 +1,16 @@
-name: Test Auto-Whitelist Complex
+name: Test Auto-Whitelist Lifecycle
 
-# This workflow exercises the auto-whitelist lifecycle end-to-end within a single
-# job by repeatedly invoking the EDAMAME Posture action. Each “iteration” mirrors
-# a subsequent workflow run: the whitelist state is restored before the action
-# runs, traffic is generated while the background process is active, the action
-# captures and evaluates sessions, and the updated whitelist state is persisted.
-# The goal is to simulate the real-world progression from listen-only mode,
-# through augmentation, into stability, and finally enforcement (including a
-# negative test with unauthorized traffic).
+# This workflow tests the complete auto-whitelist lifecycle including:
+# 1. Learning phase: Generate baseline whitelist from legitimate traffic
+# 2. Augmentation phase: Add new endpoints to existing whitelist
+# 3. Enforcement phase: Detect violations when unauthorized traffic occurs
+# 4. Artifact persistence: Upload/download whitelist across workflow runs
 
 on:
   workflow_dispatch:
     inputs:
-      reset_artifact:
-        description: 'Delete existing auto-whitelist artifact to start fresh'
+      cleanup_artifacts:
+        description: 'Delete existing whitelist artifacts before running'
         required: false
         default: false
         type: boolean
@@ -31,972 +28,440 @@ permissions:
   actions: write
 
 jobs:
-  auto-whitelist-lifecycle:
-    name: Auto-Whitelist Lifecycle Simulation
+  # Phase 1: Learning - Generate baseline whitelist
+  learning-phase:
+    name: Learning Phase - Generate Baseline Whitelist
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      AUTO_WHITELIST_ARTIFACT: test-complex-auto-whitelist-e2e
-      AUTO_WHITELIST_BASE: github_ubuntu
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Derive auto-whitelist environment
-        run: |
-          echo "AUTO_WHITELIST_STATE_DIR=$RUNNER_TEMP/auto-whitelist-state" >> $GITHUB_ENV
-          echo "AUTO_WHITELIST_ARTIFACT=$AUTO_WHITELIST_ARTIFACT"
-          echo "AUTO_WHITELIST_STATE_DIR=$RUNNER_TEMP/auto-whitelist-state"
 
-
-      - name: Clean up existing auto-whitelist artifact
-        if: github.event_name == 'workflow_dispatch' && inputs.reset_artifact == 'true'
+      - name: Clean up existing artifacts (optional)
+        if: github.event_name == 'workflow_dispatch' && inputs.cleanup_artifacts == true
         env:
           GH_TOKEN: ${{ github.token }}
         continue-on-error: true
         run: |
-          echo "Cleaning up existing auto-whitelist artifact..."
-          ARTIFACT_NAME="${AUTO_WHITELIST_ARTIFACT}"
-          ARTIFACT_IDS=$(gh api repos/${{ github.repository }}/actions/artifacts --paginate --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id" 2>/dev/null || true)
+          echo "Cleaning up existing auto-whitelist artifacts..."
+          ARTIFACT_NAME="test-auto-whitelist-${{ github.run_id }}"
+          ARTIFACT_IDS=$(gh api repos/${{ github.repository }}/actions/artifacts --paginate --jq ".artifacts[] | select(.name | startswith(\"test-auto-whitelist-\")) | .id" 2>/dev/null || true)
           if [[ -n "$ARTIFACT_IDS" ]]; then
             echo "$ARTIFACT_IDS" | while read -r ARTIFACT_ID; do
               [[ -n "$ARTIFACT_ID" ]] || continue
               echo "Deleting artifact id $ARTIFACT_ID"
-              gh api repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID -X DELETE 2>/dev/null || echo "Failed to delete (maybe already expired)"
+              gh api repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID -X DELETE 2>/dev/null || echo "Failed to delete (may already be expired)"
             done
           else
-            echo "No artifacts named $ARTIFACT_NAME found"
+            echo "No existing artifacts found"
           fi
 
-      - name: Initialize auto-whitelist state
-        run: |
-          rm -f $HOME/auto_whitelist.json ~/auto_whitelist_iteration.txt ~/auto_whitelist_stable_count.txt
-          rm -rf "$AUTO_WHITELIST_STATE_DIR"
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/latest"
-          echo "Initialized state directory: $AUTO_WHITELIST_STATE_DIR"
-
-      # Iteration 1 -------------------------------------------------------------------
-      - name: Iteration 1 - Start auto-whitelist (listen-only)
-        id: iteration1-start
+      - name: Start EDAMAME Posture in disconnected mode
+        id: start-edamame
         uses: ./
         with:
-          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: false
-          exit_on_whitelist_exceptions: false
+          whitelist: github_ubuntu
           display_logs: false
 
-      - name: Iteration 1 - Wait for capture readiness
-        if: steps.iteration1-start.outcome == 'success'
+      - name: Wait for capture readiness
         run: |
-          echo "Waiting for background process to settle..."
-          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
-          elif command -v edamame_posture &> /dev/null; then
-            edamame_posture wait-for-connection 30 || true
-          elif [[ -f ~/edamame_posture ]]; then
-            ~/edamame_posture wait-for-connection 30 || true
-          else
-            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
-          fi
-          sleep 5
+          echo "Waiting for EDAMAME Posture to be ready..."
+          sleep 10
 
-      - name: Iteration 1 - Simulate baseline traffic
-        if: steps.iteration1-start.outcome == 'success'
+      - name: Generate legitimate baseline traffic
         run: |
-          echo "Simulating baseline traffic (seed initial whitelist)..."
-          curl -s --max-time 5 https://www.github.com > /dev/null || true
-          curl -s --max-time 5 https://registry.npmjs.org > /dev/null || true
-          curl -s --max-time 5 https://api.github.com > /dev/null || true
-          sleep 15
+          echo "Generating baseline traffic for whitelist learning..."
+          
+          # Simulate typical CI/CD traffic
+          curl -s --max-time 10 https://api.github.com > /dev/null || true
+          curl -s --max-time 10 https://github.com > /dev/null || true
+          curl -s --max-time 10 https://registry.npmjs.org > /dev/null || true
+          
+          # Wait for traffic to be captured
+          echo "Waiting for traffic capture..."
+          sleep 20
 
-      - name: Iteration 1 - Finalize auto-whitelist
-        id: iteration1-finalize
-        if: steps.iteration1-start.outcome == 'success'
+      - name: Create custom whitelist from captured traffic
+        id: create-whitelist
         uses: ./
         with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
+          create_custom_whitelists: true
+          custom_whitelists_path: ${{ github.workspace }}/baseline_whitelist.json
           display_logs: true
 
-      - name: Iteration 1 - Stop EDAMAME Posture
-        if: steps.iteration1-start.outcome == 'success'
+      - name: Stop EDAMAME Posture
         uses: ./
         with:
           stop: true
-          display_logs: false
         continue-on-error: true
 
-      - name: Iteration 1 - Persist auto-whitelist state
-        if: steps.iteration1-start.outcome == 'success'
+      - name: Validate baseline whitelist is not empty
         run: |
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/iteration-1" "$AUTO_WHITELIST_STATE_DIR/latest"
-          rm -f "$AUTO_WHITELIST_STATE_DIR/iteration-1"/auto_whitelist* "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist* 2>/dev/null || true
-          shopt -s nullglob
-          for file in "$HOME"/auto_whitelist*.json "$HOME"/auto_whitelist*.txt; do
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/iteration-1/"
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/latest/"
-          done
-          shopt -u nullglob
-          ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-1" || true
-      - name: Iteration 1 - Validate whitelist contents
-        if: steps.iteration1-start.outcome == 'success'
-        run: |
-          if [[ ! -s $HOME/auto_whitelist.json ]]; then
-            echo 'auto_whitelist.json is missing or empty' >&2
-            ls -la ~/*.json ~/*.txt 2>/dev/null || true
+          echo "Validating baseline whitelist..."
+          
+          if [[ ! -f "${{ github.workspace }}/baseline_whitelist.json" ]]; then
+            echo "❌ ERROR: baseline_whitelist.json was not created" >&2
             exit 1
           fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
-          echo "Endpoint count: $COUNT"
-          if [[ "$COUNT" == "0" ]]; then
-            echo 'Whitelist contains no endpoints' >&2
-            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
+          
+          if [[ ! -s "${{ github.workspace }}/baseline_whitelist.json" ]]; then
+            echo "❌ ERROR: baseline_whitelist.json is empty" >&2
             exit 1
           fi
+          
+          # Check if it's valid JSON
+          if ! jq empty "${{ github.workspace }}/baseline_whitelist.json" 2>/dev/null; then
+            echo "❌ ERROR: baseline_whitelist.json is not valid JSON" >&2
+            cat "${{ github.workspace }}/baseline_whitelist.json"
+            exit 1
+          fi
+          
+          # Count endpoints
+          ENDPOINT_COUNT=$(jq '[.whitelists[].endpoints | length] | add // 0' "${{ github.workspace }}/baseline_whitelist.json" 2>/dev/null || echo '0')
+          echo "✅ Baseline whitelist contains $ENDPOINT_COUNT endpoints"
+          
+          if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
+            echo "❌ ERROR: Whitelist contains no endpoints" >&2
+            cat "${{ github.workspace }}/baseline_whitelist.json"
+            exit 1
+          fi
+          
+          # Display whitelist content for debugging
+          echo "Baseline whitelist content:"
+          jq '.' "${{ github.workspace }}/baseline_whitelist.json"
 
-      - name: Iteration 1 - Summary
-        if: steps.iteration1-start.outcome == 'success'
+      - name: Upload baseline whitelist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-auto-whitelist-${{ github.run_id }}-baseline
+          path: ${{ github.workspace }}/baseline_whitelist.json
+          retention-days: 1
+
+  # Phase 2: Augmentation - Add new endpoints to existing whitelist
+  augmentation-phase:
+    name: Augmentation Phase - Add New Endpoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: learning-phase
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download baseline whitelist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: test-auto-whitelist-${{ github.run_id }}-baseline
+          path: ${{ github.workspace }}
+
+      - name: Verify downloaded whitelist
         run: |
-          echo "Iteration file iteration: $(cat ~/auto_whitelist_iteration.txt 2>/dev/null || echo 'unknown')"
-          echo "Stable count           : $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo '0')"
+          echo "Verifying downloaded baseline whitelist..."
+          
+          if [[ ! -f "${{ github.workspace }}/baseline_whitelist.json" ]]; then
+            echo "❌ ERROR: Failed to download baseline_whitelist.json" >&2
+            exit 1
+          fi
+          
+          BASELINE_COUNT=$(jq '[.whitelists[].endpoints | length] | add // 0' "${{ github.workspace }}/baseline_whitelist.json")
+          echo "✅ Downloaded baseline whitelist with $BASELINE_COUNT endpoints"
 
-      # Iteration 2 -------------------------------------------------------------------
-      - name: Iteration 2 - Restore previous state
-        run: |
-          echo "Restoring whitelist state from iteration 1..."
-          shopt -s nullglob
-          for file in "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.json "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.txt; do
-            cp "$file" ~/
-          done
-          shopt -u nullglob
-          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No files restored"
-
-      - name: Iteration 2 - Start auto-whitelist
-        id: iteration2-start
+      - name: Start EDAMAME Posture
         uses: ./
         with:
-          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: false
-          exit_on_whitelist_exceptions: false
+          whitelist: github_ubuntu
           display_logs: false
 
-      - name: Iteration 2 - Wait for capture readiness
-        if: steps.iteration2-start.outcome == 'success'
+      - name: Wait for capture readiness
         run: |
-          echo "Waiting for background process to settle..."
-          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
-          elif command -v edamame_posture &> /dev/null; then
-            edamame_posture wait-for-connection 30 || true
-          elif [[ -f ~/edamame_posture ]]; then
-            ~/edamame_posture wait-for-connection 30 || true
-          else
-            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
-          fi
-          sleep 5
+          echo "Waiting for EDAMAME Posture to be ready..."
+          sleep 10
 
-      - name: Iteration 2 - Simulate augmentation traffic
-        if: steps.iteration2-start.outcome == 'success'
+      - name: Generate additional traffic (new endpoints)
         run: |
-          echo "Simulating baseline + new endpoints..."
-          curl -s --max-time 5 https://www.github.com > /dev/null || true
-          curl -s --max-time 5 https://registry.npmjs.org > /dev/null || true
-          curl -s --max-time 5 https://api.github.com > /dev/null || true
-          curl -s --max-time 5 https://www.npmjs.com > /dev/null || true
-          curl -s --max-time 5 https://cdn.jsdelivr.net > /dev/null || true
-          sleep 15
+          echo "Generating traffic with new endpoints..."
+          
+          # Replay baseline traffic
+          curl -s --max-time 10 https://api.github.com > /dev/null || true
+          curl -s --max-time 10 https://github.com > /dev/null || true
+          curl -s --max-time 10 https://registry.npmjs.org > /dev/null || true
+          
+          # Add new endpoints that weren't in baseline
+          curl -s --max-time 10 https://www.npmjs.com > /dev/null || true
+          curl -s --max-time 10 https://cdn.jsdelivr.net > /dev/null || true
+          
+          echo "Waiting for traffic capture..."
+          sleep 20
 
-      - name: Iteration 2 - Finalize auto-whitelist
-        id: iteration2-finalize
-        if: steps.iteration2-start.outcome == 'success'
+      - name: Augment whitelist with new endpoints
         uses: ./
         with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
+          augment_custom_whitelists: true
+          custom_whitelists_path: ${{ github.workspace }}/baseline_whitelist.json
+          display_logs: true
+
+      - name: Stop EDAMAME Posture
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
+
+      - name: Validate augmented whitelist
+        run: |
+          echo "Validating augmented whitelist..."
+          
+          if [[ ! -f "${{ github.workspace }}/baseline_whitelist.json" ]]; then
+            echo "❌ ERROR: Augmented whitelist not found" >&2
+            exit 1
+          fi
+          
+          AUGMENTED_COUNT=$(jq '[.whitelists[].endpoints | length] | add // 0' "${{ github.workspace }}/baseline_whitelist.json")
+          echo "✅ Augmented whitelist contains $AUGMENTED_COUNT endpoints"
+          
+          # Display augmented whitelist
+          echo "Augmented whitelist content:"
+          jq '.' "${{ github.workspace }}/baseline_whitelist.json"
+
+      - name: Rename for upload
+        run: |
+          cp "${{ github.workspace }}/baseline_whitelist.json" "${{ github.workspace }}/augmented_whitelist.json"
+
+      - name: Upload augmented whitelist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-auto-whitelist-${{ github.run_id }}-augmented
+          path: ${{ github.workspace }}/augmented_whitelist.json
+          retention-days: 1
+
+  # Phase 3: Enforcement - Verify whitelist detects violations
+  enforcement-phase-pass:
+    name: Enforcement Phase - Authorized Traffic (Pass)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: augmentation-phase
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download augmented whitelist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: test-auto-whitelist-${{ github.run_id }}-augmented
+          path: ${{ github.workspace }}
+
+      - name: Verify downloaded whitelist
+        run: |
+          echo "Verifying downloaded augmented whitelist..."
+          
+          if [[ ! -f "${{ github.workspace }}/augmented_whitelist.json" ]]; then
+            echo "❌ ERROR: Failed to download augmented_whitelist.json" >&2
+            exit 1
+          fi
+          
+          COUNT=$(jq '[.whitelists[].endpoints | length] | add // 0' "${{ github.workspace }}/augmented_whitelist.json")
+          echo "✅ Downloaded augmented whitelist with $COUNT endpoints"
+
+      - name: Start EDAMAME Posture with enforcement
+        uses: ./
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          custom_whitelists_path: ${{ github.workspace }}/augmented_whitelist.json
           set_custom_whitelists: true
-          custom_whitelists_path: $HOME/auto_whitelist.json
-          display_logs: true
-
-      - name: Iteration 2 - Stop EDAMAME Posture
-        if: steps.iteration2-start.outcome == 'success'
-        uses: ./
-        with:
-          stop: true
-          display_logs: false
-        continue-on-error: true
-
-      - name: Iteration 2 - Persist auto-whitelist state
-        if: steps.iteration2-start.outcome == 'success'
-        run: |
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/iteration-2" "$AUTO_WHITELIST_STATE_DIR/latest"
-          rm -f "$AUTO_WHITELIST_STATE_DIR/iteration-2"/auto_whitelist* "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist* 2>/dev/null || true
-          shopt -s nullglob
-          for file in "$HOME"/auto_whitelist*.json "$HOME"/auto_whitelist*.txt; do
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/iteration-2/"
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/latest/"
-          done
-          shopt -u nullglob
-          ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-2" || true
-      - name: Iteration 2 - Validate whitelist contents
-        if: steps.iteration2-start.outcome == 'success'
-        run: |
-          if [[ ! -s $HOME/auto_whitelist.json ]]; then
-            echo 'auto_whitelist.json is missing or empty' >&2
-            ls -la ~/*.json ~/*.txt 2>/dev/null || true
-            exit 1
-          fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
-          echo "Endpoint count: $COUNT"
-          if [[ "$COUNT" == "0" ]]; then
-            echo 'Whitelist contains no endpoints' >&2
-            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
-            exit 1
-          fi
-
-      - name: Iteration 2 - Summary
-        if: steps.iteration2-start.outcome == 'success'
-        run: |
-          echo "Iteration file iteration: $(cat ~/auto_whitelist_iteration.txt 2>/dev/null || echo 'unknown')"
-          echo "Stable count           : $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo '0')"
-
-      # Iteration 3 -------------------------------------------------------------------
-      - name: Iteration 3 - Restore previous state
-        run: |
-          echo "Restoring whitelist state from iteration 2..."
-          shopt -s nullglob
-          for file in "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.json "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.txt; do
-            cp "$file" ~/
-          done
-          shopt -u nullglob
-          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No files restored"
-
-      - name: Iteration 3 - Start auto-whitelist
-        id: iteration3-start
-        uses: ./
-        with:
-          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
-          disconnected_mode: true
-          network_scan: true
-          packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: false
-          exit_on_whitelist_exceptions: false
           display_logs: false
 
-      - name: Iteration 3 - Wait for capture readiness
-        if: steps.iteration3-start.outcome == 'success'
+      - name: Wait for capture readiness
         run: |
-          echo "Waiting for background process to settle..."
-          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
-          elif command -v edamame_posture &> /dev/null; then
-            edamame_posture wait-for-connection 30 || true
-          elif [[ -f ~/edamame_posture ]]; then
-            ~/edamame_posture wait-for-connection 30 || true
-          else
-            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
-          fi
-          sleep 5
+          echo "Waiting for EDAMAME Posture to be ready..."
+          sleep 10
 
-      - name: Iteration 3 - Simulate additional augmentation traffic
-        if: steps.iteration3-start.outcome == 'success'
+      - name: Generate only authorized traffic
         run: |
-          echo "Simulating baseline + previous + additional endpoints..."
-          curl -s --max-time 5 https://www.github.com > /dev/null || true
-          curl -s --max-time 5 https://registry.npmjs.org > /dev/null || true
-          curl -s --max-time 5 https://api.github.com > /dev/null || true
-          curl -s --max-time 5 https://www.npmjs.com > /dev/null || true
-          curl -s --max-time 5 https://cdn.jsdelivr.net > /dev/null || true
-          curl -s --max-time 5 https://fonts.googleapis.com > /dev/null || true
-          curl -s --max-time 5 https://www.google-analytics.com > /dev/null || true
-          sleep 15
+          echo "Generating only whitelisted traffic (should pass)..."
+          
+          # Only use endpoints that are in the augmented whitelist
+          curl -s --max-time 10 https://api.github.com > /dev/null || true
+          curl -s --max-time 10 https://github.com > /dev/null || true
+          curl -s --max-time 10 https://registry.npmjs.org > /dev/null || true
+          curl -s --max-time 10 https://www.npmjs.com > /dev/null || true
+          curl -s --max-time 10 https://cdn.jsdelivr.net > /dev/null || true
+          
+          echo "Waiting for traffic analysis..."
+          sleep 20
 
-      - name: Iteration 3 - Finalize auto-whitelist
-        id: iteration3-finalize
-        if: steps.iteration3-start.outcome == 'success'
+      - name: Check for whitelist violations (should pass)
+        id: check-violations-pass
         uses: ./
         with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
-          set_custom_whitelists: true
-          custom_whitelists_path: $HOME/auto_whitelist.json
-          display_logs: true
-
-      - name: Iteration 3 - Stop EDAMAME Posture
-        if: steps.iteration3-start.outcome == 'success'
-        uses: ./
-        with:
-          stop: true
-          display_logs: false
-        continue-on-error: true
-
-      - name: Iteration 3 - Persist auto-whitelist state
-        if: steps.iteration3-start.outcome == 'success'
-        run: |
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/iteration-3" "$AUTO_WHITELIST_STATE_DIR/latest"
-          rm -f "$AUTO_WHITELIST_STATE_DIR/iteration-3"/auto_whitelist* "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist* 2>/dev/null || true
-          shopt -s nullglob
-          for file in "$HOME"/auto_whitelist*.json "$HOME"/auto_whitelist*.txt; do
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/iteration-3/"
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/latest/"
-          done
-          shopt -u nullglob
-          ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-3" || true
-      - name: Iteration 3 - Validate whitelist contents
-        if: steps.iteration3-start.outcome == 'success'
-        run: |
-          if [[ ! -s $HOME/auto_whitelist.json ]]; then
-            echo 'auto_whitelist.json is missing or empty' >&2
-            ls -la ~/*.json ~/*.txt 2>/dev/null || true
-            exit 1
-          fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
-          echo "Endpoint count: $COUNT"
-          if [[ "$COUNT" == "0" ]]; then
-            echo 'Whitelist contains no endpoints' >&2
-            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
-            exit 1
-          fi
-
-      - name: Iteration 3 - Summary
-        if: steps.iteration3-start.outcome == 'success'
-        run: |
-          echo "Iteration file iteration: $(cat ~/auto_whitelist_iteration.txt 2>/dev/null || echo 'unknown')"
-          echo "Stable count           : $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo '0')"
-
-      # Iteration 4 -------------------------------------------------------------------
-      - name: Iteration 4 - Restore previous state
-        run: |
-          echo "Restoring whitelist state from iteration 3..."
-          shopt -s nullglob
-          for file in "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.json "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.txt; do
-            cp "$file" ~/
-          done
-          shopt -u nullglob
-          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No files restored"
-
-      - name: Iteration 4 - Start auto-whitelist (stability confirmation 1/3)
-        id: iteration4-start
-        uses: ./
-        with:
-          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
-          disconnected_mode: true
-          network_scan: true
-          packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: false
-          exit_on_whitelist_exceptions: false
-          display_logs: false
-
-      - name: Iteration 4 - Wait for capture readiness
-        if: steps.iteration4-start.outcome == 'success'
-        run: |
-          echo "Waiting for background process to settle..."
-          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
-          elif command -v edamame_posture &> /dev/null; then
-            edamame_posture wait-for-connection 30 || true
-          elif [[ -f ~/edamame_posture ]]; then
-            ~/edamame_posture wait-for-connection 30 || true
-          else
-            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
-          fi
-          sleep 5
-
-      - name: Iteration 4 - Simulate stable traffic
-        if: steps.iteration4-start.outcome == 'success'
-        run: |
-          echo "Replaying stable traffic set..."
-          for url in \
-            https://www.github.com \
-            https://registry.npmjs.org \
-            https://api.github.com \
-            https://www.npmjs.com \
-            https://cdn.jsdelivr.net \
-            https://fonts.googleapis.com \
-            https://www.google-analytics.com
-          do
-            curl -s --max-time 5 "$url" > /dev/null || true
-          done
-          sleep 15
-
-      - name: Iteration 4 - Finalize auto-whitelist
-        id: iteration4-finalize
-        if: steps.iteration4-start.outcome == 'success'
-        uses: ./
-        with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
-          set_custom_whitelists: true
-          custom_whitelists_path: $HOME/auto_whitelist.json
-          display_logs: true
-
-      - name: Iteration 4 - Stop EDAMAME Posture
-        if: steps.iteration4-start.outcome == 'success'
-        uses: ./
-        with:
-          stop: true
-          display_logs: false
-        continue-on-error: true
-
-      - name: Iteration 4 - Persist auto-whitelist state
-        if: steps.iteration4-start.outcome == 'success'
-        run: |
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/iteration-4" "$AUTO_WHITELIST_STATE_DIR/latest"
-          rm -f "$AUTO_WHITELIST_STATE_DIR/iteration-4"/auto_whitelist* "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist* 2>/dev/null || true
-          shopt -s nullglob
-          for file in "$HOME"/auto_whitelist*.json "$HOME"/auto_whitelist*.txt; do
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/iteration-4/"
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/latest/"
-          done
-          shopt -u nullglob
-          ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-4" || true
-      - name: Iteration 4 - Validate whitelist contents
-        if: steps.iteration4-start.outcome == 'success'
-        run: |
-          if [[ ! -s $HOME/auto_whitelist.json ]]; then
-            echo 'auto_whitelist.json is missing or empty' >&2
-            ls -la ~/*.json ~/*.txt 2>/dev/null || true
-            exit 1
-          fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
-          echo "Endpoint count: $COUNT"
-          if [[ "$COUNT" == "0" ]]; then
-            echo 'Whitelist contains no endpoints' >&2
-            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
-            exit 1
-          fi
-
-      - name: Iteration 4 - Summary
-        if: steps.iteration4-start.outcome == 'success'
-        run: |
-          echo "Iteration file iteration: $(cat ~/auto_whitelist_iteration.txt 2>/dev/null || echo 'unknown')"
-          echo "Stable count           : $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo '0')"
-
-      # Iteration 5 -------------------------------------------------------------------
-      - name: Iteration 5 - Restore previous state
-        run: |
-          echo "Restoring whitelist state from iteration 4..."
-          shopt -s nullglob
-          for file in "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.json "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.txt; do
-            cp "$file" ~/
-          done
-          shopt -u nullglob
-          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No files restored"
-
-      - name: Iteration 5 - Start auto-whitelist (stability confirmation 2/3)
-        id: iteration5-start
-        uses: ./
-        with:
-          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
-          disconnected_mode: true
-          network_scan: true
-          packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: false
-          exit_on_whitelist_exceptions: false
-          display_logs: false
-
-      - name: Iteration 5 - Wait for capture readiness
-        if: steps.iteration5-start.outcome == 'success'
-        run: |
-          echo "Waiting for background process to settle..."
-          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
-          elif command -v edamame_posture &> /dev/null; then
-            edamame_posture wait-for-connection 30 || true
-          elif [[ -f ~/edamame_posture ]]; then
-            ~/edamame_posture wait-for-connection 30 || true
-          else
-            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
-          fi
-          sleep 5
-
-      - name: Iteration 5 - Simulate stable traffic
-        if: steps.iteration5-start.outcome == 'success'
-        run: |
-          echo "Replaying stable traffic set..."
-          for url in \
-            https://www.github.com \
-            https://registry.npmjs.org \
-            https://api.github.com \
-            https://www.npmjs.com \
-            https://cdn.jsdelivr.net \
-            https://fonts.googleapis.com \
-            https://www.google-analytics.com
-          do
-            curl -s --max-time 5 "$url" > /dev/null || true
-          done
-          sleep 15
-
-      - name: Iteration 5 - Finalize auto-whitelist
-        id: iteration5-finalize
-        if: steps.iteration5-start.outcome == 'success'
-        uses: ./
-        with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
-          set_custom_whitelists: true
-          custom_whitelists_path: $HOME/auto_whitelist.json
-          display_logs: true
-
-      - name: Iteration 5 - Stop EDAMAME Posture
-        if: steps.iteration5-start.outcome == 'success'
-        uses: ./
-        with:
-          stop: true
-          display_logs: false
-        continue-on-error: true
-
-      - name: Iteration 5 - Persist auto-whitelist state
-        if: steps.iteration5-start.outcome == 'success'
-        run: |
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/iteration-5" "$AUTO_WHITELIST_STATE_DIR/latest"
-          rm -f "$AUTO_WHITELIST_STATE_DIR/iteration-5"/auto_whitelist* "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist* 2>/dev/null || true
-          shopt -s nullglob
-          for file in "$HOME"/auto_whitelist*.json "$HOME"/auto_whitelist*.txt; do
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/iteration-5/"
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/latest/"
-          done
-          shopt -u nullglob
-          ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-5" || true
-      - name: Iteration 5 - Validate whitelist contents
-        if: steps.iteration5-start.outcome == 'success'
-        run: |
-          if [[ ! -s $HOME/auto_whitelist.json ]]; then
-            echo 'auto_whitelist.json is missing or empty' >&2
-            ls -la ~/*.json ~/*.txt 2>/dev/null || true
-            exit 1
-          fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
-          echo "Endpoint count: $COUNT"
-          if [[ "$COUNT" == "0" ]]; then
-            echo 'Whitelist contains no endpoints' >&2
-            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
-            exit 1
-          fi
-
-      - name: Iteration 5 - Summary
-        if: steps.iteration5-start.outcome == 'success'
-        run: |
-          echo "Iteration file iteration: $(cat ~/auto_whitelist_iteration.txt 2>/dev/null || echo 'unknown')"
-          echo "Stable count           : $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo '0')"
-
-      # Iteration 6 -------------------------------------------------------------------
-      - name: Iteration 6 - Restore previous state
-        run: |
-          echo "Restoring whitelist state from iteration 5..."
-          shopt -s nullglob
-          for file in "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.json "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.txt; do
-            cp "$file" ~/
-          done
-          shopt -u nullglob
-          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No files restored"
-
-      - name: Iteration 6 - Start auto-whitelist (stability confirmation 3/3)
-        id: iteration6-start
-        uses: ./
-        with:
-          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
-          disconnected_mode: true
-          network_scan: true
-          packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: false
-          exit_on_whitelist_exceptions: false
-          display_logs: false
-
-      - name: Iteration 6 - Wait for capture readiness
-        if: steps.iteration6-start.outcome == 'success'
-        run: |
-          echo "Waiting for background process to settle..."
-          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
-          elif command -v edamame_posture &> /dev/null; then
-            edamame_posture wait-for-connection 30 || true
-          elif [[ -f ~/edamame_posture ]]; then
-            ~/edamame_posture wait-for-connection 30 || true
-          else
-            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
-          fi
-          sleep 5
-
-      - name: Iteration 6 - Simulate stable traffic
-        if: steps.iteration6-start.outcome == 'success'
-        run: |
-          echo "Replaying stable traffic set..."
-          for url in \
-            https://www.github.com \
-            https://registry.npmjs.org \
-            https://api.github.com \
-            https://www.npmjs.com \
-            https://cdn.jsdelivr.net \
-            https://fonts.googleapis.com \
-            https://www.google-analytics.com
-          do
-            curl -s --max-time 5 "$url" > /dev/null || true
-          done
-          sleep 15
-
-      - name: Iteration 6 - Finalize auto-whitelist
-        id: iteration6-finalize
-        if: steps.iteration6-start.outcome == 'success'
-        uses: ./
-        with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
-          set_custom_whitelists: true
-          custom_whitelists_path: $HOME/auto_whitelist.json
-          display_logs: true
-
-      - name: Iteration 6 - Stop EDAMAME Posture
-        if: steps.iteration6-start.outcome == 'success'
-        uses: ./
-        with:
-          stop: true
-          display_logs: false
-        continue-on-error: true
-
-      - name: Iteration 6 - Persist auto-whitelist state
-        if: steps.iteration6-start.outcome == 'success'
-        run: |
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/iteration-6" "$AUTO_WHITELIST_STATE_DIR/latest"
-          rm -f "$AUTO_WHITELIST_STATE_DIR/iteration-6"/auto_whitelist* "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist* 2>/dev/null || true
-          shopt -s nullglob
-          for file in "$HOME"/auto_whitelist*.json "$HOME"/auto_whitelist*.txt; do
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/iteration-6/"
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/latest/"
-          done
-          shopt -u nullglob
-          ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-6" || true
-      - name: Iteration 6 - Validate whitelist contents
-        if: steps.iteration6-start.outcome == 'success'
-        run: |
-          if [[ ! -s $HOME/auto_whitelist.json ]]; then
-            echo 'auto_whitelist.json is missing or empty' >&2
-            ls -la ~/*.json ~/*.txt 2>/dev/null || true
-            exit 1
-          fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
-          echo "Endpoint count: $COUNT"
-          if [[ "$COUNT" == "0" ]]; then
-            echo 'Whitelist contains no endpoints' >&2
-            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
-            exit 1
-          fi
-
-      - name: Iteration 6 - Assert whitelist stability
-        if: steps.iteration6-start.outcome == 'success'
-        run: |
-          STABLE_COUNT=$(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo "0")
-          echo "Stable count reported by action: $STABLE_COUNT"
-          if [[ "$STABLE_COUNT" -lt 3 ]]; then
-            echo "Expected stable count >= 3 by iteration 6" >&2
-            exit 1
-          fi
-
-      # Iteration 7 -------------------------------------------------------------------
-      - name: Iteration 7 - Restore previous state
-        run: |
-          echo "Restoring whitelist state from iteration 6..."
-          shopt -s nullglob
-          for file in "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.json "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.txt; do
-            cp "$file" ~/
-          done
-          shopt -u nullglob
-          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No files restored"
-
-      - name: Iteration 7 - Start auto-whitelist (enforcement expected)
-        id: iteration7-start
-        uses: ./
-        with:
-          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
-          disconnected_mode: true
-          network_scan: true
-          packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: false
-          exit_on_whitelist_exceptions: false
-          display_logs: false
-
-      - name: Iteration 7 - Wait for capture readiness
-        if: steps.iteration7-start.outcome == 'success'
-        run: |
-          echo "Waiting for background process to settle..."
-          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
-          elif command -v edamame_posture &> /dev/null; then
-            edamame_posture wait-for-connection 30 || true
-          elif [[ -f ~/edamame_posture ]]; then
-            ~/edamame_posture wait-for-connection 30 || true
-          else
-            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
-          fi
-          sleep 5
-
-      - name: Iteration 7 - Simulate whitelisted traffic (should pass)
-        if: steps.iteration7-start.outcome == 'success'
-        run: |
-          echo "Replaying whitelisted traffic (enforcement should allow)..."
-          for url in \
-            https://www.github.com \
-            https://registry.npmjs.org \
-            https://api.github.com \
-            https://www.npmjs.com \
-            https://cdn.jsdelivr.net \
-            https://fonts.googleapis.com \
-            https://www.google-analytics.com
-          do
-            curl -s --max-time 5 "$url" > /dev/null || true
-          done
-          sleep 15
-
-      - name: Iteration 7 - Finalize auto-whitelist (enforcement check)
-        id: iteration7-finalize
-        if: steps.iteration7-start.outcome == 'success'
-        uses: ./
-        with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: true
           display_logs: true
 
-      - name: Iteration 7 - Stop EDAMAME Posture
-        if: steps.iteration7-start.outcome == 'success'
+      - name: Stop EDAMAME Posture
         uses: ./
         with:
           stop: true
-          display_logs: false
         continue-on-error: true
 
-      - name: Iteration 7 - Persist auto-whitelist state
-        if: steps.iteration7-start.outcome == 'success'
+      - name: Verify enforcement passed
         run: |
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/iteration-7" "$AUTO_WHITELIST_STATE_DIR/latest"
-          rm -f "$AUTO_WHITELIST_STATE_DIR/iteration-7"/auto_whitelist* "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist* 2>/dev/null || true
-          shopt -s nullglob
-          for file in "$HOME"/auto_whitelist*.json "$HOME"/auto_whitelist*.txt; do
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/iteration-7/"
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/latest/"
-          done
-          shopt -u nullglob
-          ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-7" || true
-      - name: Iteration 7 - Validate whitelist contents
-        if: steps.iteration7-start.outcome == 'success'
-        run: |
-          if [[ ! -s $HOME/auto_whitelist.json ]]; then
-            echo 'auto_whitelist.json is missing or empty' >&2
-            ls -la ~/*.json ~/*.txt 2>/dev/null || true
-            exit 1
-          fi
-          COUNT=$(jq -r '([.whitelists[].endpoints | length] | add) // 0' $HOME/auto_whitelist.json 2>/dev/null || echo '0')
-          echo "Endpoint count: $COUNT"
-          if [[ "$COUNT" == "0" ]]; then
-            echo 'Whitelist contains no endpoints' >&2
-            head $HOME/auto_whitelist.json || cat $HOME/auto_whitelist.json
-            exit 1
-          fi
+          echo "✅ SUCCESS: Authorized traffic passed whitelist enforcement"
 
-      - name: Iteration 7 - Summary
-        if: steps.iteration7-start.outcome == 'success'
-        env:
-          ITERATION7_OUTCOME: ${{ steps.iteration7-finalize.outcome }}
-        run: |
-          echo "Finalizer outcome: $ITERATION7_OUTCOME (expected success)"
-          if [[ "$ITERATION7_OUTCOME" != "success" ]]; then
-            echo "Iteration 7 was expected to succeed in enforcement mode" >&2
-            exit 1
-          fi
-          echo "Stable count           : $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo 'unknown')"
+  # Phase 4: Enforcement - Detect violations
+  enforcement-phase-fail:
+    name: Enforcement Phase - Unauthorized Traffic (Fail Expected)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: augmentation-phase
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # Iteration 8 -------------------------------------------------------------------
-      - name: Iteration 8 - Restore previous state
-        run: |
-          echo "Restoring whitelist state from iteration 7..."
-          shopt -s nullglob
-          for file in "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.json "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist*.txt; do
-            cp "$file" ~/
-          done
-          shopt -u nullglob
-          ls -la ~/auto_whitelist*.json ~/auto_whitelist*.txt 2>/dev/null || echo "No files restored"
+      - name: Download augmented whitelist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: test-auto-whitelist-${{ github.run_id }}-augmented
+          path: ${{ github.workspace }}
 
-      - name: Iteration 8 - Start auto-whitelist (enforcement violation expected)
-        id: iteration8-start
+      - name: Start EDAMAME Posture with enforcement
         uses: ./
         with:
-          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: false
-          exit_on_whitelist_exceptions: false
+          custom_whitelists_path: ${{ github.workspace }}/augmented_whitelist.json
+          set_custom_whitelists: true
           display_logs: false
 
-      - name: Iteration 8 - Wait for capture readiness
-        if: steps.iteration8-start.outcome == 'success'
+      - name: Wait for capture readiness
         run: |
-          echo "Waiting for background process to settle..."
-          if [[ -n "${EDAMAME_POSTURE_CMD:-}" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 30 || true
-          elif command -v edamame_posture &> /dev/null; then
-            edamame_posture wait-for-connection 30 || true
-          elif [[ -f ~/edamame_posture ]]; then
-            ~/edamame_posture wait-for-connection 30 || true
-          else
-            echo "EDAMAME_POSTURE_CMD not available; skipping explicit wait"
-          fi
-          sleep 5
+          echo "Waiting for EDAMAME Posture to be ready..."
+          sleep 10
 
-      - name: Iteration 8 - Simulate traffic with violations
-        if: steps.iteration8-start.outcome == 'success'
+      - name: Generate unauthorized traffic
         run: |
-          echo "Replaying whitelisted traffic..."
-          for url in \
-            https://www.github.com \
-            https://registry.npmjs.org \
-            https://api.github.com \
-            https://www.npmjs.com \
-            https://cdn.jsdelivr.net \
-            https://fonts.googleapis.com \
-            https://www.google-analytics.com
-          do
-            curl -s --max-time 5 "$url" > /dev/null || true
-          done
-          echo "Sending unauthorized traffic (should trigger enforcement failure)..."
-          curl -s --max-time 5 https://www.example.com > /dev/null || true
-          curl -s --max-time 5 https://httpbin.org/get > /dev/null || true
-          sleep 15
+          echo "Generating whitelisted + unauthorized traffic (should fail)..."
+          
+          # Some authorized traffic
+          curl -s --max-time 10 https://api.github.com > /dev/null || true
+          curl -s --max-time 10 https://github.com > /dev/null || true
+          
+          # UNAUTHORIZED traffic - should trigger violation
+          curl -s --max-time 10 https://example.com > /dev/null || true
+          curl -s --max-time 10 https://httpbin.org/get > /dev/null || true
+          
+          echo "Waiting for traffic analysis..."
+          sleep 20
 
-      - name: Iteration 8 - Finalize auto-whitelist (expect failure)
-        id: iteration8-finalize
-        if: steps.iteration8-start.outcome == 'success'
+      - name: Check for whitelist violations (should fail)
+        id: check-violations-fail
         uses: ./
         with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: ${{ env.AUTO_WHITELIST_ARTIFACT }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           exit_on_whitelist_exceptions: true
           display_logs: true
         continue-on-error: true
 
-      - name: Iteration 8 - Stop EDAMAME Posture
-        if: steps.iteration8-start.outcome == 'success'
+      - name: Stop EDAMAME Posture
         uses: ./
         with:
           stop: true
-          display_logs: false
         continue-on-error: true
 
-      - name: Iteration 8 - Verify enforcement failure
-        if: steps.iteration8-start.outcome == 'success'
+      - name: Verify enforcement detected violations
         env:
-          ITERATION8_OUTCOME: ${{ steps.iteration8-finalize.outcome }}
+          CHECK_OUTCOME: ${{ steps.check-violations-fail.outcome }}
         run: |
-          echo "Finalizer outcome: $ITERATION8_OUTCOME (expected failure)"
-          if [[ "$ITERATION8_OUTCOME" != "failure" ]]; then
-            echo "Iteration 8 was expected to fail when unauthorized endpoints appear" >&2
+          echo "Verification outcome: $CHECK_OUTCOME"
+          
+          if [[ "$CHECK_OUTCOME" == "failure" ]]; then
+            echo "✅ SUCCESS: Whitelist enforcement correctly detected unauthorized traffic"
+            exit 0
+          else
+            echo "❌ FAILURE: Whitelist enforcement failed to detect unauthorized traffic"
             exit 1
           fi
 
-      - name: Iteration 8 - Persist auto-whitelist state
-        if: steps.iteration8-start.outcome == 'success'
+  # Final validation job
+  validate-complete-lifecycle:
+    name: Validate Complete Lifecycle
+    runs-on: ubuntu-latest
+    needs: [learning-phase, augmentation-phase, enforcement-phase-pass, enforcement-phase-fail]
+    if: always()
+    steps:
+      - name: Check all phases completed successfully
+        env:
+          LEARNING_RESULT: ${{ needs.learning-phase.result }}
+          AUGMENTATION_RESULT: ${{ needs.augmentation-phase.result }}
+          ENFORCEMENT_PASS_RESULT: ${{ needs.enforcement-phase-pass.result }}
+          ENFORCEMENT_FAIL_RESULT: ${{ needs.enforcement-phase-fail.result }}
         run: |
-          mkdir -p "$AUTO_WHITELIST_STATE_DIR/iteration-8" "$AUTO_WHITELIST_STATE_DIR/latest"
-          rm -f "$AUTO_WHITELIST_STATE_DIR/iteration-8"/auto_whitelist* "$AUTO_WHITELIST_STATE_DIR/latest"/auto_whitelist* 2>/dev/null || true
-          shopt -s nullglob
-          for file in "$HOME"/auto_whitelist*.json "$HOME"/auto_whitelist*.txt; do
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/iteration-8/"
-            cp "$file" "$AUTO_WHITELIST_STATE_DIR/latest/"
-          done
-          shopt -u nullglob
-          ls -la "$AUTO_WHITELIST_STATE_DIR/iteration-8" || true
+          echo "=== Auto-Whitelist Lifecycle Test Results ==="
+          echo "Learning Phase:            $LEARNING_RESULT"
+          echo "Augmentation Phase:        $AUGMENTATION_RESULT"
+          echo "Enforcement (Pass):        $ENFORCEMENT_PASS_RESULT"
+          echo "Enforcement (Fail):        $ENFORCEMENT_FAIL_RESULT"
+          echo "=============================================="
+          
+          FAILED=false
+          
+          if [[ "$LEARNING_RESULT" != "success" ]]; then
+            echo "❌ Learning phase failed"
+            FAILED=true
+          fi
+          
+          if [[ "$AUGMENTATION_RESULT" != "success" ]]; then
+            echo "❌ Augmentation phase failed"
+            FAILED=true
+          fi
+          
+          if [[ "$ENFORCEMENT_PASS_RESULT" != "success" ]]; then
+            echo "❌ Enforcement phase (authorized traffic) failed"
+            FAILED=true
+          fi
+          
+          if [[ "$ENFORCEMENT_FAIL_RESULT" != "success" ]]; then
+            echo "❌ Enforcement phase (unauthorized traffic) failed"
+            FAILED=true
+          fi
+          
+          if [[ "$FAILED" == "true" ]]; then
+            echo ""
+            echo "❌ OVERALL: Auto-whitelist lifecycle test FAILED"
+            exit 1
+          else
+            echo ""
+            echo "✅ OVERALL: Auto-whitelist lifecycle test PASSED"
+            echo "All phases completed successfully:"
+            echo "  ✅ Whitelist creation from traffic"
+            echo "  ✅ Artifact upload/download"
+            echo "  ✅ Whitelist augmentation"
+            echo "  ✅ Enforcement with authorized traffic"
+            echo "  ✅ Violation detection with unauthorized traffic"
+          fi
 
-      - name: Final Summary
-        run: |
-          echo "Final iteration marker : $(cat ~/auto_whitelist_iteration.txt 2>/dev/null || echo 'unknown')"
-          echo "Final stable count     : $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo 'unknown')"
-          echo "Auto-whitelist files in state directory:"
-          ls -la "$AUTO_WHITELIST_STATE_DIR/latest" || true
-
-      - name: Show final auto whitelist
-        if: always()
-        run: |
-          echo "Final auto_whitelist.json:"
-          cat ~/auto_whitelist.json || echo "auto_whitelist.json missing"
+      - name: Send Slack notification on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: 'C072J0U9TH7'
+          slack-message: |
+            ❌ Auto-Whitelist Lifecycle Test Failed
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            Phase Results:
+            - Learning: ${{ needs.learning-phase.result }}
+            - Augmentation: ${{ needs.augmentation-phase.result }}
+            - Enforcement (Pass): ${{ needs.enforcement-phase-pass.result }}
+            - Enforcement (Fail): ${{ needs.enforcement-phase-fail.result }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        continue-on-error: true

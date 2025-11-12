@@ -434,6 +434,478 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
 
 This pattern is demonstrated in the example workflows included in the EDAMAME repositories, such as the `release_deploy_debs.yml` workflow, where the initial setup is performed at the beginning and session logs are dumped at the very end of the workflow execution.
 
+## Custom Whitelist Management
+
+Custom whitelists are a powerful feature for implementing zero-trust network security in your CI/CD pipelines. They enable you to define and enforce exactly which network endpoints your workflows are permitted to access, providing defense against supply chain attacks, data exfiltration, and unauthorized communications.
+
+### What Are Custom Whitelists?
+
+A **whitelist** is a list of approved network endpoints (domains, IPs, ports) that your CI/CD workflow is allowed to communicate with. EDAMAME Posture provides two types of whitelists:
+
+1. **Default Whitelists** (e.g., `github`, `github_ubuntu`, `github_macos`, `github_windows`)
+   - Pre-configured lists of common CI/CD infrastructure endpoints (GitHub Actions, package managers, build tools)
+   - Platform-specific to account for OS differences
+   - Suitable for standard workflows with typical dependencies
+   - Automatically applied based on your runner OS
+
+2. **Custom Whitelists**
+   - User-defined lists tailored to your specific workflow requirements
+   - Created from observed network traffic during "learning" runs
+   - Incrementally refined as your pipeline evolves
+   - Enforced to fail builds when unauthorized endpoints are contacted
+   - Stored as JSON files that can be version-controlled
+
+### Why Use Custom Whitelists?
+
+Custom whitelists provide critical security benefits:
+
+- **Supply Chain Attack Prevention**: Detect when compromised dependencies attempt to contact malicious endpoints (e.g., CVE-2025-30066)
+- **Data Exfiltration Detection**: Identify when build processes try to send sensitive data to unauthorized servers
+- **Compliance Enforcement**: Ensure workflows only access approved services and APIs
+- **Zero-Trust Networking**: Implement "deny by default, allow by exception" security model
+- **Change Detection**: Alert when new network dependencies are introduced (intentionally or maliciously)
+
+### Custom Whitelist Lifecycle
+
+The custom whitelist feature follows a three-phase lifecycle:
+
+```
+┌─────────────┐      ┌──────────────┐      ┌─────────────┐
+│  Learning   │ ───> │ Augmentation │ ───> │ Enforcement │
+│   Phase     │      │    Phase     │      │    Phase    │
+└─────────────┘      └──────────────┘      └─────────────┘
+  Generate           Add new endpoints     Fail on violations
+  baseline           incrementally         
+```
+
+#### Phase 1: Learning (Generate Baseline)
+
+In the learning phase, you run your workflow with network capture enabled to observe all network communications and automatically generate a baseline whitelist.
+
+**Purpose**: Capture all legitimate network traffic from a known-good workflow execution.
+
+**Configuration**:
+
+```yaml
+- name: Setup EDAMAME Posture (Learning Mode)
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    network_scan: true                      # Enable network monitoring
+    packet_capture: true                    # Capture all traffic
+    create_custom_whitelists: true          # Generate whitelist from traffic
+    custom_whitelists_path: ./whitelists.json  # Save to this file
+
+# ... your build/test steps ...
+
+- name: Save Generated Whitelist
+  uses: actions/upload-artifact@v4
+  with:
+    name: custom-whitelist
+    path: ./whitelists.json
+```
+
+**What happens**:
+1. EDAMAME monitors all network traffic during your workflow execution
+2. At the end, it generates a JSON file containing all observed endpoints
+3. The file includes domains, IPs, ports, and protocols for each connection
+4. You save this file for use in subsequent runs
+
+**Best Practices**:
+- Run learning mode on a clean, trusted environment
+- Include all typical workflow scenarios (different branches, test suites, etc.)
+- Review the generated whitelist manually to understand your workflow's network footprint
+- Store the whitelist in version control or as a workflow artifact
+
+#### Phase 2: Augmentation (Incremental Refinement)
+
+As your workflow evolves and legitimately needs to access new endpoints, you can incrementally add them to your whitelist rather than regenerating it from scratch.
+
+**Purpose**: Merge new legitimate endpoints into an existing whitelist without losing previously approved entries.
+
+**Configuration**:
+
+```yaml
+- name: Download Existing Whitelist
+  uses: actions/download-artifact@v4
+  with:
+    name: custom-whitelist
+    path: .
+
+- name: Setup EDAMAME Posture (Augmentation Mode)
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    network_scan: true
+    packet_capture: true
+    augment_custom_whitelists: true         # Merge new + existing entries
+    custom_whitelists_path: ./whitelists.json  # Read from and write to this file
+
+# ... your build/test steps that may access new endpoints ...
+
+- name: Save Updated Whitelist
+  uses: actions/upload-artifact@v4
+  with:
+    name: custom-whitelist
+    path: ./whitelists.json
+```
+
+**What happens**:
+1. EDAMAME loads the existing whitelist from `whitelists.json`
+2. Monitors network traffic during workflow execution
+3. Identifies any new endpoints not in the existing whitelist
+4. Merges the new endpoints with existing entries (preserves all previous entries)
+5. Overwrites `whitelists.json` with the augmented version
+
+**When to use**:
+- Adding new dependencies or services to your workflow
+- Updating package versions that contact new CDN endpoints
+- Expanding test coverage that accesses new APIs
+- Rolling out changes incrementally across multiple runs
+
+**Best Practices**:
+- Use augmentation mode temporarily when introducing known changes
+- Review the augmented whitelist to verify only expected endpoints were added
+- Switch back to enforcement mode once changes are validated
+- Document why new endpoints were added (in commit messages or PR descriptions)
+
+#### Phase 3: Enforcement (Lock Down)
+
+Once your whitelist is complete and validated, switch to enforcement mode where any communication to non-whitelisted endpoints will cause your workflow to fail.
+
+**Purpose**: Detect and prevent unauthorized network communications.
+
+**Configuration**:
+
+```yaml
+- name: Download Whitelist
+  uses: actions/download-artifact@v4
+  with:
+    name: custom-whitelist
+    path: .
+
+- name: Setup EDAMAME Posture (Enforcement Mode)
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+    edamame_id: ${{ github.run_id }}
+    network_scan: true
+    packet_capture: true
+    custom_whitelists_path: ./whitelists.json
+    set_custom_whitelists: true             # Apply the whitelist
+    check_whitelist: true                   # Enable real-time checking
+    cancel_on_violation: true               # Cancel workflow on violation
+
+# ... your build/test steps ...
+
+- name: Verify Network Compliance
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    dump_sessions_log: true
+    exit_on_whitelist_exceptions: true      # Fail if violations detected
+```
+
+**What happens**:
+1. EDAMAME loads your custom whitelist at workflow start
+2. Monitors all network traffic in real-time during execution
+3. Compares each connection against the whitelist
+4. If `check_whitelist: true` and `cancel_on_violation: true`:
+   - Immediately attempts to cancel the workflow when a violation is detected
+5. If `exit_on_whitelist_exceptions: true`:
+   - Fails the workflow at the end if any violations occurred
+6. Detailed logs show exactly which endpoints violated the whitelist
+
+**Best Practices**:
+- Use enforcement mode as your default for production workflows
+- Enable `cancel_on_violation` for high-security environments
+- Monitor logs regularly for legitimate endpoints that need to be added
+- Test whitelist changes in non-production environments first
+- Keep whitelists in version control to track changes over time
+
+### Complete Lifecycle Example
+
+Here's a complete workflow showing all three phases:
+
+```yaml
+name: Whitelist Lifecycle Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Whitelist mode'
+        required: true
+        type: choice
+        options:
+          - learning
+          - augmentation
+          - enforcement
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Download existing whitelist (except in learning mode)
+      - name: Download Existing Whitelist
+        if: inputs.mode != 'learning'
+        uses: actions/download-artifact@v4
+        with:
+          name: custom-whitelist
+          path: .
+        continue-on-error: true
+
+      # LEARNING MODE
+      - name: Setup EDAMAME (Learning)
+        if: inputs.mode == 'learning'
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          network_scan: true
+          packet_capture: true
+          create_custom_whitelists: true
+          custom_whitelists_path: ./whitelists.json
+
+      # AUGMENTATION MODE
+      - name: Setup EDAMAME (Augmentation)
+        if: inputs.mode == 'augmentation'
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          network_scan: true
+          packet_capture: true
+          augment_custom_whitelists: true
+          custom_whitelists_path: ./whitelists.json
+
+      # ENFORCEMENT MODE
+      - name: Setup EDAMAME (Enforcement)
+        if: inputs.mode == 'enforcement'
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}
+          network_scan: true
+          packet_capture: true
+          custom_whitelists_path: ./whitelists.json
+          set_custom_whitelists: true
+          check_whitelist: true
+          cancel_on_violation: true
+
+      # Your actual workflow steps
+      - name: Build and Test
+        run: |
+          npm install
+          npm run build
+          npm test
+
+      # Final verification (enforcement mode)
+      - name: Verify Compliance
+        if: inputs.mode == 'enforcement'
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: true
+
+      # Save/update whitelist (learning and augmentation modes)
+      - name: Save Whitelist
+        if: inputs.mode != 'enforcement'
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-whitelist
+          path: ./whitelists.json
+```
+
+### Whitelist Management Strategies
+
+#### Strategy 1: Per-Environment Whitelists
+
+Maintain separate whitelists for different environments:
+
+```yaml
+- name: Setup EDAMAME with Environment-Specific Whitelist
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    custom_whitelists_path: ./whitelists-${{ github.ref_name }}.json
+    set_custom_whitelists: true
+```
+
+**Use case**: Development, staging, and production may access different APIs and services.
+
+#### Strategy 2: Repository Artifact Storage
+
+Store whitelists as GitHub Actions artifacts:
+
+```yaml
+# Save
+- uses: actions/upload-artifact@v4
+  with:
+    name: whitelist-${{ runner.os }}
+    path: ./whitelists.json
+    retention-days: 90
+
+# Load
+- uses: actions/download-artifact@v4
+  with:
+    name: whitelist-${{ runner.os }}
+    path: .
+```
+
+**Use case**: Ephemeral runners that don't persist files between runs.
+
+#### Strategy 3: Version Control
+
+Commit whitelists to your repository:
+
+```yaml
+# After learning/augmentation
+- name: Commit Updated Whitelist
+  run: |
+    git config user.name "github-actions[bot]"
+    git config user.email "github-actions[bot]@users.noreply.github.com"
+    git add whitelists.json
+    git commit -m "Update custom whitelist [skip ci]"
+    git push
+```
+
+**Use case**: Transparent change tracking and team collaboration.
+
+#### Strategy 4: Platform-Specific Whitelists
+
+Create separate whitelists for each runner OS:
+
+```yaml
+- name: Setup EDAMAME with Platform Whitelist
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    custom_whitelists_path: ./whitelists-${{ runner.os }}.json
+    set_custom_whitelists: true
+```
+
+**Use case**: Cross-platform builds with different package managers and dependencies.
+
+### Whitelist JSON Format
+
+Custom whitelists are stored as JSON files with the following structure:
+
+```json
+{
+  "version": "1.0",
+  "generated_at": "2025-11-12T10:30:00Z",
+  "platform": "linux",
+  "entries": [
+    {
+      "domain": "github.com",
+      "ip": "140.82.112.3",
+      "port": 443,
+      "protocol": "https",
+      "first_seen": "2025-11-12T10:30:00Z"
+    },
+    {
+      "domain": "registry.npmjs.org",
+      "ip": "104.16.16.35",
+      "port": 443,
+      "protocol": "https",
+      "first_seen": "2025-11-12T10:31:15Z"
+    }
+  ]
+}
+```
+
+You can manually edit these files to:
+- Remove entries you want to exclude
+- Add comments explaining why specific endpoints are needed
+- Merge whitelists from different sources
+
+### Troubleshooting
+
+**Problem**: Workflow fails with "Whitelist exception detected"
+
+**Solutions**:
+1. Check the session logs to identify the blocked endpoint
+2. Verify if the endpoint is legitimate for your workflow
+3. If legitimate, run in augmentation mode to add it
+4. If unexpected, investigate potential supply chain compromise
+
+**Problem**: Whitelist becomes too permissive over time
+
+**Solutions**:
+1. Periodically regenerate the baseline in learning mode
+2. Review and prune unused entries manually
+3. Use separate whitelists for different workflow types
+4. Document each endpoint's purpose in comments
+
+**Problem**: Real-time checking misses violations
+
+**Solutions**:
+1. Ensure `packet_capture: true` is set
+2. Enable both `check_whitelist: true` (real-time) and `exit_on_whitelist_exceptions: true` (end-of-run)
+3. Check that EDAMAME Posture has network capture permissions
+4. On Windows, note that packet capture has licensing limitations
+
+### Advanced Features
+
+#### Combining with Default Whitelists
+
+You can use custom whitelists alongside default whitelists:
+
+```yaml
+- name: Setup with Hybrid Whitelist
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    whitelist: github_ubuntu              # Default whitelist as base
+    custom_whitelists_path: ./custom.json # Additional custom rules
+    set_custom_whitelists: true
+```
+
+The CLI will merge both lists for enforcement.
+
+#### Blacklist Integration
+
+Custom whitelists work in conjunction with EDAMAME's built-in blacklist:
+
+```yaml
+- name: Setup with Whitelist and Blacklist
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    custom_whitelists_path: ./whitelists.json
+    set_custom_whitelists: true
+    exit_on_whitelist_exceptions: true    # Fail if not on whitelist
+    exit_on_blacklisted_sessions: true    # Fail if on blacklist
+```
+
+**Behavior**: An endpoint must be on the whitelist AND NOT on the blacklist to be permitted.
+
+#### Anomaly Detection
+
+Machine learning-based anomaly detection complements whitelist enforcement:
+
+```yaml
+- name: Setup with Multi-Layer Detection
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    custom_whitelists_path: ./whitelists.json
+    set_custom_whitelists: true
+    exit_on_whitelist_exceptions: true    # Explicit whitelist check
+    exit_on_anomalous_sessions: true      # ML-based anomaly detection
+```
+
+**Use case**: Detect unusual communication patterns even among whitelisted endpoints (e.g., data exfiltration to a normally-trusted API).
+
+### Related Inputs Summary
+
+| Input | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `create_custom_whitelists` | boolean | false | Generate whitelist from observed traffic |
+| `custom_whitelists_path` | string | "" | Path to whitelist JSON file |
+| `set_custom_whitelists` | boolean | false | Apply whitelist from file |
+| `augment_custom_whitelists` | boolean | false | Merge new entries into existing whitelist |
+| `exit_on_whitelist_exceptions` | boolean | true | Fail workflow on violations (end-of-run) |
+| `check_whitelist` | boolean | false | Enable real-time whitelist checking |
+| `cancel_on_violation` | boolean | false | Cancel workflow immediately on violation |
+| `whitelist` | string | "github" | Default whitelist name (platform suffix auto-added) |
+
 ## Note
 For public repos that need access to private repos (or other restricted endpoints), pass the `token` input to this action. This allows the action to handle partial or delayed permissions during checkout, API access, or HTTPS waiting steps.
 
