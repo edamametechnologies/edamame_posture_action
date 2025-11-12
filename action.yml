@@ -1243,23 +1243,22 @@ runs:
         fi
       shell: bash
 
-    - name: Dump sessions log if requested
+    - name: Create or augment auto-whitelist before stopping
+      if: ${{ inputs.auto_whitelist == 'true' && inputs.stop != 'true' && inputs.dump_sessions_log != 'true' }}
       run: |
         cd
         
-        # Handle auto-whitelist mode
-        if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
-          echo "=== Auto-whitelist Mode: Processing Iteration $AUTO_WHITELIST_ITERATION ==="
-          
-          # For subsequent runs, force session update before augmentation to ensure exceptions are populated
-          if [[ "$AUTO_WHITELIST_EXISTS" == "true" ]]; then
-            echo "Forcing session update before augmentation..."
-            $EDAMAME_POSTURE_CMD get-sessions > /dev/null 2>&1 || true
-            echo "Session update completed"
-          fi
-          
-          # Create/augment whitelist from current sessions
-          if [[ "$AUTO_WHITELIST_EXISTS" == "false" ]]; then
+        echo "=== Auto-whitelist Mode: Processing Iteration $AUTO_WHITELIST_ITERATION ==="
+        
+        # For subsequent runs, force session update before augmentation to ensure exceptions are populated
+        if [[ "$AUTO_WHITELIST_EXISTS" == "true" ]]; then
+          echo "Forcing session update before augmentation..."
+          $EDAMAME_POSTURE_CMD get-sessions > /dev/null 2>&1 || true
+          echo "Session update completed"
+        fi
+        
+        # Create/augment whitelist from current sessions
+        if [[ "$AUTO_WHITELIST_EXISTS" == "false" ]]; then
             # First run: create initial whitelist
             echo "First run: Creating initial whitelist from captured traffic..."
             $EDAMAME_POSTURE_CMD create-custom-whitelists > auto_whitelist_new.json
@@ -1351,32 +1350,42 @@ runs:
             fi
           fi
         fi
-        
-        # Regular dump sessions log
-        if [[ "${{ inputs.dump_sessions_log }}" == "true" ]]; then
-          ARGS=(get-sessions)
-
-          if [[ "${{ inputs.exit_on_whitelist_exceptions }}" == "true" ]]; then
-            ARGS+=(--fail-on-whitelist)
-          fi
-
-          if [[ "${{ inputs.exit_on_blacklisted_sessions }}" == "true" ]]; then
-            ARGS+=(--fail-on-blacklist)
-          fi
-
-          if [[ "${{ inputs.exit_on_anomalous_sessions }}" == "true" ]]; then
-            ARGS+=(--fail-on-anomalous)
-          fi
-
-          # In auto-whitelist mode with stable whitelist, enforce violations
-          if [[ "${{ inputs.auto_whitelist }}" == "true" && "$AUTO_WHITELIST_STABLE" == "true" ]]; then
-            echo "Auto-whitelist is stable, enforcing whitelist violations"
-            ARGS+=(--fail-on-whitelist)
-          fi
-
-          $EDAMAME_POSTURE_CMD "${ARGS[@]}"
-        fi
       shell: bash
+      env:
+        EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
+        AUTO_WHITELIST_ITERATION: ${{ env.AUTO_WHITELIST_ITERATION }}
+        AUTO_WHITELIST_EXISTS: ${{ env.AUTO_WHITELIST_EXISTS }}
+        AUTO_WHITELIST_STABLE_COUNT: ${{ env.AUTO_WHITELIST_STABLE_COUNT }}
+
+    - name: Dump sessions log if requested
+      if: ${{ inputs.dump_sessions_log == 'true' }}
+      run: |
+        cd
+        ARGS=(get-sessions)
+
+        if [[ "${{ inputs.exit_on_whitelist_exceptions }}" == "true" ]]; then
+          ARGS+=(--fail-on-whitelist)
+        fi
+
+        if [[ "${{ inputs.exit_on_blacklisted_sessions }}" == "true" ]]; then
+          ARGS+=(--fail-on-blacklist)
+        fi
+
+        if [[ "${{ inputs.exit_on_anomalous_sessions }}" == "true" ]]; then
+          ARGS+=(--fail-on-anomalous)
+        fi
+
+        # In auto-whitelist mode with stable whitelist, enforce violations
+        if [[ "${{ inputs.auto_whitelist }}" == "true" && "$AUTO_WHITELIST_STABLE" == "true" ]]; then
+          echo "Auto-whitelist is stable, enforcing whitelist violations"
+          ARGS+=(--fail-on-whitelist)
+        fi
+
+        $EDAMAME_POSTURE_CMD "${ARGS[@]}"
+      shell: bash
+      env:
+        EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
+        AUTO_WHITELIST_STABLE: ${{ env.AUTO_WHITELIST_STABLE }}
 
     - name: Display logs if requested
       run: |
