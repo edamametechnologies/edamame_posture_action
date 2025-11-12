@@ -216,41 +216,101 @@ jobs:
           echo "Waiting for traffic capture..."
           sleep 30
 
-      - name: Force session update before augmentation
-        uses: ./
-        with:
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
-          display_logs: false
-
-      - name: Augment whitelist with new endpoints
-        uses: ./
-        with:
-          augment_custom_whitelists: true
-          custom_whitelists_path: ${{ github.workspace }}/baseline_whitelist.json
-          display_logs: true
-
-      - name: Stop EDAMAME Posture
-        uses: ./
-        with:
-          stop: true
-        continue-on-error: true
-
-      - name: Validate augmented whitelist
+      - name: Iterative augmentation until stable
         run: |
-          echo "Validating augmented whitelist..."
+          cd
           
+          # Set EDAMAME_POSTURE_CMD if not already set
+          if [[ -z "$EDAMAME_POSTURE_CMD" ]]; then
+            if command -v edamame_posture >/dev/null 2>&1; then
+              EDAMAME_POSTURE_CMD="sudo edamame_posture"
+            else
+              EDAMAME_POSTURE_CMD="sudo ./edamame_posture"
+            fi
+          fi
+          
+          MAX_ITERATIONS=5
+          STABILITY_THRESHOLD=0
+          ITERATION=1
+          STABLE=false
+          
+          # Save initial whitelist for comparison
+          cp "${{ github.workspace }}/baseline_whitelist.json" "${{ github.workspace }}/baseline_whitelist_prev.json"
+          
+          while [[ $ITERATION -le $MAX_ITERATIONS && "$STABLE" == "false" ]]; do
+            echo "=== Augmentation Iteration $ITERATION ==="
+            
+            # Force session update before augmentation
+            echo "Forcing session update..."
+            $EDAMAME_POSTURE_CMD get-sessions > /dev/null 2>&1 || true
+            sleep 2
+            
+            # Augment whitelist
+            echo "Augmenting whitelist..."
+            $EDAMAME_POSTURE_CMD augment-custom-whitelists > "${{ github.workspace }}/baseline_whitelist_new.json"
+            
+            # Check if augmentation succeeded
+            if [[ ! -f "${{ github.workspace }}/baseline_whitelist_new.json" ]] || [[ ! -s "${{ github.workspace }}/baseline_whitelist_new.json" ]]; then
+              echo "❌ ERROR: Augmentation failed or returned empty output"
+              exit 1
+            fi
+            
+            # Compare with previous version
+            DIFF_PERCENT=$($EDAMAME_POSTURE_CMD compare-custom-whitelists-from-files "${{ github.workspace }}/baseline_whitelist_prev.json" "${{ github.workspace }}/baseline_whitelist_new.json" 2>/dev/null | sed 's/%//' || echo "100")
+            echo "Whitelist difference: ${DIFF_PERCENT}%"
+            
+            # Check if stable (difference <= threshold)
+            if command -v bc &> /dev/null; then
+              IS_STABLE=$(echo "$DIFF_PERCENT <= $STABILITY_THRESHOLD" | bc -l)
+            else
+              DIFF_INT=${DIFF_PERCENT%.*}
+              [[ $DIFF_INT -le $STABILITY_THRESHOLD ]] && IS_STABLE=1 || IS_STABLE=0
+            fi
+            
+            if [[ "$IS_STABLE" == "1" ]]; then
+              echo "✅ Whitelist is STABLE (diff: ${DIFF_PERCENT}% <= threshold: ${STABILITY_THRESHOLD}%)"
+              STABLE=true
+              mv "${{ github.workspace }}/baseline_whitelist_new.json" "${{ github.workspace }}/baseline_whitelist.json"
+            else
+              echo "🔄 Whitelist is EVOLVING (diff: ${DIFF_PERCENT}% > threshold: ${STABILITY_THRESHOLD}%)"
+              mv "${{ github.workspace }}/baseline_whitelist_new.json" "${{ github.workspace }}/baseline_whitelist.json"
+              cp "${{ github.workspace }}/baseline_whitelist.json" "${{ github.workspace }}/baseline_whitelist_prev.json"
+              
+              # Reload the updated whitelist into the running process
+              echo "Reloading updated whitelist..."
+              $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "${{ github.workspace }}/baseline_whitelist.json"
+              
+              # Wait for more traffic to be captured
+              echo "Waiting for additional traffic capture..."
+              sleep 20
+            fi
+            
+            ITERATION=$((ITERATION + 1))
+          done
+          
+          if [[ "$STABLE" == "false" ]]; then
+            echo "⚠️ Warning: Maximum iterations ($MAX_ITERATIONS) reached, whitelist may not be fully stable"
+          fi
+          
+          # Final validation
           if [[ ! -f "${{ github.workspace }}/baseline_whitelist.json" ]]; then
             echo "❌ ERROR: Augmented whitelist not found" >&2
             exit 1
           fi
           
           AUGMENTED_COUNT=$(jq '[.whitelists[].endpoints | length] | add // 0' "${{ github.workspace }}/baseline_whitelist.json")
-          echo "✅ Augmented whitelist contains $AUGMENTED_COUNT endpoints"
+          echo "✅ Final augmented whitelist contains $AUGMENTED_COUNT endpoints"
           
-          # Display augmented whitelist
-          echo "Augmented whitelist content:"
+          # Display final whitelist
+          echo "Final augmented whitelist content:"
           jq '.' "${{ github.workspace }}/baseline_whitelist.json"
+        shell: bash
+
+      - name: Stop EDAMAME Posture
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
 
       - name: Rename for upload
         run: |
