@@ -864,9 +864,55 @@ runs:
         # Try to download the artifact from the previous run
         echo "Attempting to download auto-whitelist artifact: ${{ inputs.auto_whitelist_artifact_name }}"
         
-        # Use gh CLI to download artifact from previous workflow run
-        # Note: This only works for artifacts from previous workflow runs, not from previous jobs in the same workflow
-        gh run download --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" 2>/dev/null || echo "No artifact found from previous workflow run (this may be expected in same-workflow scenarios)"
+        # Find the most recent successful workflow run with the artifact
+        # Since each workflow uses a unique artifact name, we can search across all recent runs
+        ARTIFACT_FOUND=false
+        MAX_ATTEMPTS=10
+        CURRENT_RUN_ID=${{ github.run_id }}
+        
+        echo "Current run ID: $CURRENT_RUN_ID"
+        echo "Looking for artifact: ${{ inputs.auto_whitelist_artifact_name }}"
+        
+        # Get list of recent successful runs for this workflow (excluding current run)
+        # Use workflow file path: .github/workflows/<workflow_name>.yml
+        WORKFLOW_FILE=".github/workflows/${{ github.workflow }}"
+        echo "Looking for runs in workflow: $WORKFLOW_FILE"
+        
+        RUN_IDS=$(gh run list --workflow="$WORKFLOW_FILE" --repo ${{ github.repository }} --limit $MAX_ATTEMPTS --json databaseId,conclusion --jq ".[] | select(.conclusion == \"success\" and .databaseId != $CURRENT_RUN_ID) | .databaseId" 2>/dev/null || echo "")
+        
+        if [[ -z "$RUN_IDS" ]]; then
+          echo "No previous successful runs found"
+        else
+          echo "Found previous successful runs, attempting to download artifact..."
+          for RUN_ID in $RUN_IDS; do
+            echo "Attempting to download artifact from run $RUN_ID..."
+            
+            # Try to download the artifact from this specific run
+            # Suppress stderr for "not found" errors but show other errors
+            DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
+            DOWNLOAD_EXIT=$?
+            
+            if [[ $DOWNLOAD_EXIT -eq 0 ]]; then
+              # Check if the files were actually downloaded
+              if [[ -f "auto_whitelist.json" ]]; then
+                echo "✅ Successfully downloaded artifact from run $RUN_ID"
+                ARTIFACT_FOUND=true
+                break
+              else
+                echo "⚠️ Artifact download succeeded but auto_whitelist.json not found"
+                echo "Download output: $DOWNLOAD_OUTPUT"
+              fi
+            else
+              # Artifact not found in this run, try next
+              echo "⚠️ Artifact not found in run $RUN_ID (this is normal if artifact doesn't exist)"
+            fi
+          done
+        fi
+        
+        if [[ "$ARTIFACT_FOUND" == "false" ]]; then
+          echo "⚠️ Could not find artifact in any previous successful runs"
+          echo "This is expected for the first iteration"
+        fi
         
         # Check if the whitelist file exists (either from gh run download or manually downloaded via actions/download-artifact)
         if [[ -f "auto_whitelist.json" ]]; then
@@ -878,6 +924,7 @@ runs:
             echo "AUTO_WHITELIST_ITERATION=$ITERATION" >> $GITHUB_ENV
             echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
           else
+            echo "⚠️ Warning: auto_whitelist_iteration.txt not found, defaulting to iteration 1"
             echo "AUTO_WHITELIST_ITERATION=1" >> $GITHUB_ENV
             echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
           fi
@@ -888,7 +935,14 @@ runs:
             echo "Consecutive stable runs: $STABLE_COUNT"
             echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
           else
+            echo "⚠️ Warning: auto_whitelist_stable_count.txt not found, defaulting to 0"
             echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+          fi
+          
+          # Verify the whitelist has endpoints
+          if command -v jq &> /dev/null; then
+            ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
+            echo "Downloaded whitelist contains $ENDPOINT_COUNT endpoints"
           fi
         else
           echo "No whitelist file found, treating as first run (listen-only mode)"
