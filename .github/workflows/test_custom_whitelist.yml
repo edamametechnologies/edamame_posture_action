@@ -216,6 +216,13 @@ jobs:
           echo "Waiting for traffic capture..."
           sleep 30
 
+      - name: Force session update before augmentation
+        uses: ./
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
+          display_logs: false
+
       - name: Augment whitelist with new endpoints
         uses: ./
         with:

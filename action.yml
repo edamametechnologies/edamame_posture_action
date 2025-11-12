@@ -1173,6 +1173,13 @@ runs:
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
           echo "=== Auto-whitelist Mode: Processing Iteration $AUTO_WHITELIST_ITERATION ==="
           
+          # For subsequent runs, force session update before augmentation to ensure exceptions are populated
+          if [[ "$AUTO_WHITELIST_EXISTS" == "true" ]]; then
+            echo "Forcing session update before augmentation..."
+            $EDAMAME_POSTURE_CMD get-sessions > /dev/null 2>&1 || true
+            echo "Session update completed"
+          fi
+          
           # Create/augment whitelist from current sessions
           if [[ "$AUTO_WHITELIST_EXISTS" == "false" ]]; then
             # First run: create initial whitelist

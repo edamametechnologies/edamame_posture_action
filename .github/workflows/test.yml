@@ -130,6 +130,16 @@ jobs:
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
         
+      # Force session update and verify whitelist is active before augmentation
+      - name: Verify whitelist active and force session update
+        id: test-verify-whitelist-before-augment
+        if: (runner.os == 'macos' || runner.os == 'linux') && steps.test-set-custom-whitelist.outcome == 'success'
+        uses: ./
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
+        continue-on-error: true
+        
       # Test augment custom whitelist
       - name: Test augment custom whitelist
         id: test-augment-whitelist
@@ -380,6 +390,16 @@ jobs:
         with:
           set_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+
+      # Force session update and verify whitelist is active before augmentation
+      - name: Verify whitelist active and force session update
+        id: test-verify-whitelist-before-augment
+        if: steps.test-set-custom-whitelist.outcome == 'success'
+        uses: ./
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
         continue-on-error: true
 
       # Test augment custom whitelist
@@ -643,6 +663,16 @@ jobs:
         with:
           set_custom_whitelists: true
           custom_whitelists_path: custom_whitelists.json
+        continue-on-error: true
+
+      # Force session update and verify whitelist is active before augmentation
+      - name: Verify whitelist active and force session update
+        id: test-verify-whitelist-before-augment
+        if: steps.test-set-custom-whitelist.outcome == 'success'
+        uses: ./
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: false
         continue-on-error: true
 
       # Test augment custom whitelist
