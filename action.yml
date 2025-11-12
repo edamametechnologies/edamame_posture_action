@@ -1243,8 +1243,8 @@ runs:
         fi
       shell: bash
 
-    - name: Create or augment auto-whitelist before stopping
-      if: ${{ inputs.auto_whitelist == 'true' && inputs.stop != 'true' && inputs.dump_sessions_log != 'true' }}
+    - name: Create or augment auto-whitelist before dumping sessions
+      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' }}
       run: |
         cd
         
@@ -1397,7 +1397,7 @@ runs:
       shell: bash
 
     - name: Upload auto-whitelist artifact
-      if: ${{ inputs.auto_whitelist == 'true' && always() }}
+      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' && always() }}
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.auto_whitelist_artifact_name }}
@@ -1410,7 +1410,7 @@ runs:
         if-no-files-found: warn
 
     - name: Display auto-whitelist status
-      if: ${{ inputs.auto_whitelist == 'true' }}
+      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' }}
       run: |
         cd
         echo ""

@@ -149,10 +149,6 @@ for i in $(seq 1 $MAX_ITERATIONS); do
         echo -e "${YELLOW}  Warning: Workflow completed with non-zero exit code${NC}"
     }
     
-    # Small delay to ensure artifacts are available
-    echo "  Waiting for artifacts to be available..."
-    sleep 5
-    
     # Get workflow conclusion
     CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq .conclusion)
     RUN_STATUSES+=("$CONCLUSION")
@@ -164,13 +160,25 @@ for i in $(seq 1 $MAX_ITERATIONS); do
         echo "  View run: https://github.com/$REPO/actions/runs/$RUN_ID"
     fi
     
-    # Download and check artifact
+    # Download and check artifact with retries
     echo "  Checking artifact status..."
     ARTIFACT_DOWNLOADED=false
-    # Try downloading artifact (may not exist on first run)
-    if gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME_PREFIX-$BRANCH" --dir "/tmp/auto_whitelist_test_$i" 2>/dev/null; then
-        ARTIFACT_DOWNLOADED=true
-    fi
+    MAX_ARTIFACT_ATTEMPTS=6
+    ARTIFACT_WAIT=5
+    
+    for attempt in $(seq 1 $MAX_ARTIFACT_ATTEMPTS); do
+        echo "  Attempting to download artifact (attempt $attempt/$MAX_ARTIFACT_ATTEMPTS)..."
+        if gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME_PREFIX-$BRANCH" --dir "/tmp/auto_whitelist_test_$i" 2>/dev/null; then
+            ARTIFACT_DOWNLOADED=true
+            echo "  ✓ Artifact downloaded successfully"
+            break
+        else
+            if [[ $attempt -lt $MAX_ARTIFACT_ATTEMPTS ]]; then
+                echo "  Artifact not yet available, waiting ${ARTIFACT_WAIT}s..."
+                sleep $ARTIFACT_WAIT
+            fi
+        fi
+    done
     
     CURRENT_ENDPOINT_COUNT="$LAST_ENDPOINT_COUNT"
 
