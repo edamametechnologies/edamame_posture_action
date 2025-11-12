@@ -1243,7 +1243,7 @@ runs:
         fi
       shell: bash
 
-    - name: Create or augment auto-whitelist before dumping sessions
+    - name: Create or augment auto-whitelist
       if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' }}
       run: |
         cd

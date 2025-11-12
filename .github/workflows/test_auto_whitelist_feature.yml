@@ -101,6 +101,11 @@ jobs:
       - name: Check Auto-Whitelist Status
         uses: ./
         with:
+          auto_whitelist: true
+          auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
+          auto_whitelist_stability_threshold: "0"
+          auto_whitelist_stability_consecutive_runs: "3"
+          auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
           display_logs: true
 
