@@ -3,8 +3,14 @@ name: Test Auto-Whitelist Lifecycle
 # This workflow tests the complete auto-whitelist lifecycle including:
 # 1. Learning phase: Generate baseline whitelist from legitimate traffic
 # 2. Augmentation phase: Add new endpoints to existing whitelist
-# 3. Enforcement phase: Detect violations when unauthorized traffic occurs
-# 4. Artifact persistence: Upload/download whitelist across workflow runs
+# 3. Enforcement phase (pass): Verify authorized traffic is allowed
+# 4. Enforcement phase (fail): Detect violations when unauthorized traffic occurs
+# 5. Artifact persistence: Upload/download whitelist across workflow runs
+#
+# Important notes:
+# - Uses include_local_traffic: false to avoid capturing localhost/runner system traffic
+# - Uses 30s waits to let background GitHub runner traffic settle before our test traffic
+# - Uses specific, stable URLs (e.g., /zen, /robots.txt) for consistent endpoint capture
 
 on:
   workflow_dispatch:
@@ -64,25 +70,26 @@ jobs:
           network_scan: true
           packet_capture: true
           whitelist: github_ubuntu
+          include_local_traffic: false
           display_logs: false
 
-      - name: Wait for capture readiness
+      - name: Wait for capture readiness and let background traffic settle
         run: |
-          echo "Waiting for EDAMAME Posture to be ready..."
-          sleep 10
+          echo "Waiting for EDAMAME Posture to be ready and background traffic to settle..."
+          sleep 30
 
       - name: Generate legitimate baseline traffic
         run: |
           echo "Generating baseline traffic for whitelist learning..."
           
-          # Simulate typical CI/CD traffic
-          curl -s --max-time 10 https://api.github.com > /dev/null || true
-          curl -s --max-time 10 https://github.com > /dev/null || true
-          curl -s --max-time 10 https://registry.npmjs.org > /dev/null || true
+          # Simulate typical CI/CD traffic - use specific, predictable endpoints
+          curl -s --max-time 10 https://api.github.com/zen > /dev/null || true
+          curl -s --max-time 10 https://github.com/robots.txt > /dev/null || true
+          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null || true
           
           # Wait for traffic to be captured
           echo "Waiting for traffic capture..."
-          sleep 20
+          sleep 30
 
       - name: Create custom whitelist from captured traffic
         id: create-whitelist
@@ -175,28 +182,29 @@ jobs:
           network_scan: true
           packet_capture: true
           whitelist: github_ubuntu
+          include_local_traffic: false
           display_logs: false
 
-      - name: Wait for capture readiness
+      - name: Wait for capture readiness and let background traffic settle
         run: |
-          echo "Waiting for EDAMAME Posture to be ready..."
-          sleep 10
+          echo "Waiting for EDAMAME Posture to be ready and background traffic to settle..."
+          sleep 30
 
       - name: Generate additional traffic (new endpoints)
         run: |
           echo "Generating traffic with new endpoints..."
           
           # Replay baseline traffic
-          curl -s --max-time 10 https://api.github.com > /dev/null || true
-          curl -s --max-time 10 https://github.com > /dev/null || true
-          curl -s --max-time 10 https://registry.npmjs.org > /dev/null || true
+          curl -s --max-time 10 https://api.github.com/zen > /dev/null || true
+          curl -s --max-time 10 https://github.com/robots.txt > /dev/null || true
+          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null || true
           
           # Add new endpoints that weren't in baseline
-          curl -s --max-time 10 https://www.npmjs.com > /dev/null || true
-          curl -s --max-time 10 https://cdn.jsdelivr.net > /dev/null || true
+          curl -s --max-time 10 https://www.npmjs.com/ > /dev/null || true
+          curl -s --max-time 10 https://cdn.jsdelivr.net/npm/ > /dev/null || true
           
           echo "Waiting for traffic capture..."
-          sleep 20
+          sleep 30
 
       - name: Augment whitelist with new endpoints
         uses: ./
@@ -274,26 +282,27 @@ jobs:
           packet_capture: true
           custom_whitelists_path: ${{ github.workspace }}/augmented_whitelist.json
           set_custom_whitelists: true
+          include_local_traffic: false
           display_logs: false
 
-      - name: Wait for capture readiness
+      - name: Wait for capture readiness and let background traffic settle
         run: |
-          echo "Waiting for EDAMAME Posture to be ready..."
-          sleep 10
+          echo "Waiting for EDAMAME Posture to be ready and background traffic to settle..."
+          sleep 30
 
       - name: Generate only authorized traffic
         run: |
           echo "Generating only whitelisted traffic (should pass)..."
           
-          # Only use endpoints that are in the augmented whitelist
-          curl -s --max-time 10 https://api.github.com > /dev/null || true
-          curl -s --max-time 10 https://github.com > /dev/null || true
-          curl -s --max-time 10 https://registry.npmjs.org > /dev/null || true
-          curl -s --max-time 10 https://www.npmjs.com > /dev/null || true
-          curl -s --max-time 10 https://cdn.jsdelivr.net > /dev/null || true
+          # Only use endpoints that are in the augmented whitelist - exact same URLs as learning/augmentation
+          curl -s --max-time 10 https://api.github.com/zen > /dev/null || true
+          curl -s --max-time 10 https://github.com/robots.txt > /dev/null || true
+          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null || true
+          curl -s --max-time 10 https://www.npmjs.com/ > /dev/null || true
+          curl -s --max-time 10 https://cdn.jsdelivr.net/npm/ > /dev/null || true
           
           echo "Waiting for traffic analysis..."
-          sleep 20
+          sleep 30
 
       - name: Check for whitelist violations (should pass)
         id: check-violations-pass
@@ -337,27 +346,28 @@ jobs:
           packet_capture: true
           custom_whitelists_path: ${{ github.workspace }}/augmented_whitelist.json
           set_custom_whitelists: true
+          include_local_traffic: false
           display_logs: false
 
-      - name: Wait for capture readiness
+      - name: Wait for capture readiness and let background traffic settle
         run: |
-          echo "Waiting for EDAMAME Posture to be ready..."
-          sleep 10
+          echo "Waiting for EDAMAME Posture to be ready and background traffic to settle..."
+          sleep 30
 
       - name: Generate unauthorized traffic
         run: |
           echo "Generating whitelisted + unauthorized traffic (should fail)..."
           
-          # Some authorized traffic
-          curl -s --max-time 10 https://api.github.com > /dev/null || true
-          curl -s --max-time 10 https://github.com > /dev/null || true
+          # Some authorized traffic (same as learning/augmentation)
+          curl -s --max-time 10 https://api.github.com/zen > /dev/null || true
+          curl -s --max-time 10 https://github.com/robots.txt > /dev/null || true
           
           # UNAUTHORIZED traffic - should trigger violation
           curl -s --max-time 10 https://example.com > /dev/null || true
           curl -s --max-time 10 https://httpbin.org/get > /dev/null || true
           
           echo "Waiting for traffic analysis..."
-          sleep 20
+          sleep 30
 
       - name: Check for whitelist violations (should fail)
         id: check-violations-fail
