@@ -37,6 +37,7 @@ jobs:
     timeout-minutes: 45
     env:
       AUTO_WHITELIST_ARTIFACT: test-complex-auto-whitelist-e2e
+      AUTO_WHITELIST_BASE: github_ubuntu
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -78,6 +79,7 @@ jobs:
         id: iteration1-start
         uses: ./
         with:
+          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
@@ -185,6 +187,7 @@ jobs:
         id: iteration2-start
         uses: ./
         with:
+          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
@@ -296,6 +299,7 @@ jobs:
         id: iteration3-start
         uses: ./
         with:
+          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
@@ -409,6 +413,7 @@ jobs:
         id: iteration4-start
         uses: ./
         with:
+          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
@@ -526,6 +531,7 @@ jobs:
         id: iteration5-start
         uses: ./
         with:
+          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
@@ -643,6 +649,7 @@ jobs:
         id: iteration6-start
         uses: ./
         with:
+          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
@@ -764,6 +771,7 @@ jobs:
         id: iteration7-start
         uses: ./
         with:
+          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
@@ -885,6 +893,7 @@ jobs:
         id: iteration8-start
         uses: ./
         with:
+          whitelist: ${{ env.AUTO_WHITELIST_BASE }}
           disconnected_mode: true
           network_scan: true
           packet_capture: true
@@ -981,7 +990,13 @@ jobs:
 
       - name: Final Summary
         run: |
-          echo "Final iteration marker : $(cat ~/auto_whitelist_iteration.txt 2>/divnull || echo 'unknown')"
-          echo "Final stable count     : $(cat ~/auto_whitelist_stable_count.txt 2>/divnull || echo 'unknown')"
+          echo "Final iteration marker : $(cat ~/auto_whitelist_iteration.txt 2>/dev/null || echo 'unknown')"
+          echo "Final stable count     : $(cat ~/auto_whitelist_stable_count.txt 2>/dev/null || echo 'unknown')"
           echo "Auto-whitelist files in state directory:"
           ls -la "$AUTO_WHITELIST_STATE_DIR/latest" || true
+
+      - name: Show final auto whitelist
+        if: always()
+        run: |
+          echo "Final auto_whitelist.json:"
+          cat ~/auto_whitelist.json || echo "auto_whitelist.json missing"
