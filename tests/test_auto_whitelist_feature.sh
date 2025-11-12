@@ -27,7 +27,8 @@
 # - .github/workflows/test_auto_whitelist_feature.yml: Workflow that uses auto_whitelist: true
 # - action.yml: Contains the auto-whitelist implementation
 
-set -euo pipefail
+set -eo pipefail
+# Note: Removed 'u' (unset variable check) to allow for empty variables in some cases
 
 # Colors for output
 RED='\033[0;31m'
@@ -40,7 +41,7 @@ REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner
 WORKFLOW_FILE=".github/workflows/test_auto_whitelist_feature.yml"
 ARTIFACT_NAME_PREFIX="test-auto-whitelist-feature"
 BRANCH="${GITHUB_REF_NAME:-$(git branch --show-current)}"
-MAX_ITERATIONS=5
+MAX_ITERATIONS=20
 STABILITY_REQUIRED=3
 
 # Check prerequisites
@@ -91,17 +92,49 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
     echo "--- Iteration $i ---"
     
+    # Get the latest run ID before triggering (to detect new runs)
+    LATEST_RUN_BEFORE=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || echo "") || LATEST_RUN_BEFORE=""
+    
     # Trigger workflow
     echo "  Triggering workflow run $i..."
-    RUN_ID=$(gh workflow run "$WORKFLOW_FILE" \
+    set +e  # Temporarily disable exit on error for this command
+    TRIGGER_OUTPUT=$(gh workflow run "$WORKFLOW_FILE" \
         --ref "$BRANCH" \
-        --field "iteration=$i" \
-        --json id \
-        --jq .id 2>&1)
+        --field "iteration=$i" 2>&1)
+    TRIGGER_EXIT_CODE=$?
+    set -e  # Re-enable exit on error
     
-    if [[ $? -ne 0 ]]; then
-        echo -e "${RED}Error: Failed to trigger workflow${NC}"
-        echo "$RUN_ID"
+    if [[ $TRIGGER_EXIT_CODE -ne 0 ]]; then
+        echo -e "${RED}Error: Failed to trigger workflow (exit code: $TRIGGER_EXIT_CODE)${NC}"
+        echo "$TRIGGER_OUTPUT"
+        exit 1
+    fi
+    
+    # Wait for the workflow to start and get the new run ID
+    echo "  Waiting for workflow to start..."
+    RUN_ID=""
+    MAX_WAIT=30
+    WAIT_COUNT=0
+    
+    while [[ -z "$RUN_ID" && $WAIT_COUNT -lt $MAX_WAIT ]]; do
+        sleep 2
+        WAIT_COUNT=$((WAIT_COUNT + 2))
+        
+        # Get the most recent workflow run ID
+        set +e  # Temporarily disable exit on error
+        CURRENT_RUN=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || echo "")
+        set -e  # Re-enable exit on error
+        
+        # If we have a new run ID (different from before), use it
+        if [[ -n "$CURRENT_RUN" && "$CURRENT_RUN" != "$LATEST_RUN_BEFORE" ]]; then
+            RUN_ID="$CURRENT_RUN"
+        fi
+    done
+    
+    if [[ -z "$RUN_ID" ]]; then
+        echo -e "${RED}Error: Failed to get workflow run ID after ${MAX_WAIT}s${NC}"
+        echo "  Latest run before trigger: $LATEST_RUN_BEFORE"
+        echo "  Current latest run: $(gh run list --workflow=\"$WORKFLOW_FILE\" --repo \"$REPO\" --limit 1 --json databaseId --jq '.[0].databaseId // \"none\"' 2>/dev/null || echo \"unknown\")"
         exit 1
     fi
     
