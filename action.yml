@@ -912,6 +912,31 @@ runs:
           echo "⚠️ Could not find artifact in any previous successful runs"
           echo "This is expected for the first iteration"
         fi
+
+        # Fallback: try fetching latest artifact by name via GitHub API
+        if [[ "$ARTIFACT_FOUND" == "false" ]]; then
+          echo "Attempting artifact lookup via GitHub API..."
+          ARTIFACT_ID=$(gh api repos/${{ github.repository }}/actions/artifacts --paginate --jq ".artifacts[] | select(.name == \"${{ inputs.auto_whitelist_artifact_name }}\" and .expired == false) | .id" 2>/dev/null | head -n 1 || echo "")
+
+          if [[ -n "$ARTIFACT_ID" ]]; then
+            echo "Found artifact id $ARTIFACT_ID, downloading..."
+            gh api repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip --output auto_whitelist_artifact.zip 2>/dev/null || ARTIFACT_ID=""
+
+            if [[ -f "auto_whitelist_artifact.zip" ]]; then
+              unzip -o auto_whitelist_artifact.zip >/dev/null 2>&1 && rm -f auto_whitelist_artifact.zip
+              if [[ -f "auto_whitelist.json" ]]; then
+                echo "✅ Successfully downloaded artifact via API fallback"
+                ARTIFACT_FOUND=true
+              else
+                echo "⚠️ API fallback download did not contain auto_whitelist.json"
+              fi
+            else
+              echo "⚠️ Failed to download artifact zip via API"
+            fi
+          else
+            echo "No matching artifact found via API fallback"
+          fi
+        fi
         
         # Check if the whitelist file exists (either from gh run download or manually downloaded via actions/download-artifact)
         if [[ -f "auto_whitelist.json" ]]; then
