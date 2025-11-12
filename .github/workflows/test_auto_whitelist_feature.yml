@@ -51,6 +51,24 @@ jobs:
           echo "Waiting for EDAMAME Posture to be ready..."
           sleep 30
 
+      - name: Verify whitelist is active (for iterations > 1)
+        if: inputs.iteration != '1'
+        run: |
+          echo "Verifying whitelist is active for iteration ${{ inputs.iteration }}..."
+          cd
+          WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "")
+          if [[ -z "$WHITELIST_NAME" ]]; then
+            echo "⚠️ Warning: No whitelist is currently active"
+            echo "This might cause augmentation to return 0 endpoints"
+            echo "Checking if whitelist file exists..."
+            if [[ -f "auto_whitelist.json" ]]; then
+              echo "Whitelist file exists, but may not have been loaded"
+              jq '.' auto_whitelist.json | head -20
+            fi
+          else
+            echo "✅ Active whitelist: $WHITELIST_NAME"
+          fi
+
       - name: Generate test traffic
         run: |
           echo "Generating test traffic for iteration ${{ inputs.iteration }}..."
@@ -67,8 +85,18 @@ jobs:
             curl -s --max-time 10 https://cdn.jsdelivr.net/npm/ > /dev/null || true
           fi
           
-          echo "Waiting for traffic capture..."
+          echo "Waiting for traffic capture and session evaluation..."
           sleep 30
+
+      - name: Force session update before augmentation
+        if: inputs.iteration != '1'
+        run: |
+          echo "Forcing session update to ensure new traffic is evaluated against whitelist..."
+          cd
+          # Trigger a session update by getting sessions (this calls update_sessions internally)
+          $EDAMAME_POSTURE_CMD get-sessions > /dev/null 2>&1 || true
+          echo "Session update triggered"
+          sleep 5  # Small delay to ensure update completes
 
       - name: Check Auto-Whitelist Status
         uses: ./
