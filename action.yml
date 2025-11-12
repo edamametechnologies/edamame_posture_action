@@ -1349,7 +1349,6 @@ runs:
               fi
             fi
           fi
-        fi
       shell: bash
       env:
         EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
