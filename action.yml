@@ -1497,23 +1497,12 @@ runs:
           echo "  - Daemon status:"
           $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
           echo ""
-          echo "  - Attempting to reload whitelist from file..."
-          if [[ -f "auto_whitelist.json" ]]; then
-            echo "    File found, attempting reload..."
-            $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "$(pwd)/auto_whitelist.json" || echo "    Reload failed"
-            sleep 1
-            RELOADED_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "unknown")
-            echo "    After reload attempt: $RELOADED_NAME"
-            if [[ "$RELOADED_NAME" == "custom_whitelist" ]]; then
-              echo "    ✅ Reload successful! Continuing..."
-            else
-              echo "    ❌ Reload failed - cannot proceed"
-              exit 1
-            fi
-          else
-            echo "    File not found - cannot reload"
-            exit 1
-          fi
+          echo "CRITICAL: Cannot proceed with augmentation - whitelist must be loaded in first invocation."
+          echo "Augmentation requires custom_whitelist to be active in the daemon."
+          echo "Attempting to reload now would mask the root cause of the first invocation failure."
+          echo ""
+          echo "Fix: Ensure the first invocation successfully loads the whitelist into the daemon."
+          exit 1
         fi
         
         echo "✅ Daemon has correct whitelist loaded for augmentation"
