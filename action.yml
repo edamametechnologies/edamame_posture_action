@@ -1680,21 +1680,8 @@ runs:
         fi
         
         # Create/augment whitelist from current sessions
-        # CRITICAL: Check if existing whitelist has endpoints - if 0, treat as first run
-        EXISTING_ENDPOINT_COUNT=0
-        if [[ "$AUTO_WHITELIST_EXISTS" == "true" && -f "auto_whitelist.json" ]]; then
-          if command -v jq &> /dev/null; then
-            EXISTING_ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
-            echo "Existing whitelist has $EXISTING_ENDPOINT_COUNT endpoints"
-          fi
-        fi
-        
-        if [[ "$AUTO_WHITELIST_EXISTS" == "false" || "$EXISTING_ENDPOINT_COUNT" -eq 0 ]]; then
-            # First run OR empty whitelist: create initial whitelist from captured traffic
-            if [[ "$EXISTING_ENDPOINT_COUNT" -eq 0 && "$AUTO_WHITELIST_EXISTS" == "true" ]]; then
-              echo "⚠️ Warning: Existing whitelist has 0 endpoints - treating as first run"
-              echo "Will create fresh whitelist from captured traffic instead of augmenting"
-            fi
+        if [[ "$AUTO_WHITELIST_EXISTS" == "false" ]]; then
+            # First run: create initial whitelist from captured traffic
             echo "First run: Creating initial whitelist from captured traffic..."
             echo "Calling: $EDAMAME_POSTURE_CMD create-custom-whitelists"
             
@@ -1729,8 +1716,8 @@ runs:
             echo "AUTO_WHITELIST_STABLE=false" >> $GITHUB_ENV
           else
             # Subsequent run: augment and check stability
+            # Note: augment-custom-whitelists handles empty baselines correctly by creating whitelist from exceptions
             echo "Iteration $AUTO_WHITELIST_ITERATION: Augmenting whitelist..."
-            echo "Existing whitelist has $EXISTING_ENDPOINT_COUNT endpoints - will augment with new exceptions"
             echo "Current daemon whitelist: $($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo 'unknown')"
             echo "Calling: $EDAMAME_POSTURE_CMD augment-custom-whitelists"
             
