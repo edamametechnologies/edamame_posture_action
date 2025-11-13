@@ -101,7 +101,7 @@ jobs:
       # - Iterations 1-N (learning/evolving): Whitelist exceptions are EXPECTED
       #   * New endpoints are being discovered and added
       #   * Action automatically allows exceptions (does NOT fail)
-      #   * Endpoint count increases with each new discovery
+      #   * Endpoint count should increase or stay stable (not decrease)
       # 
       # - Iterations N+1 to N+3 (confirming stability): 
       #   * No new endpoints discovered (0% change)
@@ -112,6 +112,14 @@ jobs:
       #   * Action automatically ENFORCES whitelist (WILL fail on exceptions)
       #   * Any new endpoint = supply chain attack detected
       #   * Workflow fails to protect against unauthorized connections
+      # 
+      # KNOWN ISSUE (Core Implementation):
+      # - Endpoint counts may fluctuate instead of monotonically increasing
+      # - This indicates augment-custom-whitelists is creating fresh whitelists
+      #   instead of merging exceptions with existing whitelist
+      # - This is a CORE bug, not an action bug
+      # - The action correctly downloads, applies, and calls augment-custom-whitelists
+      # - The daemon should be merging but appears to be replacing instead
       # 
       # The action automatically detects auto-whitelist mode from first invocation
       # and uses saved configuration - NO parameters need to be repeated here!
