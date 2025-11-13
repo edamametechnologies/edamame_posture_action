@@ -54,6 +54,11 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
 - `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
 - `augment_custom_whitelists`: When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true` with packet capture enabled.
+- `auto_whitelist`: Enable automated whitelist lifecycle management across workflow runs. See **Automated Whitelist Lifecycle** section below (default: false)
+- `auto_whitelist_artifact_name`: Name for GitHub artifact to store auto-whitelist state (default: "edamame-auto-whitelist")
+- `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
+- `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
+- `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "20")
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
 - `agentic_provider`: LLM provider for AI assistant: `claude`, `openai`, `ollama`, or none. Requires `EDAMAME_LLM_API_KEY` environment variable (default: "")
@@ -917,10 +922,185 @@ Machine learning-based anomaly detection complements whitelist enforcement:
 | `custom_whitelists_path` | string | "" | Path to whitelist JSON file |
 | `set_custom_whitelists` | boolean | false | Apply whitelist from file |
 | `augment_custom_whitelists` | boolean | false | Merge new entries into existing whitelist |
+| `auto_whitelist` | boolean | false | **Automated whitelist lifecycle (see below)** |
 | `exit_on_whitelist_exceptions` | boolean | true | Fail workflow on violations (end-of-run) |
 | `check_whitelist` | boolean | false | Enable real-time whitelist checking |
 | `cancel_on_violation` | boolean | false | Cancel workflow immediately on violation |
 | `whitelist` | string | "github" | Default whitelist name (platform suffix auto-added) |
+
+## Automated Whitelist Lifecycle (Auto-Whitelist Mode)
+
+For teams that want a fully automated approach to whitelist management, the **auto-whitelist feature** handles the entire learning → augmentation → enforcement lifecycle automatically across multiple workflow runs.
+
+### How Auto-Whitelist Works
+
+Instead of manually managing whitelist files through download/upload artifacts, the action automatically:
+
+1. **First Run**: Captures all network traffic and creates initial whitelist
+2. **Subsequent Runs**: Downloads previous whitelist, applies it, captures new traffic, augments with any new endpoints
+3. **Stability Detection**: Tracks consecutive runs with no changes
+4. **Enforcement**: Once stable (N runs with 0% change), automatically enforces the whitelist and fails on violations
+
+### Usage Pattern
+
+Auto-whitelist requires a **two-step pattern** in your workflow:
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Setup Phase
+      - name: Setup EDAMAME Posture
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          auto_whitelist: true
+          auto_whitelist_artifact_name: my-project-whitelist
+          # Optional tuning:
+          # auto_whitelist_stability_threshold: "0"              # 0% = no new endpoints
+          # auto_whitelist_stability_consecutive_runs: "3"       # 3 runs required
+          # auto_whitelist_max_iterations: "10"                  # Max learning iterations
+
+      # Step 2: Your Build/Test/Deploy Work
+      - name: Build Application
+        run: |
+          npm install
+          npm run build
+          npm test
+
+      # Step 3: Teardown Phase
+      - name: Dump EDAMAME Posture Sessions
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          dump_sessions_log: true
+```
+
+That's it! The action handles everything else automatically.
+
+### What Happens Across Workflow Runs
+
+**Run 1 (Initial Learning)**:
+- No whitelist exists → Listen-only mode
+- Captures: `github.com`, `npmjs.org` (2 endpoints)
+- Creates whitelist with 2 endpoints
+- Status: Learning
+
+**Run 2-N (Augmentation)**:
+- Downloads whitelist (2 endpoints) → Applies to daemon
+- Captures: `github.com`, `npmjs.org`, `cdn.jsdelivr.net` (NEW!)
+- Augments whitelist → Now 3 endpoints
+- Change: 33% (1 new out of 3 total)
+- Status: Evolving
+
+**Run N+1 (Stability Detection)**:
+- Downloads whitelist (3 endpoints) → Applies
+- Captures: Same 3 endpoints (no new)
+- Augments whitelist → Still 3 endpoints
+- Change: 0%
+- Stability counter: 1/3
+- Status: Confirming
+
+**Run N+3 (Enforcement)**:
+- Three consecutive runs with 0% change
+- **Whitelist is now STABLE!**
+- Future runs will **FAIL** if unauthorized endpoints are contacted
+- Status: Enforcing
+
+### Configuration Options
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `auto_whitelist` | boolean | `false` | Enable automated whitelist lifecycle |
+| `auto_whitelist_artifact_name` | string | `edamame-auto-whitelist` | Name for GitHub artifact storage |
+| `auto_whitelist_stability_threshold` | string | `"0"` | Percentage change threshold (0 = no new endpoints) |
+| `auto_whitelist_stability_consecutive_runs` | string | `"3"` | Consecutive stable runs required |
+| `auto_whitelist_max_iterations` | string | `"20"` | Maximum learning iterations |
+
+### When to Use Auto-Whitelist
+
+**Perfect for:**
+- New projects starting from scratch
+- Projects with stable dependencies
+- Teams wanting hands-off security
+- CI/CD pipelines with consistent network patterns
+
+**Not recommended for:**
+- Projects with frequently changing dependencies
+- Workflows that contact different endpoints on different branches
+- When you need fine-grained control over whitelist entries
+- Legacy projects with complex network requirements (use manual whitelist management instead)
+
+### Monitoring Progress
+
+The action provides clear status updates in workflow logs:
+
+```
+=== Iteration 5 ===
+Whitelist difference: 0.00%
+✅ Whitelist is STABLE for this run (diff: 0.00% <= threshold: 0%)
+   Consecutive stable runs: 1 / 3 required
+🔄 Whitelist is stable for this run, but need more consecutive confirmations
+```
+
+```
+=== Iteration 7 ===
+Whitelist difference: 0.00%
+✅ Whitelist is STABLE for this run (diff: 0.00% <= threshold: 0%)
+   Consecutive stable runs: 3 / 3 required
+🎉 Whitelist is FULLY STABLE (3 consecutive runs with no changes)
+
+✅ Whitelist has stabilized!
+   Future runs will enforce this whitelist and fail on violations.
+```
+
+### Troubleshooting
+
+**Problem**: Whitelist never stabilizes
+
+**Solutions**:
+- Increase `auto_whitelist_stability_threshold` from `0` to `5` (allow 5% variance)
+- Check if dependencies are non-deterministic (different CDNs per run)
+- Review logs to see which endpoints are changing between runs
+
+---
+
+**Problem**: Whitelist stabilized too quickly with missing endpoints
+
+**Solutions**:
+- Run more diverse scenarios before it stabilizes (different branches, test suites)
+- Temporarily reset by deleting the artifact
+- Use manual whitelist management for complex cases
+
+---
+
+**Problem**: Need to add new endpoint after stabilization
+
+**Solutions**:
+1. Temporarily switch to manual mode (remove `auto_whitelist`)
+2. Use `augment_custom_whitelists` to add the endpoint
+3. Switch back to `auto_whitelist` mode
+4. Or delete the artifact to restart learning
+
+### Combining with Other Features
+
+Auto-whitelist works seamlessly with other EDAMAME features:
+
+```yaml
+- name: Setup EDAMAME Posture
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    disconnected_mode: true
+    network_scan: true
+    packet_capture: true
+    auto_whitelist: true                          # Automated whitelist
+    auto_whitelist_artifact_name: my-whitelist
+    check_blacklist: true                         # Also check blacklists
+    check_anomalous: true                         # Also check ML anomalies
+    cancel_on_violation: true                     # Cancel on any violation
+```
 
 ## Note
 For public repos that need access to private repos (or other restricted endpoints), pass the `token` input to this action. This allows the action to handle partial or delayed permissions during checkout, API access, or HTTPS waiting steps.
