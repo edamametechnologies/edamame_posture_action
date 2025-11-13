@@ -1054,11 +1054,20 @@ runs:
         # The daemon will simply start in listen-only mode if no artifact is found
         
         # Check if the whitelist file exists (either from gh run download or manually downloaded via actions/download-artifact)
+        echo ""
+        echo "=== Checking for downloaded whitelist artifact ==="
+        echo "Current directory: $(pwd)"
+        echo "Looking for file: auto_whitelist.json"
+        ls -la auto_whitelist* 2>/dev/null || echo "No auto_whitelist* files found"
+        
         if [[ -f "auto_whitelist.json" ]]; then
-          echo "Whitelist file found"
+          echo "✅ Whitelist file found: auto_whitelist.json"
+          echo "File size: $(wc -c < auto_whitelist.json) bytes"
+          
           # Read iteration count
           if [[ -f "auto_whitelist_iteration.txt" ]]; then
             ITERATION=$(cat auto_whitelist_iteration.txt)
+            echo "✅ Found iteration file: auto_whitelist_iteration.txt"
             echo "Current iteration: $ITERATION"
             echo "AUTO_WHITELIST_ITERATION=$ITERATION" >> $GITHUB_ENV
             echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
@@ -1081,14 +1090,24 @@ runs:
           # Verify the whitelist has endpoints
           if command -v jq &> /dev/null; then
             ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
-            echo "Downloaded whitelist contains $ENDPOINT_COUNT endpoints"
+            echo "✅ Downloaded whitelist contains $ENDPOINT_COUNT endpoints"
+            echo "This whitelist will be loaded into the daemon in the next step"
+          else
+            echo "⚠️ Warning: jq not available, cannot count endpoints"
           fi
+          echo "=== Artifact download check complete ==="
         else
-          echo "No whitelist file found, treating as first run (listen-only mode)"
+          echo "❌ No whitelist file found, treating as first run (listen-only mode)"
+          echo "This means:"
+          echo "  - No artifact was downloaded from previous runs"
+          echo "  - Will initialize empty whitelist"
+          echo "  - Will create initial whitelist from captured traffic"
           echo "AUTO_WHITELIST_ITERATION=0" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_EXISTS=false" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+          echo "=== Artifact download check complete ==="
         fi
+        echo ""
         
         # Save auto-whitelist configuration to state file for second invocation
         # This allows second invocation to infer parameters without repeating them
@@ -1153,7 +1172,11 @@ runs:
         
         # Auto-whitelist mode: apply previous iteration's whitelist if it exists
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
+          echo ""
+          echo "=== Auto-Whitelist Mode: Loading Artifact into Daemon ==="
           echo "Auto-whitelist mode detected in first invocation"
+          echo "AUTO_WHITELIST_EXISTS: $AUTO_WHITELIST_EXISTS"
+          echo "AUTO_WHITELIST_ITERATION: $AUTO_WHITELIST_ITERATION"
           cd
           
           # CRITICAL: Verify daemon is ready BEFORE applying whitelist
@@ -1167,6 +1190,11 @@ runs:
           echo "✅ Daemon is ready"
           
           if [[ "$AUTO_WHITELIST_EXISTS" == "true" && -f "auto_whitelist.json" ]]; then
+            echo ""
+            echo ">>> LOADING ARTIFACT WHITELIST INTO DAEMON <<<"
+            echo "Found artifact from previous iteration: $AUTO_WHITELIST_ITERATION"
+            echo "This is NOT the first run - loading saved whitelist into daemon"
+            
             # Use absolute path for reliability
             WHITELIST_FILE="$(pwd)/auto_whitelist.json"
             echo "Auto-whitelist mode: Applying whitelist from iteration $AUTO_WHITELIST_ITERATION to daemon"
@@ -1274,7 +1302,11 @@ runs:
             fi
           else
             # First run: Initialize empty whitelist and verify it's loaded
+            echo ""
+            echo ">>> FIRST RUN: INITIALIZING EMPTY WHITELIST <<<"
             echo "Auto-whitelist mode: First run - initializing empty whitelist"
+            echo "No artifact found from previous runs"
+            echo "Will create empty whitelist and verify it's loaded into daemon"
             
             # Create empty whitelist JSON
             EMPTY_WHITELIST_FILE="$(pwd)/auto_whitelist_empty.json"
