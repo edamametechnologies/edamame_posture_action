@@ -1,10 +1,11 @@
 name: Test Auto-Whitelist Feature
 
-# This workflow tests the actual auto_whitelist: true feature
-# It should be triggered sequentially by a test script to verify:
-# 1. First run creates initial whitelist
-# 2. Subsequent runs augment and check stability
-# 3. Eventually reaches stable state
+# This workflow tests the auto_whitelist feature using the real-world pattern:
+# 1. Setup step: Start EDAMAME with auto_whitelist enabled
+# 2. Do work: Generate traffic (daemon captures in background)
+# 3. Teardown step: Dump sessions (augments whitelist and uploads artifact)
+#
+# This mimics how users would use it in production workflows
 
 on:
   workflow_dispatch:
@@ -32,7 +33,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Start EDAMAME Posture with Auto-Whitelist
+      # ============================================================
+      # STEP 1: Setup EDAMAME Posture (like release_macos_standalone.yml:46-55)
+      # ============================================================
+      - name: Setup EDAMAME Posture with Auto-Whitelist
         uses: ./
         with:
           disconnected_mode: true
@@ -46,9 +50,12 @@ jobs:
           include_local_traffic: false
           display_logs: false
 
-      - name: Wait for capture readiness
+      # ============================================================
+      # STEP 2: Do work (build, test, etc.) - daemon captures traffic
+      # ============================================================
+      - name: Wait for daemon readiness
         run: |
-          echo "Waiting for EDAMAME Posture to be ready..."
+          echo "Waiting for EDAMAME Posture daemon to be ready..."
           sleep 30
 
       - name: Verify whitelist is active (for iterations > 1)
@@ -59,17 +66,11 @@ jobs:
           WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "")
           if [[ -z "$WHITELIST_NAME" ]]; then
             echo "⚠️ Warning: No whitelist is currently active"
-            echo "This might cause augmentation to return 0 endpoints"
-            echo "Checking if whitelist file exists..."
-            if [[ -f "auto_whitelist.json" ]]; then
-              echo "Whitelist file exists, but may not have been loaded"
-              jq '.' auto_whitelist.json | head -20
-            fi
           else
             echo "✅ Active whitelist: $WHITELIST_NAME"
           fi
 
-      - name: Generate test traffic
+      - name: Generate test traffic (simulate build/test work)
         run: |
           echo "Generating test traffic for iteration ${{ inputs.iteration }}..."
           
@@ -85,62 +86,23 @@ jobs:
             curl -s --max-time 10 https://cdn.jsdelivr.net/npm/ > /dev/null || true
           fi
           
-          echo "Waiting for traffic capture and session evaluation..."
+          echo "Waiting for traffic capture..."
           sleep 30
 
-      - name: Augment Auto-Whitelist by talking to daemon
-        run: |
-          cd
-          echo "=== Augmenting whitelist via daemon commands ==="
-          
-          # Talk to the daemon from invocation 1 to augment whitelist
-          if [[ -f "auto_whitelist.json" ]]; then
-            echo "Previous whitelist exists, augmenting..."
-            $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json
-            
-            # Compare and update iteration
-            ITERATION=$(cat auto_whitelist_iteration.txt || echo "0")
-            NEXT_ITERATION=$((ITERATION + 1))
-            echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
-            
-            # Check difference
-            DIFF_PERCENT=$($EDAMAME_POSTURE_CMD compare-custom-whitelists-from-files auto_whitelist.json auto_whitelist_new.json | sed 's/%//' || echo "100")
-            echo "Whitelist difference: ${DIFF_PERCENT}%"
-            
-            mv auto_whitelist_new.json auto_whitelist.json
-          else
-            echo "First run: creating initial whitelist..."
-            $EDAMAME_POSTURE_CMD create-custom-whitelists > auto_whitelist.json
-            echo "1" > auto_whitelist_iteration.txt
-            echo "0" > auto_whitelist_stable_count.txt
-          fi
-          
-          # Count endpoints
-          ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
-          echo "Whitelist now contains $ENDPOINT_COUNT endpoints"
-          
-      - name: Display sessions
-        run: |
-          cd
-          $EDAMAME_POSTURE_CMD get-sessions || true
-          
-      - name: Display logs
-        run: |
-          cd
-          find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
-
-      - name: Upload auto-whitelist artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+      # ============================================================
+      # STEP 3: Teardown - Dump sessions (like release_macos_standalone.yml:253-256)
+      # This step augments the whitelist and uploads the artifact
+      # ============================================================
+      - name: Dump EDAMAME Posture sessions and augment whitelist
+        uses: ./
         with:
-          name: test-auto-whitelist-feature-${{ github.ref_name }}
-          path: |
-            ~/auto_whitelist.json
-            ~/auto_whitelist_iteration.txt
-            ~/auto_whitelist_stable_count.txt
-          retention-days: 90
-          overwrite: true
-          if-no-files-found: warn
+          auto_whitelist: true
+          auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
+          auto_whitelist_stability_threshold: "0"
+          auto_whitelist_stability_consecutive_runs: "3"
+          auto_whitelist_max_iterations: "10"
+          dump_sessions_log: true
+          display_logs: true
 
       - name: Stop EDAMAME Posture
         uses: ./

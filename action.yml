@@ -125,7 +125,16 @@ inputs:
     required: false
     default: "false"
   auto_whitelist:
-    description: "Enable auto-whitelist mode: first run is listen-only, subsequent runs refine whitelist until stable. Requires disconnected_mode=true, network_scan=true, packet_capture=true."
+    description: |
+      Enable auto-whitelist mode: first run is listen-only, subsequent runs refine whitelist until stable.
+      Requires disconnected_mode=true, network_scan=true, packet_capture=true.
+      
+      Usage pattern (two-invocation):
+      1. First invocation: Setup with auto_whitelist=true (starts daemon, applies whitelist)
+      2. Do work: Generate traffic (daemon captures in background)
+      3. Second invocation: dump_sessions_log=true (augments whitelist, uploads artifact)
+      
+      The action automatically handles both phases when called twice in the same job.
     required: false
     default: "false"
   auto_whitelist_artifact_name:
@@ -703,6 +712,7 @@ runs:
       shell: bash
 
     - name: Start EDAMAME Posture process and wait for connection if all arguments are provided, skip otherwise
+      if: ${{ inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
       run: |
         cd
         # Check if all arguments are provided
@@ -857,8 +867,42 @@ runs:
         fi
       shell: bash
 
+    - name: Load auto-whitelist state for second invocation
+      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' }}
+      run: |
+        cd
+        echo "Second invocation: Loading auto-whitelist state from first invocation..."
+        
+        # Check if files exist from first invocation
+        if [[ -f "auto_whitelist.json" && -f "auto_whitelist_iteration.txt" ]]; then
+          ITERATION=$(cat auto_whitelist_iteration.txt)
+          echo "Found auto-whitelist from first invocation: iteration $ITERATION"
+          echo "AUTO_WHITELIST_ITERATION=$ITERATION" >> $GITHUB_ENV
+          echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
+          
+          if [[ -f "auto_whitelist_stable_count.txt" ]]; then
+            STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
+            echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
+          else
+            echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+          fi
+          
+          # Count endpoints
+          if command -v jq &> /dev/null; then
+            ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
+            echo "Current whitelist contains $ENDPOINT_COUNT endpoints"
+          fi
+        else
+          echo "⚠️ Warning: No auto-whitelist files found from first invocation"
+          echo "This is unexpected - first invocation should have created these files"
+          echo "AUTO_WHITELIST_ITERATION=0" >> $GITHUB_ENV
+          echo "AUTO_WHITELIST_EXISTS=false" >> $GITHUB_ENV
+          echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+        fi
+      shell: bash
+
     - name: Download auto-whitelist artifact if in auto-whitelist mode
-      if: ${{ inputs.auto_whitelist == 'true' }}
+      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log != 'true' }}
       run: |
         cd
         # Try to download the artifact from the previous run
@@ -979,6 +1023,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
 
     - name: Apply custom whitelists if provided
+      if: ${{ inputs.dump_sessions_log != 'true' }}
       run: |
         if [[ -n "${{ inputs.custom_whitelists_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" && "${{ inputs.set_custom_whitelists }}" == "true" ]]; then
           cd
