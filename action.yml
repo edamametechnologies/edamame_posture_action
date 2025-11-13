@@ -1152,35 +1152,39 @@ runs:
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
           echo "Auto-whitelist mode detected in first invocation"
           cd
+          
+          # CRITICAL: Verify daemon is ready BEFORE applying whitelist
+          echo "Checking daemon readiness..."
+          if ! $EDAMAME_POSTURE_CMD status >/dev/null 2>&1; then
+            echo "❌ ERROR: Daemon is not responding!"
+            echo "Cannot apply whitelist - daemon must be running and ready."
+            $EDAMAME_POSTURE_CMD status || true
+            exit 1
+          fi
+          echo "✅ Daemon is ready"
+          
           if [[ "$AUTO_WHITELIST_EXISTS" == "true" && -f "auto_whitelist.json" ]]; then
-            # Check if auto-whitelist has endpoints before loading
-            if command -v jq &> /dev/null; then
-              ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
-              echo "Auto-whitelist file contains $ENDPOINT_COUNT endpoints"
-              
-              if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
-                echo "⚠️ Warning: Auto-whitelist file 'auto_whitelist.json' is empty (no endpoints)"
-                echo "Skipping whitelist load - empty whitelists would mark all sessions as non-conforming"
-                echo "This can happen if no network sessions were captured in the previous iteration"
-                exit 0
-              fi
-            fi
-            
             # Use absolute path for reliability
             WHITELIST_FILE="$(pwd)/auto_whitelist.json"
             echo "Auto-whitelist mode: Applying whitelist from iteration $AUTO_WHITELIST_ITERATION to daemon"
             echo "File path: $WHITELIST_FILE"
             echo "File details: $(ls -lh "$WHITELIST_FILE")"
             
-            # CRITICAL: Verify daemon is ready BEFORE applying whitelist
-            echo "Checking daemon readiness..."
-            if ! $EDAMAME_POSTURE_CMD status >/dev/null 2>&1; then
-              echo "❌ ERROR: Daemon is not responding!"
-              echo "Cannot apply whitelist - daemon must be running and ready."
-              $EDAMAME_POSTURE_CMD status || true
-              exit 1
+            # CRITICAL: Count endpoints in downloaded file BEFORE loading
+            if command -v jq &> /dev/null; then
+              FILE_ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
+              echo "Downloaded whitelist file contains $FILE_ENDPOINT_COUNT endpoints"
+              
+              if [[ "$FILE_ENDPOINT_COUNT" -eq 0 ]]; then
+                echo "⚠️ Warning: Auto-whitelist file 'auto_whitelist.json' is empty (no endpoints)"
+                echo "Skipping whitelist load - empty whitelists would mark all sessions as non-conforming"
+                echo "This can happen if no network sessions were captured in the previous iteration"
+                exit 0
+              fi
+            else
+              echo "⚠️ Warning: jq not available, cannot verify endpoint count"
+              FILE_ENDPOINT_COUNT="unknown"
             fi
-            echo "✅ Daemon is ready"
             
             # Check current whitelist state BEFORE loading
             BEFORE_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
@@ -1202,7 +1206,7 @@ runs:
             fi
             echo "✅ Command executed successfully"
             
-            # CRITICAL: Verify it was loaded
+            # CRITICAL: Verify it was loaded correctly
             sleep 1  # Give daemon a moment to process
             LOADED_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "unknown")
             echo "Daemon whitelist AFTER load: $LOADED_NAME"
@@ -1231,8 +1235,109 @@ runs:
               exit 1
             fi
             echo "✅ Whitelist 'custom_whitelist' confirmed loaded in daemon"
+            
+            # CRITICAL: Verify endpoint count matches between file and daemon
+            if [[ "$FILE_ENDPOINT_COUNT" != "unknown" ]]; then
+              echo "Verifying endpoint count matches between file and daemon..."
+              DAEMON_WHITELIST_JSON=$($EDAMAME_POSTURE_CMD get-whitelists 2>/dev/null || echo "")
+              if [[ -z "$DAEMON_WHITELIST_JSON" ]]; then
+                echo "❌ ERROR: Failed to get whitelist from daemon!"
+                echo "Cannot verify endpoint count - daemon may not be responding correctly"
+                exit 1
+              fi
+              
+              DAEMON_ENDPOINT_COUNT=$(echo "$DAEMON_WHITELIST_JSON" | jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' 2>/dev/null || echo "0")
+              echo "Daemon whitelist contains $DAEMON_ENDPOINT_COUNT endpoints"
+              echo "File whitelist contained $FILE_ENDPOINT_COUNT endpoints"
+              
+              if [[ "$DAEMON_ENDPOINT_COUNT" != "$FILE_ENDPOINT_COUNT" ]]; then
+                echo ""
+                echo "❌ ERROR: Endpoint count mismatch between file and daemon!"
+                echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
+                echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
+                echo ""
+                echo "This indicates the whitelist was not loaded correctly into the daemon."
+                echo "Augmentation will fail or produce incorrect results."
+                echo ""
+                echo "Debugging info:"
+                echo "  - File: $WHITELIST_FILE"
+                echo "  - File size: $(wc -c < "$WHITELIST_FILE") bytes"
+                echo "  - Daemon whitelist name: $LOADED_NAME"
+                echo "  - Daemon status:"
+                $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+                exit 1
+              fi
+              echo "✅ Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints match"
+            fi
           else
-            echo "Auto-whitelist mode: First run (listen-only), no whitelist to apply yet"
+            # First run: Initialize empty whitelist and verify it's loaded
+            echo "Auto-whitelist mode: First run - initializing empty whitelist"
+            
+            # Create empty whitelist JSON
+            EMPTY_WHITELIST_FILE="$(pwd)/auto_whitelist_empty.json"
+            jq -n '{
+              "date": "Initial empty whitelist",
+              "signature": null,
+              "whitelists": [
+                {
+                  "name": "custom_whitelist",
+                  "extends": null,
+                  "endpoints": []
+                }
+              ]
+            }' > "$EMPTY_WHITELIST_FILE"
+            echo "Created empty whitelist file: $EMPTY_WHITELIST_FILE"
+            
+            # Check current whitelist state BEFORE loading
+            BEFORE_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
+            echo "Daemon whitelist BEFORE load: $BEFORE_NAME"
+            
+            # Apply empty whitelist
+            echo "Calling: $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file \"$EMPTY_WHITELIST_FILE\""
+            if ! $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "$EMPTY_WHITELIST_FILE"; then
+              echo ""
+              echo "❌ ERROR: Failed to load empty whitelist into daemon!"
+              echo "   Exit code: $?"
+              echo "   File: $EMPTY_WHITELIST_FILE"
+              exit 1
+            fi
+            echo "✅ Empty whitelist loaded successfully"
+            
+            # CRITICAL: Verify it was loaded correctly
+            sleep 1  # Give daemon a moment to process
+            LOADED_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "unknown")
+            echo "Daemon whitelist AFTER load: $LOADED_NAME"
+            if [[ "$LOADED_NAME" != "custom_whitelist" ]]; then
+              echo ""
+              echo "❌ ERROR: Empty whitelist not loaded correctly into daemon!"
+              echo "   Expected: custom_whitelist"
+              echo "   Got: $LOADED_NAME"
+              echo "   Before load: $BEFORE_NAME"
+              exit 1
+            fi
+            echo "✅ Empty whitelist 'custom_whitelist' confirmed loaded in daemon"
+            
+            # CRITICAL: Verify endpoint count is 0 in daemon
+            echo "Verifying empty whitelist has 0 endpoints in daemon..."
+            DAEMON_WHITELIST_JSON=$($EDAMAME_POSTURE_CMD get-whitelists 2>/dev/null || echo "")
+            if [[ -z "$DAEMON_WHITELIST_JSON" ]]; then
+              echo "❌ ERROR: Failed to get whitelist from daemon!"
+              exit 1
+            fi
+            
+            DAEMON_ENDPOINT_COUNT=$(echo "$DAEMON_WHITELIST_JSON" | jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' 2>/dev/null || echo "-1")
+            echo "Daemon whitelist contains $DAEMON_ENDPOINT_COUNT endpoints (expected: 0)"
+            
+            if [[ "$DAEMON_ENDPOINT_COUNT" != "0" ]]; then
+              echo ""
+              echo "❌ ERROR: Empty whitelist verification failed!"
+              echo "   Expected: 0 endpoints"
+              echo "   Got: $DAEMON_ENDPOINT_COUNT endpoints"
+              echo ""
+              echo "The empty whitelist was not loaded correctly into the daemon."
+              exit 1
+            fi
+            echo "✅ Empty whitelist verified: 0 endpoints confirmed"
           fi
         else
           echo "Auto-whitelist not enabled in this invocation"
