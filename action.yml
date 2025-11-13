@@ -962,6 +962,7 @@ runs:
     - name: Download auto-whitelist artifact if in auto-whitelist mode
       if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log != 'true' }}
       run: |
+        set +e  # Don't exit on error - artifact download failures are expected
         cd
         # Try to download the artifact from the previous run
         echo "Attempting to download auto-whitelist artifact: ${{ inputs.auto_whitelist_artifact_name }}"
@@ -990,6 +991,7 @@ runs:
             
             # Try to download the artifact from this specific run
             # Suppress stderr for "not found" errors but show other errors
+            # Use explicit error handling to prevent step failure
             DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
             DOWNLOAD_EXIT=$?
             
@@ -1006,6 +1008,7 @@ runs:
             else
               # Artifact not found in this run, try next
               echo "⚠️ Artifact not found in run $RUN_ID (this is normal if artifact doesn't exist)"
+              echo "Download output: $DOWNLOAD_OUTPUT"
             fi
           done
         fi
