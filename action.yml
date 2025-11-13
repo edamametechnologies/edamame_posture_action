@@ -1166,28 +1166,68 @@ runs:
               fi
             fi
             
+            # Use absolute path for reliability
+            WHITELIST_FILE="$(pwd)/auto_whitelist.json"
             echo "Auto-whitelist mode: Applying whitelist from iteration $AUTO_WHITELIST_ITERATION to daemon"
-            echo "File: $(ls -lh auto_whitelist.json)"
-            $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "auto_whitelist.json"
-            echo "Command executed: set-custom-whitelists-from-file"
+            echo "File path: $WHITELIST_FILE"
+            echo "File details: $(ls -lh "$WHITELIST_FILE")"
+            
+            # CRITICAL: Verify daemon is ready BEFORE applying whitelist
+            echo "Checking daemon readiness..."
+            if ! $EDAMAME_POSTURE_CMD status >/dev/null 2>&1; then
+              echo "❌ ERROR: Daemon is not responding!"
+              echo "Cannot apply whitelist - daemon must be running and ready."
+              $EDAMAME_POSTURE_CMD status || true
+              exit 1
+            fi
+            echo "✅ Daemon is ready"
+            
+            # Check current whitelist state BEFORE loading
+            BEFORE_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
+            echo "Daemon whitelist BEFORE load: $BEFORE_NAME"
+            
+            # Apply whitelist with error checking
+            echo "Calling: $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file \"$WHITELIST_FILE\""
+            if ! $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "$WHITELIST_FILE"; then
+              echo ""
+              echo "❌ ERROR: set-custom-whitelists-from-file command FAILED!"
+              echo "   Exit code: $?"
+              echo "   File: $WHITELIST_FILE"
+              echo "   File exists: $([ -f "$WHITELIST_FILE" ] && echo 'yes' || echo 'no')"
+              echo "   File size: $(wc -c < "$WHITELIST_FILE" 2>/dev/null || echo '0') bytes"
+              echo ""
+              echo "Daemon status:"
+              $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+              exit 1
+            fi
+            echo "✅ Command executed successfully"
             
             # CRITICAL: Verify it was loaded
+            sleep 1  # Give daemon a moment to process
             LOADED_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "unknown")
-            echo "Daemon whitelist after load: $LOADED_NAME"
+            echo "Daemon whitelist AFTER load: $LOADED_NAME"
             if [[ "$LOADED_NAME" != "custom_whitelist" ]]; then
               echo ""
               echo "❌ ERROR: Whitelist not loaded correctly into daemon!"
               echo "   Expected: custom_whitelist"
               echo "   Got: $LOADED_NAME"
+              echo "   Before load: $BEFORE_NAME"
               echo ""
               echo "This breaks auto-whitelist - augmentation requires custom_whitelist to be loaded."
               echo "Without it, augmentation will create fresh whitelists instead of merging."
               echo ""
               echo "Debugging info:"
               echo "  - Iteration: $AUTO_WHITELIST_ITERATION"
-              echo "  - File size: $(wc -c < auto_whitelist.json) bytes"
+              echo "  - File: $WHITELIST_FILE"
+              echo "  - File size: $(wc -c < "$WHITELIST_FILE") bytes"
+              echo "  - File first 200 chars:"
+              head -c 200 "$WHITELIST_FILE" | cat -A || echo "    (cannot read file)"
+              echo ""
               echo "  - Daemon status:"
               $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+              echo ""
+              echo "  - Daemon whitelist details:"
+              $EDAMAME_POSTURE_CMD get-whitelist-name || echo "    (command failed)"
               exit 1
             fi
             echo "✅ Whitelist 'custom_whitelist' confirmed loaded in daemon"
@@ -1419,8 +1459,20 @@ runs:
         echo "=== Auto-whitelist Mode: Processing Iteration $AUTO_WHITELIST_ITERATION ==="
         echo "Configuration: threshold=${THRESHOLD}%, consecutive=${CONSECUTIVE}, max=${MAX_ITER}"
         
+        # CRITICAL: Verify daemon is ready BEFORE checking whitelist
+        echo "Checking daemon readiness before augmentation..."
+        if ! $EDAMAME_POSTURE_CMD status >/dev/null 2>&1; then
+          echo "❌ ERROR: Daemon is not responding!"
+          echo "Cannot proceed with augmentation - daemon must be running and ready."
+          echo ""
+          echo "Daemon status:"
+          $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+          exit 1
+        fi
+        echo "✅ Daemon is ready"
+        
         # CRITICAL: Verify daemon state before augmentation
-        echo "Checking daemon state before augmentation..."
+        echo "Checking daemon whitelist state..."
         DAEMON_WHITELIST=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
         echo "Daemon whitelist: $DAEMON_WHITELIST"
         
@@ -1438,10 +1490,30 @@ runs:
           echo ""
           echo "Debugging info:"
           echo "  - Iteration: $AUTO_WHITELIST_ITERATION"
+          echo "  - AUTO_WHITELIST_EXISTS: $AUTO_WHITELIST_EXISTS"
           echo "  - Whitelist file: $(ls -lh auto_whitelist.json 2>/dev/null || echo 'missing')"
+          echo "  - Whitelist file path: $(pwd)/auto_whitelist.json"
+          echo "  - File exists: $([ -f "auto_whitelist.json" ] && echo 'yes' || echo 'no')"
           echo "  - Daemon status:"
           $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
-          exit 1
+          echo ""
+          echo "  - Attempting to reload whitelist from file..."
+          if [[ -f "auto_whitelist.json" ]]; then
+            echo "    File found, attempting reload..."
+            $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "$(pwd)/auto_whitelist.json" || echo "    Reload failed"
+            sleep 1
+            RELOADED_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "unknown")
+            echo "    After reload attempt: $RELOADED_NAME"
+            if [[ "$RELOADED_NAME" == "custom_whitelist" ]]; then
+              echo "    ✅ Reload successful! Continuing..."
+            else
+              echo "    ❌ Reload failed - cannot proceed"
+              exit 1
+            fi
+          else
+            echo "    File not found - cannot reload"
+            exit 1
+          fi
         fi
         
         echo "✅ Daemon has correct whitelist loaded for augmentation"
@@ -1478,7 +1550,30 @@ runs:
           else
             # Subsequent run: augment and check stability
             echo "Iteration $AUTO_WHITELIST_ITERATION: Augmenting whitelist..."
-            $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json
+            echo "Current daemon whitelist: $($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo 'unknown')"
+            echo "Calling: $EDAMAME_POSTURE_CMD augment-custom-whitelists"
+            
+            if ! $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json 2>&1; then
+              echo ""
+              echo "❌ ERROR: augment-custom-whitelists command FAILED!"
+              echo "   Exit code: $?"
+              echo "   Command output:"
+              cat auto_whitelist_new.json 2>/dev/null || echo "    (no output captured)"
+              echo ""
+              echo "Daemon status:"
+              $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+              echo ""
+              echo "Current daemon whitelist:"
+              $EDAMAME_POSTURE_CMD get-whitelist-name || echo "    (command failed)"
+              exit 1
+            fi
+            echo "✅ Augment command executed successfully"
+            
+            # Verify output file was created
+            if [[ ! -f "auto_whitelist_new.json" ]]; then
+              echo "❌ ERROR: augment-custom-whitelists did not create output file!"
+              exit 1
+            fi
             
             # Compare old and new whitelists
             DIFF_PERCENT=$($EDAMAME_POSTURE_CMD compare-custom-whitelists-from-files auto_whitelist.json auto_whitelist_new.json | sed 's/%//' || echo "100")
