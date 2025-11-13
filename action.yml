@@ -892,6 +892,28 @@ runs:
             ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
             echo "Current whitelist contains $ENDPOINT_COUNT endpoints"
           fi
+          
+          # CRITICAL: Verify whitelist was loaded into daemon by first invocation
+          # If iteration > 0, daemon MUST have the whitelist active
+          if [[ "$ITERATION" -gt 0 ]]; then
+            echo "Verifying whitelist is active in daemon (iteration $ITERATION)..."
+            WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "")
+            if [[ -z "$WHITELIST_NAME" || "$WHITELIST_NAME" == "null" ]]; then
+              echo ""
+              echo "❌ ERROR: Whitelist file exists but is NOT loaded in daemon"
+              echo "This breaks auto-whitelist - augmentation requires an active whitelist"
+              echo "The first invocation should have loaded the whitelist into the daemon"
+              echo ""
+              echo "Debugging info:"
+              echo "  - Whitelist file: $(ls -lh auto_whitelist.json 2>/dev/null || echo 'missing')"
+              echo "  - Iteration: $ITERATION"
+              echo "  - Daemon status:"
+              $EDAMAME_POSTURE_CMD status || echo "  (daemon not responding)"
+              exit 1
+            else
+              echo "✅ Whitelist '$WHITELIST_NAME' is active in daemon"
+            fi
+          fi
         else
           echo "⚠️ Warning: No auto-whitelist files found from first invocation"
           echo "This is unexpected - first invocation should have created these files"
@@ -953,8 +975,14 @@ runs:
         fi
         
         if [[ "$ARTIFACT_FOUND" == "false" ]]; then
-          echo "⚠️ Could not find artifact in any previous successful runs"
-          echo "This is expected for the first iteration"
+          # Check if there were previous successful runs but no artifact
+          if [[ -n "$RUN_IDS" ]]; then
+            echo "⚠️ Warning: Found previous successful runs but no artifact in them"
+            echo "This is unexpected - previous runs should have uploaded artifacts"
+          else
+            echo "ℹ️ No previous successful runs found"
+            echo "This is expected for the first iteration"
+          fi
         fi
 
         # Fallback: try fetching latest artifact by name via GitHub API
@@ -980,6 +1008,21 @@ runs:
           else
             echo "No matching artifact found via API fallback"
           fi
+        fi
+        
+        # CRITICAL: Fail if we have previous successful runs but couldn't get artifact
+        # This means the auto-whitelist process is broken and should not continue
+        if [[ "$ARTIFACT_FOUND" == "false" && -n "$RUN_IDS" ]]; then
+          echo ""
+          echo "❌ ERROR: Previous successful workflow runs exist but artifact could not be downloaded"
+          echo "This breaks the auto-whitelist continuity - the daemon needs the previous whitelist"
+          echo "Possible causes:"
+          echo "  - Artifact was not uploaded in previous run"
+          echo "  - IP allow list blocking artifact download"
+          echo "  - Artifact expired (retention period)"
+          echo ""
+          echo "Action: Please check the previous workflow run to ensure artifacts were uploaded correctly"
+          exit 1
         fi
         
         # Check if the whitelist file exists (either from gh run download or manually downloaded via actions/download-artifact)
