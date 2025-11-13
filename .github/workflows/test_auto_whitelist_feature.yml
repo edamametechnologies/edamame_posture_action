@@ -99,6 +99,25 @@ jobs:
       # ============================================================
       # STEP 3: Teardown - Dump sessions (like release_macos_standalone.yml:253-256)
       # This step augments the whitelist and uploads the artifact
+      # 
+      # EXPECTED BEHAVIOR:
+      # - Iterations 1-N (learning/evolving): Whitelist exceptions are EXPECTED
+      #   * New endpoints are being discovered and added
+      #   * Action automatically allows exceptions (does NOT fail)
+      #   * Endpoint count increases with each new discovery
+      # 
+      # - Iterations N+1 to N+3 (confirming stability): 
+      #   * No new endpoints discovered (0% change)
+      #   * Action still allows exceptions (still NOT failing)
+      #   * Counting consecutive stable runs (1/3, 2/3, 3/3)
+      # 
+      # - Iteration N+4+ (stable/enforcing): Whitelist is STABLE
+      #   * Action automatically ENFORCES whitelist (WILL fail on exceptions)
+      #   * Any new endpoint = supply chain attack detected
+      #   * Workflow fails to protect against unauthorized connections
+      # 
+      # The action automatically handles the transition from learning to enforcement
+      # based on AUTO_WHITELIST_STABLE flag (no manual configuration needed)
       # ============================================================
       - name: Dump EDAMAME Posture sessions and augment whitelist
         uses: ./

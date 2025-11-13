@@ -1450,8 +1450,24 @@ runs:
         cd
         ARGS=(get-sessions)
 
-        if [[ "${{ inputs.exit_on_whitelist_exceptions }}" == "true" ]]; then
-          ARGS+=(--fail-on-whitelist)
+        # Handle whitelist exception enforcement based on auto-whitelist mode
+        if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
+          # Auto-whitelist mode: only enforce when stable
+          if [[ "$AUTO_WHITELIST_STABLE" == "true" ]]; then
+            echo "ℹ️  Auto-whitelist is STABLE - enforcing whitelist violations"
+            echo "   Any whitelist exceptions will cause this step to fail"
+            ARGS+=(--fail-on-whitelist)
+          else
+            echo "ℹ️  Auto-whitelist is LEARNING/EVOLVING - whitelist exceptions are expected"
+            echo "   New endpoints will be discovered and added to the whitelist"
+            echo "   This step will NOT fail on whitelist exceptions during learning"
+            # Do NOT add --fail-on-whitelist during learning
+          fi
+        else
+          # Manual mode: respect the exit_on_whitelist_exceptions input
+          if [[ "${{ inputs.exit_on_whitelist_exceptions }}" == "true" ]]; then
+            ARGS+=(--fail-on-whitelist)
+          fi
         fi
 
         if [[ "${{ inputs.exit_on_blacklisted_sessions }}" == "true" ]]; then
@@ -1460,12 +1476,6 @@ runs:
 
         if [[ "${{ inputs.exit_on_anomalous_sessions }}" == "true" ]]; then
           ARGS+=(--fail-on-anomalous)
-        fi
-
-        # In auto-whitelist mode with stable whitelist, enforce violations
-        if [[ "${{ inputs.auto_whitelist }}" == "true" && "$AUTO_WHITELIST_STABLE" == "true" ]]; then
-          echo "Auto-whitelist is stable, enforcing whitelist violations"
-          ARGS+=(--fail-on-whitelist)
         fi
 
         $EDAMAME_POSTURE_CMD "${ARGS[@]}"
@@ -1513,30 +1523,37 @@ runs:
           echo "Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / ${{ inputs.auto_whitelist_stability_consecutive_runs }}"
         fi
         
-        # Display summary
+        # Display summary with enforcement status
         if [[ "$AUTO_WHITELIST_STATUS" == "created" ]]; then
           echo ""
           echo "ℹ️  This was the first run in listen-only mode."
+          echo "   Whitelist exceptions are NORMAL and did NOT cause failure."
           echo "   Re-run the workflow to start refining the whitelist."
         elif [[ "$AUTO_WHITELIST_STATUS" == "evolving" ]]; then
           echo ""
           echo "🔄 Whitelist is still evolving (${AUTO_WHITELIST_DIFF}% change)."
+          echo "   New endpoints were discovered and added to the whitelist."
+          echo "   Whitelist exceptions are EXPECTED and did NOT cause failure."
           echo "   Consecutive stable runs reset to 0."
           echo "   Re-run the workflow to continue refinement."
         elif [[ "$AUTO_WHITELIST_STATUS" == "confirming_stability" ]]; then
           echo ""
           echo "🔄 Whitelist had no changes this run (${AUTO_WHITELIST_DIFF}%)."
+          echo "   No new endpoints discovered - counting stable runs."
+          echo "   Whitelist exceptions still allowed (NOT failing yet)."
           echo "   Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / ${{ inputs.auto_whitelist_stability_consecutive_runs }}"
           echo "   Re-run the workflow to confirm stability."
         elif [[ "$AUTO_WHITELIST_STATUS" == "stable" ]]; then
           echo ""
           echo "✅ Whitelist has stabilized!"
           echo "   Achieved $AUTO_WHITELIST_STABLE_COUNT consecutive runs with no changes."
-          echo "   Future runs will enforce this whitelist and fail on violations."
+          echo "   🚨 ENFORCEMENT ENABLED: Future runs will FAIL on whitelist violations."
+          echo "   Any new endpoint will be treated as a potential supply chain attack."
         elif [[ "$AUTO_WHITELIST_STATUS" == "max_iterations" ]]; then
           echo ""
           echo "⚠️  Maximum iterations reached."
-          echo "   Whitelist declared stable. Future runs will enforce this whitelist."
+          echo "   Whitelist declared stable even though still evolving."
+          echo "   🚨 ENFORCEMENT ENABLED: Future runs will FAIL on whitelist violations."
         fi
       shell: bash
 
