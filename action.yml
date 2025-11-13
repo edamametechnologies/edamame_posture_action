@@ -925,17 +925,27 @@ runs:
             echo "Current whitelist contains $ENDPOINT_COUNT endpoints"
           fi
           
-          # Verify whitelist was loaded into daemon by first invocation
-          # This is informational only - don't fail if missing
+          # CRITICAL: Verify whitelist was loaded into daemon by first invocation
           if [[ "$ITERATION" -gt 0 ]]; then
             echo "Verifying whitelist is active in daemon (iteration $ITERATION)..."
             WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "")
-            if [[ -z "$WHITELIST_NAME" || "$WHITELIST_NAME" == "null" ]]; then
-              echo "⚠️ Warning: Whitelist file exists but is NOT loaded in daemon"
-              echo "This may affect augmentation quality - augmentation works best with an active whitelist"
-            else
-              echo "✅ Whitelist '$WHITELIST_NAME' is active in daemon"
+            if [[ "$WHITELIST_NAME" != "custom_whitelist" ]]; then
+              echo ""
+              echo "❌ ERROR: Whitelist file exists but is NOT loaded in daemon"
+              echo "   Expected: custom_whitelist"
+              echo "   Got: $WHITELIST_NAME"
+              echo ""
+              echo "This breaks auto-whitelist - augmentation requires custom_whitelist to be loaded."
+              echo "The first invocation should have loaded the whitelist into the daemon."
+              echo ""
+              echo "Debugging info:"
+              echo "  - Whitelist file: $(ls -lh auto_whitelist.json 2>/dev/null || echo 'missing')"
+              echo "  - Iteration: $ITERATION"
+              echo "  - Daemon status:"
+              $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+              exit 1
             fi
+            echo "✅ Whitelist 'custom_whitelist' confirmed active in daemon"
           fi
         else
           echo "⚠️ Warning: No auto-whitelist files found from first invocation"
@@ -1152,15 +1162,28 @@ runs:
             echo "Auto-whitelist mode: Applying whitelist from iteration $AUTO_WHITELIST_ITERATION to daemon"
             echo "File: $(ls -lh auto_whitelist.json)"
             $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "auto_whitelist.json"
-            echo "✅ Auto-whitelist applied successfully to daemon"
+            echo "Command executed: set-custom-whitelists-from-file"
             
-            # Verify it was loaded
+            # CRITICAL: Verify it was loaded
             LOADED_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "unknown")
             echo "Daemon whitelist after load: $LOADED_NAME"
             if [[ "$LOADED_NAME" != "custom_whitelist" ]]; then
-              echo "⚠️ Warning: Whitelist not loaded correctly into daemon!"
-              echo "   Expected: custom_whitelist, Got: $LOADED_NAME"
+              echo ""
+              echo "❌ ERROR: Whitelist not loaded correctly into daemon!"
+              echo "   Expected: custom_whitelist"
+              echo "   Got: $LOADED_NAME"
+              echo ""
+              echo "This breaks auto-whitelist - augmentation requires custom_whitelist to be loaded."
+              echo "Without it, augmentation will create fresh whitelists instead of merging."
+              echo ""
+              echo "Debugging info:"
+              echo "  - Iteration: $AUTO_WHITELIST_ITERATION"
+              echo "  - File size: $(wc -c < auto_whitelist.json) bytes"
+              echo "  - Daemon status:"
+              $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+              exit 1
             fi
+            echo "✅ Whitelist 'custom_whitelist' confirmed loaded in daemon"
           else
             echo "Auto-whitelist mode: First run (listen-only), no whitelist to apply yet"
           fi
@@ -1389,26 +1412,32 @@ runs:
         echo "=== Auto-whitelist Mode: Processing Iteration $AUTO_WHITELIST_ITERATION ==="
         echo "Configuration: threshold=${THRESHOLD}%, consecutive=${CONSECUTIVE}, max=${MAX_ITER}"
         
-        # Verify daemon state before augmentation
+        # CRITICAL: Verify daemon state before augmentation
         echo "Checking daemon state before augmentation..."
         DAEMON_WHITELIST=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
         echo "Daemon whitelist: $DAEMON_WHITELIST"
         
         if [[ "$DAEMON_WHITELIST" != "custom_whitelist" && "$AUTO_WHITELIST_ITERATION" -gt 0 ]]; then
-          echo "⚠️ WARNING: Daemon does not have custom_whitelist loaded!"
+          echo ""
+          echo "❌ ERROR: Daemon does not have custom_whitelist loaded!"
           echo "   Expected: custom_whitelist"
           echo "   Actual: $DAEMON_WHITELIST"
-          echo "   This will cause augmentation to create a fresh whitelist instead of merging"
-          echo "   Attempting to reload whitelist into daemon..."
-          
-          if [[ -f "auto_whitelist.json" ]]; then
-            $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "auto_whitelist.json"
-            echo "Whitelist reloaded into daemon"
-            # Verify it stuck
-            DAEMON_WHITELIST=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
-            echo "Daemon whitelist after reload: $DAEMON_WHITELIST"
-          fi
+          echo ""
+          echo "This breaks auto-whitelist - augmentation requires custom_whitelist to be loaded."
+          echo "Without it, augmentation creates a fresh whitelist instead of merging with baseline."
+          echo ""
+          echo "The first invocation should have loaded the whitelist into the daemon."
+          echo "This error indicates the first invocation failed to apply the whitelist correctly."
+          echo ""
+          echo "Debugging info:"
+          echo "  - Iteration: $AUTO_WHITELIST_ITERATION"
+          echo "  - Whitelist file: $(ls -lh auto_whitelist.json 2>/dev/null || echo 'missing')"
+          echo "  - Daemon status:"
+          $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+          exit 1
         fi
+        
+        echo "✅ Daemon has correct whitelist loaded for augmentation"
         
         # For subsequent runs, force session update before augmentation to ensure exceptions are populated
         if [[ "$AUTO_WHITELIST_EXISTS" == "true" ]]; then
