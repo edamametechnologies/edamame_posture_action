@@ -54,7 +54,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
 - `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
 - `augment_custom_whitelists`: When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true` with packet capture enabled.
-- `auto_whitelist`: Enable automated whitelist lifecycle management across workflow runs. See **Automated Whitelist Lifecycle** section below (default: false)
+- `auto_whitelist`: Enable automated whitelist lifecycle management across workflow runs. **Requires connected mode** (edamame_user/domain/pin) for artifact access when IP allow lists are enabled. See **Automated Whitelist Lifecycle** section below (default: false)
 - `auto_whitelist_artifact_name`: Name for GitHub artifact to store auto-whitelist state (default: "edamame-auto-whitelist")
 - `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
 - `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
@@ -932,6 +932,8 @@ Machine learning-based anomaly detection complements whitelist enforcement:
 
 For teams that want a fully automated approach to whitelist management, the **auto-whitelist feature** handles the entire learning → augmentation → enforcement lifecycle automatically across multiple workflow runs.
 
+> **⚠️ Important**: Auto-whitelist requires **connected mode** (authentication with `edamame_user`, `edamame_domain`, `edamame_pin`) to access GitHub Artifacts when your organization has IP allow lists enabled. See [Requirements](#requirements-1) below.
+
 ### How Auto-Whitelist Works
 
 Instead of manually managing whitelist files through download/upload artifacts, the action automatically:
@@ -1039,15 +1041,46 @@ That's it! The action handles everything else automatically.
 
 ### Requirements
 
-**Authentication**: Connected mode is recommended (provide `edamame_user`, `edamame_domain`, `edamame_pin`) when:
-- Your organization has IP allow lists enabled on GitHub
-- You need reliable artifact download/upload
-- You want access control integration
+**Connected Mode Required for Artifact Access**
 
-**Alternative**: Disconnected mode (`disconnected_mode: true`) works for auto-whitelist if:
-- No IP allow lists restrict artifact access
-- Using public repositories
-- Artifacts can be downloaded without authentication issues
+Auto-whitelist mode **requires connected mode** to function properly. This is because:
+
+1. **Artifact Download/Upload**: The feature uses GitHub Artifacts to persist whitelist state between workflow runs
+2. **IP Allow Lists**: Organizations with IP restrictions block unauthenticated artifact API access
+3. **EDAMAME Authentication**: Connected mode authenticates the runner through EDAMAME, bypassing IP allow lists
+
+**How to enable connected mode** - provide these credentials in your setup step:
+
+```yaml
+- name: Setup EDAMAME Posture
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+    edamame_id: ${{ github.run_id }}
+    auto_whitelist: true
+    # ... other options
+```
+
+**What happens without connected mode:**
+- ❌ Artifact download fails with `403 Forbidden` (IP allow list blocked)
+- ❌ Whitelist not applied to daemon
+- ❌ Augmentation creates fresh whitelists instead of adding to baseline
+- ❌ Endpoint counts fluctuate instead of increasing
+- ❌ Auto-whitelist lifecycle breaks
+
+**Required for:**
+- ✅ Organizations with IP allow lists enabled (most production environments)
+- ✅ Private repositories
+- ✅ Reliable artifact operations
+
+**Optional (disconnected mode might work) for:**
+- Public repositories with no IP restrictions
+- Test environments with unrestricted API access
+- Local runners with full GitHub access
+
+**Note**: Connected mode also provides access control, compliance reporting, and centralized policy management beyond just artifact access.
 
 ### Monitoring Progress
 
