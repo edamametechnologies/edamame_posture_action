@@ -88,33 +88,63 @@ jobs:
           echo "Waiting for traffic capture and session evaluation..."
           sleep 30
 
-      - name: Force session update before augmentation
-        if: inputs.iteration != '1'
+      - name: Augment Auto-Whitelist by talking to daemon
         run: |
-          echo "Forcing session update to ensure new traffic is evaluated against whitelist..."
           cd
-          # Trigger a session update by getting sessions (this calls update_sessions internally)
-          $EDAMAME_POSTURE_CMD get-sessions > /dev/null 2>&1 || true
-          echo "Session update triggered"
-          sleep 5  # Small delay to ensure update completes
+          echo "=== Augmenting whitelist via daemon commands ==="
+          
+          # Talk to the daemon from invocation 1 to augment whitelist
+          if [[ -f "auto_whitelist.json" ]]; then
+            echo "Previous whitelist exists, augmenting..."
+            $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json
+            
+            # Compare and update iteration
+            ITERATION=$(cat auto_whitelist_iteration.txt || echo "0")
+            NEXT_ITERATION=$((ITERATION + 1))
+            echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
+            
+            # Check difference
+            DIFF_PERCENT=$($EDAMAME_POSTURE_CMD compare-custom-whitelists-from-files auto_whitelist.json auto_whitelist_new.json | sed 's/%//' || echo "100")
+            echo "Whitelist difference: ${DIFF_PERCENT}%"
+            
+            mv auto_whitelist_new.json auto_whitelist.json
+          else
+            echo "First run: creating initial whitelist..."
+            $EDAMAME_POSTURE_CMD create-custom-whitelists > auto_whitelist.json
+            echo "1" > auto_whitelist_iteration.txt
+            echo "0" > auto_whitelist_stable_count.txt
+          fi
+          
+          # Count endpoints
+          ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
+          echo "Whitelist now contains $ENDPOINT_COUNT endpoints"
+          
+      - name: Display sessions
+        run: |
+          cd
+          $EDAMAME_POSTURE_CMD get-sessions || true
+          
+      - name: Display logs
+        run: |
+          cd
+          find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
 
-      - name: Check Auto-Whitelist Status
-        uses: ./
+      - name: Upload auto-whitelist artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-          display_logs: true
+          name: test-auto-whitelist-feature-${{ github.ref_name }}
+          path: |
+            ~/auto_whitelist.json
+            ~/auto_whitelist_iteration.txt
+            ~/auto_whitelist_stable_count.txt
+          retention-days: 90
+          overwrite: true
+          if-no-files-found: warn
 
       - name: Stop EDAMAME Posture
         uses: ./
         with:
           stop: true
         continue-on-error: true
-
-      # Note: Artifacts are automatically uploaded by the action when auto_whitelist: true
-      # The action uploads: auto_whitelist.json, auto_whitelist_iteration.txt, auto_whitelist_stable_count.txt
 
