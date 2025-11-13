@@ -1697,12 +1697,18 @@ runs:
             echo "Current daemon whitelist: $($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo 'unknown')"
             echo "Calling: $EDAMAME_POSTURE_CMD augment-custom-whitelists"
             
-            if ! $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json 2>&1; then
+            # Capture stdout (JSON) and stderr separately
+            # Only JSON should go to the file, stderr should be logged separately
+            if ! $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json 2> augment_stderr.log; then
               echo ""
               echo "❌ ERROR: augment-custom-whitelists command FAILED!"
               echo "   Exit code: $?"
-              echo "   Command output:"
-              cat auto_whitelist_new.json 2>/dev/null || echo "    (no output captured)"
+              echo ""
+              echo "Command stderr output:"
+              cat augment_stderr.log 2>/dev/null || echo "    (no stderr captured)"
+              echo ""
+              echo "Command stdout (JSON) output:"
+              head -c 1000 auto_whitelist_new.json 2>/dev/null || echo "    (no stdout captured)"
               echo ""
               echo "Daemon status:"
               $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
@@ -1711,12 +1717,53 @@ runs:
               $EDAMAME_POSTURE_CMD get-whitelist-name || echo "    (command failed)"
               exit 1
             fi
+            
+            # Log stderr if any (for debugging)
+            if [[ -s augment_stderr.log ]]; then
+              echo "⚠️  Command stderr output (non-fatal):"
+              cat augment_stderr.log
+            fi
+            
             echo "✅ Augment command executed successfully"
             
             # Verify output file was created
             if [[ ! -f "auto_whitelist_new.json" ]]; then
               echo "❌ ERROR: augment-custom-whitelists did not create output file!"
               exit 1
+            fi
+            
+            # CRITICAL: Validate JSON structure and clean if needed
+            # augment-custom-whitelists might output non-JSON text before the JSON
+            if command -v jq &> /dev/null; then
+              # Check if file is valid JSON
+              if ! jq . auto_whitelist_new.json >/dev/null 2>&1; then
+                echo "⚠️  Warning: Output file is not valid JSON, attempting to extract JSON..."
+                # Try to extract JSON by finding the first { and using jq to parse from there
+                mv auto_whitelist_new.json auto_whitelist_new.json.orig
+                # Find line starting with { and extract everything from there
+                # Use awk to find first line with { and print rest
+                awk '/^\{/ {p=1} p' auto_whitelist_new.json.orig > auto_whitelist_new.json.tmp 2>/dev/null || {
+                  # Fallback: try to extract JSON using jq's raw input
+                  # jq can sometimes parse JSON even with leading text
+                  jq -R 'fromjson?' auto_whitelist_new.json.orig 2>/dev/null | jq . > auto_whitelist_new.json.tmp 2>/dev/null || true
+                }
+                
+                # Validate extracted JSON
+                if jq . auto_whitelist_new.json.tmp >/dev/null 2>&1; then
+                  mv auto_whitelist_new.json.tmp auto_whitelist_new.json
+                  echo "✅ Extracted valid JSON from command output"
+                else
+                  echo "❌ ERROR: Cannot extract valid JSON from command output"
+                  echo "First 1000 chars of output:"
+                  head -c 1000 auto_whitelist_new.json.orig | cat -A
+                  echo ""
+                  echo "Attempting to show structure:"
+                  head -20 auto_whitelist_new.json.orig | cat -A
+                  exit 1
+                fi
+              else
+                echo "✅ Output file is valid JSON"
+              fi
             fi
             
             # CRITICAL: Count endpoints in old and new whitelists before comparison
@@ -1738,6 +1785,10 @@ runs:
                 echo "  - New file size: $(wc -c < auto_whitelist_new.json) bytes"
                 echo "  - New file first 500 chars:"
                 head -c 500 auto_whitelist_new.json | cat -A || echo "    (cannot read file)"
+                echo "  - New file JSON structure:"
+                jq 'keys' auto_whitelist_new.json 2>/dev/null || echo "    (cannot parse)"
+                echo "  - Whitelists in new file:"
+                jq '.whitelists[]?.name' auto_whitelist_new.json 2>/dev/null || echo "    (cannot parse)"
                 exit 1
               fi
             fi
