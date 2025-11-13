@@ -990,30 +990,30 @@ runs:
           echo "⚠️ Artifact not found in previous run $PREVIOUS_RUN_ID, trying workflow list method..."
           
           # Strategy 2: Use gh run list to find recent successful runs
-          WORKFLOW_NAME="${{ github.workflow }}"
-          echo "Looking for runs in workflow name: $WORKFLOW_NAME"
-          
-          RUN_IDS=$(gh run list --workflow="$WORKFLOW_NAME" --repo ${{ github.repository }} --limit $MAX_ATTEMPTS --json databaseId,conclusion --jq ".[] | select(.conclusion == \"success\" and .databaseId != $CURRENT_RUN_ID) | .databaseId" 2>/dev/null || echo "")
-          
-          if [[ -z "$RUN_IDS" ]]; then
+        WORKFLOW_NAME="${{ github.workflow }}"
+        echo "Looking for runs in workflow name: $WORKFLOW_NAME"
+        
+        RUN_IDS=$(gh run list --workflow="$WORKFLOW_NAME" --repo ${{ github.repository }} --limit $MAX_ATTEMPTS --json databaseId,conclusion --jq ".[] | select(.conclusion == \"success\" and .databaseId != $CURRENT_RUN_ID) | .databaseId" 2>/dev/null || echo "")
+        
+        if [[ -z "$RUN_IDS" ]]; then
             echo "No previous successful runs found via workflow list"
-          else
-            echo "Found previous successful runs, attempting to download artifact..."
-            for RUN_ID in $RUN_IDS; do
-              echo "Attempting to download artifact from run $RUN_ID..."
-              
-              # Try to download the artifact from this specific run
-              DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
-              DOWNLOAD_EXIT=$?
-              
+        else
+          echo "Found previous successful runs, attempting to download artifact..."
+          for RUN_ID in $RUN_IDS; do
+            echo "Attempting to download artifact from run $RUN_ID..."
+            
+            # Try to download the artifact from this specific run
+            DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
+            DOWNLOAD_EXIT=$?
+            
               if [[ $DOWNLOAD_EXIT -eq 0 && -f "auto_whitelist.json" ]]; then
                 echo "✅ Successfully downloaded artifact from run $RUN_ID"
                 ARTIFACT_FOUND=true
                 break
               else
-                echo "⚠️ Artifact not found in run $RUN_ID (this is normal if artifact doesn't exist)"
-              fi
-            done
+              echo "⚠️ Artifact not found in run $RUN_ID (this is normal if artifact doesn't exist)"
+            fi
+          done
           fi
         fi
         
@@ -1814,8 +1814,8 @@ runs:
           fi
         else
           # Manual mode: respect the exit_on_whitelist_exceptions input
-          if [[ "${{ inputs.exit_on_whitelist_exceptions }}" == "true" ]]; then
-            ARGS+=(--fail-on-whitelist)
+        if [[ "${{ inputs.exit_on_whitelist_exceptions }}" == "true" ]]; then
+          ARGS+=(--fail-on-whitelist)
           fi
         fi
 
@@ -1827,7 +1827,32 @@ runs:
           ARGS+=(--fail-on-anomalous)
         fi
 
+        # Execute get-sessions command
+        # During auto-whitelist learning phases, non-zero exit codes are expected
+        # (non-conforming sessions are being discovered and will be added to whitelist)
+        if [[ "$AUTO_WHITELIST_ENABLED" == "true" && "$AUTO_WHITELIST_STABLE" != "true" ]]; then
+          # Learning phase: capture exit code but don't fail
+          echo "Executing: $EDAMAME_POSTURE_CMD ${ARGS[*]}"
+          set +e  # Don't exit on error during learning phase
+          $EDAMAME_POSTURE_CMD "${ARGS[@]}"
+          EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          
+          if [[ $EXIT_CODE -ne 0 ]]; then
+            echo ""
+            echo "ℹ️  Non-zero exit code ($EXIT_CODE) - this is expected during learning phase"
+            echo "   Non-conforming sessions detected (ignoring during learning)"
+            echo "   These sessions will be added to the whitelist via augmentation"
+            echo "   This is normal behavior - whitelist is still evolving"
+            echo ""
+            # Don't exit - continue with augmentation
+          else
+            echo "✅ No whitelist exceptions detected"
+          fi
+        else
+          # Stable phase or manual mode: fail on errors
         $EDAMAME_POSTURE_CMD "${ARGS[@]}"
+        fi
       shell: bash
       env:
         EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
