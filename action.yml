@@ -1719,6 +1719,29 @@ runs:
               exit 1
             fi
             
+            # CRITICAL: Count endpoints in old and new whitelists before comparison
+            if command -v jq &> /dev/null; then
+              OLD_ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
+              NEW_ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist_new.json" 2>/dev/null || echo "0")
+              echo "Old whitelist (before augmentation): $OLD_ENDPOINT_COUNT endpoints"
+              echo "New whitelist (after augmentation): $NEW_ENDPOINT_COUNT endpoints"
+              
+              if [[ "$NEW_ENDPOINT_COUNT" -eq 0 && "$OLD_ENDPOINT_COUNT" -gt 0 ]]; then
+                echo ""
+                echo "❌ ERROR: Augmentation resulted in empty whitelist!"
+                echo "   Old whitelist had: $OLD_ENDPOINT_COUNT endpoints"
+                echo "   New whitelist has: $NEW_ENDPOINT_COUNT endpoints"
+                echo ""
+                echo "This indicates augment-custom-whitelists failed to preserve baseline endpoints."
+                echo "Debugging info:"
+                echo "  - Old file size: $(wc -c < auto_whitelist.json) bytes"
+                echo "  - New file size: $(wc -c < auto_whitelist_new.json) bytes"
+                echo "  - New file first 500 chars:"
+                head -c 500 auto_whitelist_new.json | cat -A || echo "    (cannot read file)"
+                exit 1
+              fi
+            fi
+            
             # Compare old and new whitelists
             DIFF_PERCENT=$($EDAMAME_POSTURE_CMD compare-custom-whitelists-from-files auto_whitelist.json auto_whitelist_new.json | sed 's/%//' || echo "100")
             echo "Whitelist difference: ${DIFF_PERCENT}%"
@@ -1751,6 +1774,13 @@ runs:
                 NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
                 echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
                 mv auto_whitelist_new.json auto_whitelist.json
+                
+                # Verify final whitelist has endpoints
+                if command -v jq &> /dev/null; then
+                  FINAL_ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
+                  echo "Final whitelist saved with $FINAL_ENDPOINT_COUNT endpoints"
+                fi
+                
                 echo "AUTO_WHITELIST_STATUS=stable" >> $GITHUB_ENV
                 echo "AUTO_WHITELIST_STABLE=true" >> $GITHUB_ENV
               else
@@ -1759,6 +1789,13 @@ runs:
                 NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
                 echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
                 mv auto_whitelist_new.json auto_whitelist.json
+                
+                # Verify final whitelist has endpoints
+                if command -v jq &> /dev/null; then
+                  FINAL_ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
+                  echo "Final whitelist saved with $FINAL_ENDPOINT_COUNT endpoints"
+                fi
+                
                 echo "AUTO_WHITELIST_STATUS=confirming_stability" >> $GITHUB_ENV
                 echo "AUTO_WHITELIST_STABLE=false" >> $GITHUB_ENV
               fi
@@ -1771,6 +1808,12 @@ runs:
               NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
               echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
               mv auto_whitelist_new.json auto_whitelist.json
+              
+              # Verify final whitelist has endpoints
+              if command -v jq &> /dev/null; then
+                FINAL_ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
+                echo "Final whitelist saved with $FINAL_ENDPOINT_COUNT endpoints"
+              fi
               
               # Check if max iterations reached
               if [[ $NEXT_ITERATION -ge $MAX_ITER ]]; then
