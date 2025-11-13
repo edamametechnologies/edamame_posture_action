@@ -1,10 +1,11 @@
 name: Test Auto-Whitelist Feature
 
 # This workflow tests the auto_whitelist feature using the real-world pattern:
-# 1. Setup step: Start EDAMAME with auto_whitelist enabled
+# 1. Setup step: Start EDAMAME with auto_whitelist enabled (connected mode)
 # 2. Do work: Generate traffic (daemon captures in background)
 # 3. Teardown step: Dump sessions (augments whitelist and uploads artifact)
 #
+# Uses connected mode to bypass IP allow list for artifact download/upload
 # This mimics how users would use it in production workflows
 
 on:
@@ -34,14 +35,18 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================================
-      # STEP 1: Setup EDAMAME Posture (like release_macos_standalone.yml:46-55)
+      # STEP 1: Setup EDAMAME Posture
       # Downloads artifact, applies whitelist to daemon, starts capture
       # MUST succeed in applying whitelist (except on true first run)
+      # Uses CONNECTED mode to bypass IP allow list for artifact download
       # ============================================================
       - name: Setup EDAMAME Posture with Auto-Whitelist
         uses: ./
         with:
-          disconnected_mode: true
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}
           network_scan: true
           packet_capture: true
           auto_whitelist: true
@@ -51,7 +56,7 @@ jobs:
           auto_whitelist_max_iterations: "10"
           include_local_traffic: false
           display_logs: false
-          # Note: This step will fail if iteration > 1 and artifact download fails
+          # Note: Connected mode required to bypass IP allow list for artifact access
 
       # ============================================================
       # STEP 2: Do work (build, test, etc.) - daemon captures traffic

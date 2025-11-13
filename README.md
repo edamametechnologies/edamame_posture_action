@@ -954,7 +954,10 @@ jobs:
       - name: Setup EDAMAME Posture
         uses: edamametechnologies/edamame_posture_action@v0
         with:
-          disconnected_mode: true
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}
           network_scan: true
           packet_capture: true
           auto_whitelist: true
@@ -963,6 +966,7 @@ jobs:
           # auto_whitelist_stability_threshold: "0"              # 0% = no new endpoints
           # auto_whitelist_stability_consecutive_runs: "3"       # 3 runs required
           # auto_whitelist_max_iterations: "10"                  # Max learning iterations
+          # Note: Connected mode recommended for artifact access if IP allow lists are enabled
 
       # Step 2: Your Build/Test/Deploy Work
       - name: Build Application
@@ -1033,6 +1037,18 @@ That's it! The action handles everything else automatically.
 - When you need fine-grained control over whitelist entries
 - Legacy projects with complex network requirements (use manual whitelist management instead)
 
+### Requirements
+
+**Authentication**: Connected mode is recommended (provide `edamame_user`, `edamame_domain`, `edamame_pin`) when:
+- Your organization has IP allow lists enabled on GitHub
+- You need reliable artifact download/upload
+- You want access control integration
+
+**Alternative**: Disconnected mode (`disconnected_mode: true`) works for auto-whitelist if:
+- No IP allow lists restrict artifact access
+- Using public repositories
+- Artifacts can be downloaded without authentication issues
+
 ### Monitoring Progress
 
 The action provides clear status updates in workflow logs:
@@ -1092,7 +1108,10 @@ Auto-whitelist works seamlessly with other EDAMAME features:
 - name: Setup EDAMAME Posture
   uses: edamametechnologies/edamame_posture_action@v0
   with:
-    disconnected_mode: true
+    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+    edamame_id: ${{ github.run_id }}
     network_scan: true
     packet_capture: true
     auto_whitelist: true                          # Automated whitelist
