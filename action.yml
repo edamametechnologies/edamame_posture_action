@@ -867,11 +867,43 @@ runs:
         fi
       shell: bash
 
-    - name: Load auto-whitelist state for second invocation
-      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' }}
+    - name: Detect auto-whitelist mode for second invocation
+      if: ${{ inputs.dump_sessions_log == 'true' }}
       run: |
         cd
-        echo "Second invocation: Loading auto-whitelist state from first invocation..."
+        
+        # Check if first invocation enabled auto-whitelist by looking for state files
+        if [[ -f "auto_whitelist_config.json" ]]; then
+          echo "Auto-whitelist mode detected from first invocation"
+          echo "AUTO_WHITELIST_ENABLED=true" >> $GITHUB_ENV
+          
+          # Load configuration from first invocation
+          ARTIFACT_NAME=$(jq -r '.artifact_name' auto_whitelist_config.json)
+          THRESHOLD=$(jq -r '.stability_threshold' auto_whitelist_config.json)
+          CONSECUTIVE=$(jq -r '.stability_consecutive_runs' auto_whitelist_config.json)
+          MAX_ITER=$(jq -r '.max_iterations' auto_whitelist_config.json)
+          
+          echo "AUTO_WHITELIST_ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
+          echo "AUTO_WHITELIST_THRESHOLD=$THRESHOLD" >> $GITHUB_ENV
+          echo "AUTO_WHITELIST_CONSECUTIVE=$CONSECUTIVE" >> $GITHUB_ENV
+          echo "AUTO_WHITELIST_MAX_ITER=$MAX_ITER" >> $GITHUB_ENV
+          
+          echo "Loaded auto-whitelist configuration from first invocation:"
+          echo "  - Artifact name: $ARTIFACT_NAME"
+          echo "  - Stability threshold: $THRESHOLD%"
+          echo "  - Consecutive runs required: $CONSECUTIVE"
+          echo "  - Max iterations: $MAX_ITER"
+        else
+          echo "No auto-whitelist configuration found (first invocation didn't use auto_whitelist)"
+          echo "AUTO_WHITELIST_ENABLED=false" >> $GITHUB_ENV
+        fi
+      shell: bash
+
+    - name: Load auto-whitelist state for second invocation
+      if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' }}
+      run: |
+        cd
+        echo "Loading auto-whitelist state from first invocation..."
         
         # Check if files exist from first invocation
         if [[ -f "auto_whitelist.json" && -f "auto_whitelist_iteration.txt" ]]; then
@@ -1060,6 +1092,20 @@ runs:
           echo "AUTO_WHITELIST_ITERATION=0" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_EXISTS=false" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
+        fi
+        
+        # Save auto-whitelist configuration to state file for second invocation
+        # This allows second invocation to infer parameters without repeating them
+        if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
+          cat > auto_whitelist_config.json << EOF
+{
+  "artifact_name": "${{ inputs.auto_whitelist_artifact_name }}",
+  "stability_threshold": "${{ inputs.auto_whitelist_stability_threshold }}",
+  "stability_consecutive_runs": "${{ inputs.auto_whitelist_stability_consecutive_runs }}",
+  "max_iterations": "${{ inputs.auto_whitelist_max_iterations }}"
+}
+EOF
+          echo "Auto-whitelist configuration saved for second invocation"
         fi
       shell: bash
       env:
@@ -1332,11 +1378,17 @@ runs:
       shell: bash
 
     - name: Create or augment auto-whitelist
-      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' }}
+      if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' }}
       run: |
         cd
         
+        # Use configuration from first invocation (via state file) or fallback to inputs
+        THRESHOLD="${AUTO_WHITELIST_THRESHOLD:-${{ inputs.auto_whitelist_stability_threshold }}}"
+        CONSECUTIVE="${AUTO_WHITELIST_CONSECUTIVE:-${{ inputs.auto_whitelist_stability_consecutive_runs }}}"
+        MAX_ITER="${AUTO_WHITELIST_MAX_ITER:-${{ inputs.auto_whitelist_max_iterations }}}"
+        
         echo "=== Auto-whitelist Mode: Processing Iteration $AUTO_WHITELIST_ITERATION ==="
+        echo "Configuration: threshold=${THRESHOLD}%, consecutive=${CONSECUTIVE}, max=${MAX_ITER}"
         
         # For subsequent runs, force session update before augmentation to ensure exceptions are populated
         if [[ "$AUTO_WHITELIST_EXISTS" == "true" ]]; then
@@ -1380,12 +1432,11 @@ runs:
             # Check if this iteration is stable (below threshold)
             # Use bc for floating-point comparison if available, otherwise use integer comparison
             if command -v bc &> /dev/null; then
-              IS_STABLE=$(echo "$DIFF_PERCENT <= ${{ inputs.auto_whitelist_stability_threshold }}" | bc -l)
+              IS_STABLE=$(echo "$DIFF_PERCENT <= $THRESHOLD" | bc -l)
             else
               # Fallback to integer comparison (convert to int)
               DIFF_INT=${DIFF_PERCENT%.*}
-              THRESHOLD_INT=${{ inputs.auto_whitelist_stability_threshold }}
-              THRESHOLD_INT=${THRESHOLD_INT%.*}
+              THRESHOLD_INT=${THRESHOLD%.*}
               [[ $DIFF_INT -le $THRESHOLD_INT ]] && IS_STABLE=1 || IS_STABLE=0
             fi
             
@@ -1395,11 +1446,11 @@ runs:
               echo "$STABLE_COUNT" > auto_whitelist_stable_count.txt
               echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
               
-              echo "✅ Whitelist is STABLE for this run (diff: ${DIFF_PERCENT}% <= threshold: ${{ inputs.auto_whitelist_stability_threshold }}%)"
-              echo "   Consecutive stable runs: $STABLE_COUNT / ${{ inputs.auto_whitelist_stability_consecutive_runs }} required"
+              echo "✅ Whitelist is STABLE for this run (diff: ${DIFF_PERCENT}% <= threshold: ${THRESHOLD}%)"
+              echo "   Consecutive stable runs: $STABLE_COUNT / $CONSECUTIVE required"
               
               # Check if we have enough consecutive stable runs
-              if [[ $STABLE_COUNT -ge ${{ inputs.auto_whitelist_stability_consecutive_runs }} ]]; then
+              if [[ $STABLE_COUNT -ge $CONSECUTIVE ]]; then
                 echo "🎉 Whitelist is FULLY STABLE ($STABLE_COUNT consecutive runs with no changes)"
                 # Update iteration and whitelist even when fully stable
                 NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
@@ -1418,7 +1469,7 @@ runs:
               fi
             else
               # Whitelist changed - reset consecutive stable count
-              echo "🔄 Whitelist is EVOLVING (diff: ${DIFF_PERCENT}% > threshold: ${{ inputs.auto_whitelist_stability_threshold }}%)"
+              echo "🔄 Whitelist is EVOLVING (diff: ${DIFF_PERCENT}% > threshold: ${THRESHOLD}%)"
               echo "0" > auto_whitelist_stable_count.txt
               echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
               
@@ -1427,8 +1478,8 @@ runs:
               mv auto_whitelist_new.json auto_whitelist.json
               
               # Check if max iterations reached
-              if [[ $NEXT_ITERATION -ge ${{ inputs.auto_whitelist_max_iterations }} ]]; then
-                echo "⚠️  Maximum iterations reached (${{ inputs.auto_whitelist_max_iterations }}), declaring stable"
+              if [[ $NEXT_ITERATION -ge $MAX_ITER ]]; then
+                echo "⚠️  Maximum iterations reached ($MAX_ITER), declaring stable"
                 echo "AUTO_WHITELIST_STATUS=max_iterations" >> $GITHUB_ENV
                 echo "AUTO_WHITELIST_STABLE=true" >> $GITHUB_ENV
               else
@@ -1443,6 +1494,9 @@ runs:
         AUTO_WHITELIST_ITERATION: ${{ env.AUTO_WHITELIST_ITERATION }}
         AUTO_WHITELIST_EXISTS: ${{ env.AUTO_WHITELIST_EXISTS }}
         AUTO_WHITELIST_STABLE_COUNT: ${{ env.AUTO_WHITELIST_STABLE_COUNT }}
+        AUTO_WHITELIST_THRESHOLD: ${{ env.AUTO_WHITELIST_THRESHOLD }}
+        AUTO_WHITELIST_CONSECUTIVE: ${{ env.AUTO_WHITELIST_CONSECUTIVE }}
+        AUTO_WHITELIST_MAX_ITER: ${{ env.AUTO_WHITELIST_MAX_ITER }}
 
     - name: Dump sessions log if requested
       if: ${{ inputs.dump_sessions_log == 'true' }}
@@ -1451,7 +1505,7 @@ runs:
         ARGS=(get-sessions)
 
         # Handle whitelist exception enforcement based on auto-whitelist mode
-        if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
+        if [[ "$AUTO_WHITELIST_ENABLED" == "true" ]]; then
           # Auto-whitelist mode: only enforce when stable
           if [[ "$AUTO_WHITELIST_STABLE" == "true" ]]; then
             echo "ℹ️  Auto-whitelist is STABLE - enforcing whitelist violations"
@@ -1482,6 +1536,7 @@ runs:
       shell: bash
       env:
         EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
+        AUTO_WHITELIST_ENABLED: ${{ env.AUTO_WHITELIST_ENABLED }}
         AUTO_WHITELIST_STABLE: ${{ env.AUTO_WHITELIST_STABLE }}
 
     - name: Display logs if requested
@@ -1495,20 +1550,21 @@ runs:
       shell: bash
 
     - name: Upload auto-whitelist artifact
-      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' && always() }}
+      if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' && always() }}
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ inputs.auto_whitelist_artifact_name }}
+        name: ${{ env.AUTO_WHITELIST_ARTIFACT_NAME || inputs.auto_whitelist_artifact_name }}
         path: |
           ~/auto_whitelist.json
           ~/auto_whitelist_iteration.txt
           ~/auto_whitelist_stable_count.txt
+          ~/auto_whitelist_config.json
         retention-days: 90
         overwrite: true
         if-no-files-found: warn
 
     - name: Display auto-whitelist status
-      if: ${{ inputs.auto_whitelist == 'true' && inputs.dump_sessions_log == 'true' }}
+      if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' }}
       run: |
         cd
         echo ""
@@ -1519,8 +1575,11 @@ runs:
         if [[ -n "$AUTO_WHITELIST_DIFF" ]]; then
           echo "Difference: ${AUTO_WHITELIST_DIFF}%"
         fi
+        # Load configuration for display
+        CONSECUTIVE="${AUTO_WHITELIST_CONSECUTIVE:-${{ inputs.auto_whitelist_stability_consecutive_runs }}}"
+        
         if [[ -n "$AUTO_WHITELIST_STABLE_COUNT" ]]; then
-          echo "Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / ${{ inputs.auto_whitelist_stability_consecutive_runs }}"
+          echo "Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / $CONSECUTIVE"
         fi
         
         # Display summary with enforcement status
@@ -1541,7 +1600,7 @@ runs:
           echo "🔄 Whitelist had no changes this run (${AUTO_WHITELIST_DIFF}%)."
           echo "   No new endpoints discovered - counting stable runs."
           echo "   Whitelist exceptions still allowed (NOT failing yet)."
-          echo "   Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / ${{ inputs.auto_whitelist_stability_consecutive_runs }}"
+          echo "   Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / $CONSECUTIVE"
           echo "   Re-run the workflow to confirm stability."
         elif [[ "$AUTO_WHITELIST_STATUS" == "stable" ]]; then
           echo ""
@@ -1556,6 +1615,8 @@ runs:
           echo "   🚨 ENFORCEMENT ENABLED: Future runs will FAIL on whitelist violations."
         fi
       shell: bash
+      env:
+        AUTO_WHITELIST_CONSECUTIVE: ${{ env.AUTO_WHITELIST_CONSECUTIVE }}
 
     - name: Stop EDAMAME Posture process if requested
       run: |
