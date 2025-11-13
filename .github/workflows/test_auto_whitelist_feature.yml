@@ -51,11 +51,8 @@ jobs:
           packet_capture: true
           auto_whitelist: true
           auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          include_local_traffic: false
-          display_logs: false
+          # Optional overrides (using defaults: threshold=0%, consecutive=3, max=20):
+          auto_whitelist_max_iterations: "10"  # Override default 20 to speed up test
 
       # ============================================================
       # STEP 2: Do work (build, test, etc.) - daemon captures traffic
