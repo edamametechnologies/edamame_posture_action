@@ -1097,14 +1097,17 @@ runs:
         # Save auto-whitelist configuration to state file for second invocation
         # This allows second invocation to infer parameters without repeating them
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
-          cat > auto_whitelist_config.json << EOF
-{
-  "artifact_name": "${{ inputs.auto_whitelist_artifact_name }}",
-  "stability_threshold": "${{ inputs.auto_whitelist_stability_threshold }}",
-  "stability_consecutive_runs": "${{ inputs.auto_whitelist_stability_consecutive_runs }}",
-  "max_iterations": "${{ inputs.auto_whitelist_max_iterations }}"
-}
-EOF
+          jq -n \
+            --arg artifact "${{ inputs.auto_whitelist_artifact_name }}" \
+            --arg threshold "${{ inputs.auto_whitelist_stability_threshold }}" \
+            --arg consecutive "${{ inputs.auto_whitelist_stability_consecutive_runs }}" \
+            --arg max_iter "${{ inputs.auto_whitelist_max_iterations }}" \
+            '{
+              artifact_name: $artifact,
+              stability_threshold: $threshold,
+              stability_consecutive_runs: $consecutive,
+              max_iterations: $max_iter
+            }' > auto_whitelist_config.json
           echo "Auto-whitelist configuration saved for second invocation"
         fi
       shell: bash
