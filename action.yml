@@ -1097,6 +1097,10 @@ runs:
     - name: Apply custom whitelists if provided
       if: ${{ inputs.dump_sessions_log != 'true' }}
       run: |
+        echo "=== Apply Custom Whitelists Step ==="
+        echo "auto_whitelist: ${{ inputs.auto_whitelist }}"
+        echo "AUTO_WHITELIST_EXISTS: $AUTO_WHITELIST_EXISTS"
+        
         if [[ -n "${{ inputs.custom_whitelists_path }}" && "${{ inputs.create_custom_whitelists }}" != "true" && "${{ inputs.set_custom_whitelists }}" == "true" ]]; then
           cd
           if [[ -f "${{ inputs.custom_whitelists_path }}" ]]; then
@@ -1129,6 +1133,7 @@ runs:
         
         # Auto-whitelist mode: apply previous iteration's whitelist if it exists
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
+          echo "Auto-whitelist mode detected in first invocation"
           cd
           if [[ "$AUTO_WHITELIST_EXISTS" == "true" && -f "auto_whitelist.json" ]]; then
             # Check if auto-whitelist has endpoints before loading
@@ -1144,12 +1149,23 @@ runs:
               fi
             fi
             
-            echo "Auto-whitelist mode: Applying whitelist from iteration $AUTO_WHITELIST_ITERATION"
+            echo "Auto-whitelist mode: Applying whitelist from iteration $AUTO_WHITELIST_ITERATION to daemon"
+            echo "File: $(ls -lh auto_whitelist.json)"
             $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "auto_whitelist.json"
-            echo "Auto-whitelist applied successfully"
+            echo "✅ Auto-whitelist applied successfully to daemon"
+            
+            # Verify it was loaded
+            LOADED_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "unknown")
+            echo "Daemon whitelist after load: $LOADED_NAME"
+            if [[ "$LOADED_NAME" != "custom_whitelist" ]]; then
+              echo "⚠️ Warning: Whitelist not loaded correctly into daemon!"
+              echo "   Expected: custom_whitelist, Got: $LOADED_NAME"
+            fi
           else
             echo "Auto-whitelist mode: First run (listen-only), no whitelist to apply yet"
           fi
+        else
+          echo "Auto-whitelist not enabled in this invocation"
         fi
       shell: bash
 
