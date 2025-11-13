@@ -1373,6 +1373,27 @@ runs:
         echo "=== Auto-whitelist Mode: Processing Iteration $AUTO_WHITELIST_ITERATION ==="
         echo "Configuration: threshold=${THRESHOLD}%, consecutive=${CONSECUTIVE}, max=${MAX_ITER}"
         
+        # Verify daemon state before augmentation
+        echo "Checking daemon state before augmentation..."
+        DAEMON_WHITELIST=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
+        echo "Daemon whitelist: $DAEMON_WHITELIST"
+        
+        if [[ "$DAEMON_WHITELIST" != "custom_whitelist" && "$AUTO_WHITELIST_ITERATION" -gt 0 ]]; then
+          echo "⚠️ WARNING: Daemon does not have custom_whitelist loaded!"
+          echo "   Expected: custom_whitelist"
+          echo "   Actual: $DAEMON_WHITELIST"
+          echo "   This will cause augmentation to create a fresh whitelist instead of merging"
+          echo "   Attempting to reload whitelist into daemon..."
+          
+          if [[ -f "auto_whitelist.json" ]]; then
+            $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "auto_whitelist.json"
+            echo "Whitelist reloaded into daemon"
+            # Verify it stuck
+            DAEMON_WHITELIST=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
+            echo "Daemon whitelist after reload: $DAEMON_WHITELIST"
+          fi
+        fi
+        
         # For subsequent runs, force session update before augmentation to ensure exceptions are populated
         if [[ "$AUTO_WHITELIST_EXISTS" == "true" ]]; then
           echo "Forcing session update before augmentation..."
