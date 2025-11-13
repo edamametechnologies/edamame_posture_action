@@ -978,15 +978,39 @@ runs:
         
         # Strategy 1: Try downloading from previous run ID directly (most reliable)
         # This works even if gh run list hasn't updated yet
+        # Note: Run IDs are not sequential, so this might not find the actual previous run
+        # But it's worth trying as a fast path
         PREVIOUS_RUN_ID=$((CURRENT_RUN_ID - 1))
         echo "Attempting to download artifact from previous run ID: $PREVIOUS_RUN_ID"
-        DOWNLOAD_OUTPUT=$(gh run download "$PREVIOUS_RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
+        
+        # gh run download extracts artifacts to subdirectories, so we download to a temp dir first
+        TEMP_DOWNLOAD_DIR=$(mktemp -d)
+        DOWNLOAD_OUTPUT=$(gh run download "$PREVIOUS_RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir "$TEMP_DOWNLOAD_DIR" 2>&1)
         DOWNLOAD_EXIT=$?
         
-        if [[ $DOWNLOAD_EXIT -eq 0 && -f "auto_whitelist.json" ]]; then
-          echo "✅ Successfully downloaded artifact from previous run $PREVIOUS_RUN_ID"
-          ARTIFACT_FOUND=true
-        else
+        if [[ $DOWNLOAD_EXIT -eq 0 ]]; then
+          # Check if files were downloaded (they might be in a subdirectory)
+          FOUND_FILE=$(find "$TEMP_DOWNLOAD_DIR" -name "auto_whitelist.json" -type f | head -1)
+          if [[ -n "$FOUND_FILE" && -f "$FOUND_FILE" ]]; then
+            # Copy files to current directory
+            cp "$FOUND_FILE" ./auto_whitelist.json 2>/dev/null || true
+            # Also copy other expected files
+            find "$TEMP_DOWNLOAD_DIR" \( -name "auto_whitelist*.txt" -o -name "auto_whitelist*.json" \) -type f | while read -r file; do
+              cp "$file" ./ 2>/dev/null || true
+            done
+            
+            if [[ -f "auto_whitelist.json" ]]; then
+              echo "✅ Successfully downloaded artifact from previous run $PREVIOUS_RUN_ID"
+              ARTIFACT_FOUND=true
+              rm -rf "$TEMP_DOWNLOAD_DIR"
+            fi
+          fi
+        fi
+        
+        # Cleanup temp dir
+        rm -rf "$TEMP_DOWNLOAD_DIR" 2>/dev/null || true
+        
+        if [[ "$ARTIFACT_FOUND" != "true" ]]; then
           echo "⚠️ Artifact not found in previous run $PREVIOUS_RUN_ID, trying workflow list method..."
           
           # Strategy 2: Use gh run list to find recent successful runs
@@ -1003,14 +1027,35 @@ runs:
             echo "Attempting to download artifact from run $RUN_ID..."
             
             # Try to download the artifact from this specific run
-            DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
+            # gh run download extracts artifacts to subdirectories, so we download to a temp dir first
+            TEMP_DOWNLOAD_DIR=$(mktemp -d)
+            DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir "$TEMP_DOWNLOAD_DIR" 2>&1)
             DOWNLOAD_EXIT=$?
             
-              if [[ $DOWNLOAD_EXIT -eq 0 && -f "auto_whitelist.json" ]]; then
-                echo "✅ Successfully downloaded artifact from run $RUN_ID"
-                ARTIFACT_FOUND=true
-                break
-              else
+            if [[ $DOWNLOAD_EXIT -eq 0 ]]; then
+              # Check if files were downloaded (they might be in a subdirectory)
+              FOUND_FILE=$(find "$TEMP_DOWNLOAD_DIR" -name "auto_whitelist.json" -type f | head -1)
+              if [[ -n "$FOUND_FILE" && -f "$FOUND_FILE" ]]; then
+                # Copy files to current directory
+                cp "$FOUND_FILE" ./auto_whitelist.json 2>/dev/null || true
+                # Also copy other expected files
+                find "$TEMP_DOWNLOAD_DIR" \( -name "auto_whitelist*.txt" -o -name "auto_whitelist*.json" \) -type f | while read -r file; do
+                  cp "$file" ./ 2>/dev/null || true
+                done
+                
+                if [[ -f "auto_whitelist.json" ]]; then
+                  echo "✅ Successfully downloaded artifact from run $RUN_ID"
+                  ARTIFACT_FOUND=true
+                  rm -rf "$TEMP_DOWNLOAD_DIR"
+                  break
+                fi
+              fi
+            fi
+            
+            # Cleanup temp dir
+            rm -rf "$TEMP_DOWNLOAD_DIR" 2>/dev/null || true
+            
+            if [[ "$ARTIFACT_FOUND" != "true" ]]; then
               echo "⚠️ Artifact not found in run $RUN_ID (this is normal if artifact doesn't exist)"
             fi
           done
