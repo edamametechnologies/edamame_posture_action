@@ -976,78 +976,54 @@ runs:
         echo "Current run ID: $CURRENT_RUN_ID"
         echo "Looking for artifact: ${{ inputs.auto_whitelist_artifact_name }}"
         
-        # Get list of recent successful runs for this workflow (excluding current run)
-        WORKFLOW_NAME="${{ github.workflow }}"
-        echo "Looking for runs in workflow name: $WORKFLOW_NAME"
+        # Strategy 1: Try downloading from previous run ID directly (most reliable)
+        # This works even if gh run list hasn't updated yet
+        PREVIOUS_RUN_ID=$((CURRENT_RUN_ID - 1))
+        echo "Attempting to download artifact from previous run ID: $PREVIOUS_RUN_ID"
+        DOWNLOAD_OUTPUT=$(gh run download "$PREVIOUS_RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
+        DOWNLOAD_EXIT=$?
         
-        RUN_IDS=$(gh run list --workflow="$WORKFLOW_NAME" --repo ${{ github.repository }} --limit $MAX_ATTEMPTS --json databaseId,conclusion --jq ".[] | select(.conclusion == \"success\" and .databaseId != $CURRENT_RUN_ID) | .databaseId" 2>/dev/null || echo "")
-        
-        if [[ -z "$RUN_IDS" ]]; then
-          echo "No previous successful runs found"
+        if [[ $DOWNLOAD_EXIT -eq 0 && -f "auto_whitelist.json" ]]; then
+          echo "✅ Successfully downloaded artifact from previous run $PREVIOUS_RUN_ID"
+          ARTIFACT_FOUND=true
         else
-          echo "Found previous successful runs, attempting to download artifact..."
-          for RUN_ID in $RUN_IDS; do
-            echo "Attempting to download artifact from run $RUN_ID..."
-            
-            # Try to download the artifact from this specific run
-            # Suppress stderr for "not found" errors but show other errors
-            # Use explicit error handling to prevent step failure
-            DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
-            DOWNLOAD_EXIT=$?
-            
-            if [[ $DOWNLOAD_EXIT -eq 0 ]]; then
-              # Check if the files were actually downloaded
-              if [[ -f "auto_whitelist.json" ]]; then
+          echo "⚠️ Artifact not found in previous run $PREVIOUS_RUN_ID, trying workflow list method..."
+          
+          # Strategy 2: Use gh run list to find recent successful runs
+          WORKFLOW_NAME="${{ github.workflow }}"
+          echo "Looking for runs in workflow name: $WORKFLOW_NAME"
+          
+          RUN_IDS=$(gh run list --workflow="$WORKFLOW_NAME" --repo ${{ github.repository }} --limit $MAX_ATTEMPTS --json databaseId,conclusion --jq ".[] | select(.conclusion == \"success\" and .databaseId != $CURRENT_RUN_ID) | .databaseId" 2>/dev/null || echo "")
+          
+          if [[ -z "$RUN_IDS" ]]; then
+            echo "No previous successful runs found via workflow list"
+          else
+            echo "Found previous successful runs, attempting to download artifact..."
+            for RUN_ID in $RUN_IDS; do
+              echo "Attempting to download artifact from run $RUN_ID..."
+              
+              # Try to download the artifact from this specific run
+              DOWNLOAD_OUTPUT=$(gh run download "$RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir . 2>&1)
+              DOWNLOAD_EXIT=$?
+              
+              if [[ $DOWNLOAD_EXIT -eq 0 && -f "auto_whitelist.json" ]]; then
                 echo "✅ Successfully downloaded artifact from run $RUN_ID"
                 ARTIFACT_FOUND=true
                 break
               else
-                echo "⚠️ Artifact download succeeded but auto_whitelist.json not found"
-                echo "Download output: $DOWNLOAD_OUTPUT"
+                echo "⚠️ Artifact not found in run $RUN_ID (this is normal if artifact doesn't exist)"
               fi
-            else
-              # Artifact not found in this run, try next
-              echo "⚠️ Artifact not found in run $RUN_ID (this is normal if artifact doesn't exist)"
-              echo "Download output: $DOWNLOAD_OUTPUT"
-            fi
-          done
+            done
+          fi
         fi
         
         if [[ "$ARTIFACT_FOUND" == "false" ]]; then
-          # Check if there were previous successful runs but no artifact
-          if [[ -n "$RUN_IDS" ]]; then
-            echo "⚠️ Warning: Found previous successful runs but no artifact in them"
-            echo "This is unexpected - previous runs should have uploaded artifacts"
-          else
-            echo "ℹ️ No previous successful runs found"
-            echo "This is expected for the first iteration"
-          fi
+          echo "ℹ️ No artifact found from previous runs"
+          echo "This is expected for the first iteration"
         fi
 
-        # Fallback: try fetching latest artifact by name via GitHub API
-        if [[ "$ARTIFACT_FOUND" == "false" ]]; then
-          echo "Attempting artifact lookup via GitHub API..."
-          ARTIFACT_ID=$(gh api repos/${{ github.repository }}/actions/artifacts --paginate --jq ".artifacts[] | select(.name == \"${{ inputs.auto_whitelist_artifact_name }}\" and .expired == false) | .id" 2>/dev/null | head -n 1 || echo "")
-
-          if [[ -n "$ARTIFACT_ID" ]]; then
-            echo "Found artifact id $ARTIFACT_ID, downloading..."
-            gh api repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip --output auto_whitelist_artifact.zip 2>/dev/null || ARTIFACT_ID=""
-
-            if [[ -f "auto_whitelist_artifact.zip" ]]; then
-              unzip -o auto_whitelist_artifact.zip >/dev/null 2>&1 && rm -f auto_whitelist_artifact.zip
-              if [[ -f "auto_whitelist.json" ]]; then
-                echo "✅ Successfully downloaded artifact via API fallback"
-                ARTIFACT_FOUND=true
-              else
-                echo "⚠️ API fallback download did not contain auto_whitelist.json"
-              fi
-            else
-              echo "⚠️ Failed to download artifact zip via API"
-            fi
-          else
-            echo "No matching artifact found via API fallback"
-          fi
-        fi
+        # Note: We don't use GitHub API fallback because it's blocked by IP allow lists
+        # gh run download uses GitHub token authentication which works better
         
         # Note: We don't fail-fast here even if previous runs exist without artifacts
         # because those runs might have failed before uploading artifacts
