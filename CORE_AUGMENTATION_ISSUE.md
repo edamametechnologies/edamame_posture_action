@@ -121,12 +121,25 @@ After fixing the core, the test should show:
 - ✅ Stability reached after 3 consecutive runs with 0 new endpoints
 - ✅ No fluctuations or decreases
 
-## Workaround
+## Workaround Applied in Action
 
-Until the core is fixed, users can:
-1. Use manual whitelist management instead of auto-whitelist
-2. Accept that auto-whitelist will have unstable baselines
-3. Or manually merge whitelists using the action's merge commands
+The action now includes automatic detection and recovery:
+
+1. **Verification**: Before augmentation, checks if daemon has `custom_whitelist` loaded
+2. **Auto-Reload**: If not loaded, automatically reloads from `auto_whitelist.json`
+3. **Verification**: Confirms reload succeeded
+4. **Logging**: Shows daemon state and any recovery actions taken
+
+This ensures augmentation always has a baseline to merge with, preventing fresh whitelist creation.
+
+## Status
+
+✅ **Action workaround implemented** (commit 56a7e1d)
+- Auto-detects missing whitelist in daemon
+- Auto-reloads before augmentation
+- Should resolve endpoint fluctuations
+
+Test after this fix should show monotonically increasing counts.
 
 ## Files Involved
 
