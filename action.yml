@@ -904,6 +904,9 @@ runs:
       run: |
         cd
         echo "Loading auto-whitelist state from first invocation..."
+        echo "Current directory: $(pwd)"
+        echo "Files in current directory:"
+        ls -la auto_whitelist* 2>/dev/null || echo "No auto_whitelist* files found"
         
         # Check if files exist from first invocation
         if [[ -f "auto_whitelist.json" && -f "auto_whitelist_iteration.txt" ]]; then
@@ -1087,6 +1090,8 @@ runs:
         # Save auto-whitelist configuration to state file for second invocation
         # This allows second invocation to infer parameters without repeating them
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
+          echo "Saving auto-whitelist configuration for second invocation..."
+          echo "Current directory: $(pwd)"
           jq -n \
             --arg artifact "${{ inputs.auto_whitelist_artifact_name }}" \
             --arg threshold "${{ inputs.auto_whitelist_stability_threshold }}" \
@@ -1098,7 +1103,9 @@ runs:
               stability_consecutive_runs: $consecutive,
               max_iterations: $max_iter
             }' > auto_whitelist_config.json
-          echo "Auto-whitelist configuration saved for second invocation"
+          echo "✅ Config saved to: $(pwd)/auto_whitelist_config.json"
+          echo "Config contents:"
+          cat auto_whitelist_config.json
         fi
       shell: bash
       env:
