@@ -2084,6 +2084,7 @@ runs:
         }
         EOF
         sed -i "s/__STATE_ITERATION__/$STATE_ITERATION/" auto_whitelist_state.json
+      shell: bash
     
     - name: Upload auto-whitelist artifact
       if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' && always() }}
