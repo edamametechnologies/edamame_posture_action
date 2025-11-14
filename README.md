@@ -58,7 +58,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `auto_whitelist_artifact_name`: Name for GitHub artifact to store auto-whitelist state (default: "edamame-auto-whitelist")
 - `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
 - `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
-- `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "20")
+- `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "15")
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
 - `agentic_provider`: LLM provider for AI assistant: `claude`, `openai`, `ollama`, or none. Requires `EDAMAME_LLM_API_KEY` environment variable (default: "")
@@ -122,6 +122,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - If `create_custom_whitelists` is true, generates a whitelist from the current network sessions.
    - If `custom_whitelists_path` is provided, saves the whitelist to this file.
    - Otherwise, outputs the whitelist JSON to the action log.
+   - Process and username metadata observed in sessions are intentionally omitted so that generated entries stay stable across runs.
    - Limited functionality on Windows due to licensing constraints.
 
 16. **Apply custom whitelist**  
@@ -967,7 +968,7 @@ jobs:
           # Optional tuning:
           # auto_whitelist_stability_threshold: "0"              # 0% = no new endpoints
           # auto_whitelist_stability_consecutive_runs: "3"       # 3 runs required
-          # auto_whitelist_max_iterations: "10"                  # Max learning iterations
+          # auto_whitelist_max_iterations: "15"                  # Max learning iterations
           # Note: Connected mode recommended for artifact access if IP allow lists are enabled
 
       # Step 2: Your Build/Test/Deploy Work
@@ -1023,7 +1024,7 @@ That's it! The action handles everything else automatically.
 | `auto_whitelist_artifact_name` | string | `edamame-auto-whitelist` | Name for GitHub artifact storage |
 | `auto_whitelist_stability_threshold` | string | `"0"` | Percentage change threshold (0 = no new endpoints) |
 | `auto_whitelist_stability_consecutive_runs` | string | `"3"` | Consecutive stable runs required |
-| `auto_whitelist_max_iterations` | string | `"20"` | Maximum learning iterations |
+| `auto_whitelist_max_iterations` | string | `"15"` | Maximum learning iterations |
 
 ### When to Use Auto-Whitelist
 
@@ -1301,7 +1302,7 @@ In situations where your pipeline progressively accesses new domains or endpoint
    1. Load the existing baseline whitelist into memory (`set_custom_whitelists: true`)
    2. Monitor network traffic during workflow execution
    3. Generate an **augmented** whitelist (`augment-custom-whitelists`) that merges new endpoints with the baseline
-   4. Overwrite the existing `whitelists.json` so the list steadily grows (the `augment-custom-whitelists` command preserves existing entries)
+   4. Overwrite the existing `whitelists.json` so the list steadily grows (the `augment-custom-whitelists` command preserves existing entries and removes volatile process/username metadata to keep entries reusable)
 
 3. **Enforcement mode – lock it**
    Once your whitelist is mature, switch to **enforcement** by simply applying it and failing on exceptions:

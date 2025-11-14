@@ -150,9 +150,9 @@ inputs:
     required: false
     default: "3"
   auto_whitelist_max_iterations:
-    description: "Maximum number of auto-whitelist iterations before declaring stable (default: 10)"
+    description: "Maximum number of auto-whitelist iterations before declaring stable (default: 15)"
     required: false
-    default: "20"
+    default: "15"
   auto_whitelist_state_artifact_name:
     description: "Name for the artifact storing auto-whitelist state (default: auto-whitelist-state)"
     required: false
@@ -976,7 +976,21 @@ runs:
         STATE_ARTIFACT_NAME="${{ inputs.auto_whitelist_state_artifact_name }}"
         echo "Attempting to download state artifact: $STATE_ARTIFACT_NAME"
         STATE_INFO=$(gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \
-          --jq '.artifacts[] | select(.name == "'"$STATE_ARTIFACT_NAME"'" and .expired == false) | "\(.id)::\(.workflow_run.id // 0)::\(.workflow_run.run_number // 0)::\(.created_at)"' 2>/dev/null | sort -t':' -k4 | tail -1)
+          --jq '.artifacts[] | select(.name == "'"$STATE_ARTIFACT_NAME"'" and .expired == false) | "\(.id)::\(.workflow_run.id // 0)::\(.workflow_run.run_number // 0)::\(.created_at)"' 2>&1)
+        STATE_EXIT=$?
+        if [[ $STATE_EXIT -ne 0 ]]; then
+          if echo "$STATE_INFO" | grep -q "IP allow list enabled"; then
+            echo "❌ ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
+            echo "Response:"
+            echo "$STATE_INFO"
+            exit 1
+          else
+            echo "⚠️ Failed to query state artifacts: $STATE_INFO"
+            STATE_INFO=""
+          fi
+        else
+          STATE_INFO=$(echo "$STATE_INFO" | sort -t':' -k4 | tail -1)
+        fi
         if [[ -n "$STATE_INFO" ]]; then
           IFS='::' read -r STATE_ARTIFACT_ID STATE_SOURCE_RUN_ID STATE_SOURCE_RUN_NUMBER STATE_CREATED_AT <<< "$STATE_INFO"
           echo "Found state artifact ID $STATE_ARTIFACT_ID from run $STATE_SOURCE_RUN_ID (run number $STATE_SOURCE_RUN_NUMBER, created $STATE_CREATED_AT)"
@@ -1055,7 +1069,21 @@ runs:
           PREVIOUS_SUCCESS_FOUND=false
           ARTIFACT_INFO=$(gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \
             --jq '.artifacts[] | select(.name == "'"${{ inputs.auto_whitelist_artifact_name }}"'" and .expired == false and (.workflow_run.id // 0) != '"$CURRENT_RUN_ID"') | "\(.id)::\(.workflow_run.id // 0)::\(.workflow_run.run_number // 0)::\(.created_at)"' \
-            2>/dev/null | sort -t':' -k4 | tail -1)
+            2>&1)
+          API_EXIT=$?
+          if [[ $API_EXIT -ne 0 ]]; then
+            if echo "$ARTIFACT_INFO" | grep -q "IP allow list enabled"; then
+              echo "❌ ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
+              echo "Response:"
+              echo "$ARTIFACT_INFO"
+              exit 1
+            else
+              echo "⚠️ Failed to query artifacts: $ARTIFACT_INFO"
+              ARTIFACT_INFO=""
+            fi
+          else
+            ARTIFACT_INFO=$(echo "$ARTIFACT_INFO" | sort -t':' -k4 | tail -1)
+          fi
           
           if [[ -n "$ARTIFACT_INFO" ]]; then
             PREVIOUS_SUCCESS_FOUND=true
@@ -2110,6 +2138,20 @@ runs:
         retention-days: 90
         overwrite: true
         if-no-files-found: warn
+    
+    - name: Display final whitelist file
+      if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' }}
+      run: |
+        cd
+        echo ""
+        echo "=== Final auto_whitelist.json uploaded in previous step ==="
+        if command -v jq &> /dev/null; then
+          jq . auto_whitelist.json || cat auto_whitelist.json
+        else
+          cat auto_whitelist.json
+        fi
+        echo "=== End of whitelist file ==="
+      shell: bash
 
     - name: Display auto-whitelist status
       if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' }}

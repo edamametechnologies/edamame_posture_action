@@ -204,7 +204,6 @@ jobs:
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
-          display_logs: false
         continue-on-error: true
         
       - name: Slack alerts
@@ -462,7 +461,7 @@ jobs:
           auto_whitelist_artifact_name: test-auto-whitelist-artifact-${{ github.run_id }}-container-${{ matrix.container_name }}
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "20"
+          auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
         continue-on-error: true
 
@@ -737,7 +736,6 @@ jobs:
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
           dump_sessions_log: true
-          display_logs: false
         continue-on-error: true
         
       - name: Slack alerts
