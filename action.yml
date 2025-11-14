@@ -979,52 +979,15 @@ runs:
         echo "Current run ID: $CURRENT_RUN_ID"
         echo "Looking for artifact: ${{ inputs.auto_whitelist_artifact_name }}"
         
-        # Strategy 1: Try downloading from previous run ID directly (most reliable)
-        # This works even if gh run list hasn't updated yet
-        # Note: Run IDs are not sequential, so this might not find the actual previous run
-        # But it's worth trying as a fast path
-        PREVIOUS_RUN_ID=$((CURRENT_RUN_ID - 1))
-        echo "Attempting to download artifact from previous run ID: $PREVIOUS_RUN_ID"
-        
-        # gh run download extracts artifacts to subdirectories, so we download to a temp dir first
-        TEMP_DOWNLOAD_DIR=$(mktemp -d)
-        DOWNLOAD_OUTPUT=$(gh run download "$PREVIOUS_RUN_ID" --repo ${{ github.repository }} --name "${{ inputs.auto_whitelist_artifact_name }}" --dir "$TEMP_DOWNLOAD_DIR" 2>&1)
-        DOWNLOAD_EXIT=$?
-        
-        if [[ $DOWNLOAD_EXIT -eq 0 ]]; then
-          # Check if files were downloaded (they might be in a subdirectory)
-          FOUND_FILE=$(find "$TEMP_DOWNLOAD_DIR" -name "auto_whitelist.json" -type f | head -1)
-          if [[ -n "$FOUND_FILE" && -f "$FOUND_FILE" ]]; then
-            # Copy files to current directory
-            cp "$FOUND_FILE" ./auto_whitelist.json 2>/dev/null || true
-            # Also copy other expected files
-            find "$TEMP_DOWNLOAD_DIR" \( -name "auto_whitelist*.txt" -o -name "auto_whitelist*.json" \) -type f | while read -r file; do
-              cp "$file" ./ 2>/dev/null || true
-            done
-            
-            if [[ -f "auto_whitelist.json" ]]; then
-              echo "✅ Successfully downloaded artifact from previous run $PREVIOUS_RUN_ID"
-              ARTIFACT_FOUND=true
-              rm -rf "$TEMP_DOWNLOAD_DIR"
-            fi
-          fi
-        fi
-        
-        # Cleanup temp dir
-        rm -rf "$TEMP_DOWNLOAD_DIR" 2>/dev/null || true
-        
-        if [[ "$ARTIFACT_FOUND" != "true" ]]; then
-          echo "⚠️ Artifact not found in previous run $PREVIOUS_RUN_ID, trying workflow list method..."
-          
-          # Strategy 2: Use gh run list to find recent successful runs
+        echo "Searching for previous successful workflow runs..."
         WORKFLOW_NAME="${{ github.workflow }}"
-        echo "Looking for runs in workflow name: $WORKFLOW_NAME"
-        
         RUN_IDS=$(gh run list --workflow="$WORKFLOW_NAME" --repo ${{ github.repository }} --limit $MAX_ATTEMPTS --json databaseId,conclusion --jq ".[] | select(.conclusion == \"success\" and .databaseId != $CURRENT_RUN_ID) | .databaseId" 2>/dev/null || echo "")
+        PREVIOUS_SUCCESS_FOUND=false
         
         if [[ -z "$RUN_IDS" ]]; then
             echo "No previous successful runs found via workflow list"
         else
+          PREVIOUS_SUCCESS_FOUND=true
           echo "Found previous successful runs, attempting to download artifact..."
           for RUN_ID in $RUN_IDS; do
             echo "Attempting to download artifact from run $RUN_ID..."
@@ -1062,12 +1025,15 @@ runs:
               echo "⚠️ Artifact not found in run $RUN_ID (this is normal if artifact doesn't exist)"
             fi
           done
-          fi
         fi
         
         if [[ "$ARTIFACT_FOUND" == "false" ]]; then
           echo "ℹ️ No artifact found from previous runs"
-          echo "This is expected for the first iteration"
+          if [[ "$PREVIOUS_SUCCESS_FOUND" == "false" ]]; then
+            echo "This is expected for the first iteration"
+          else
+            echo "⚠️ No artifact found despite previous successful runs - treating as first run"
+          fi
         fi
 
         # Note: We don't use GitHub API fallback because it's blocked by IP allow lists
@@ -1838,6 +1804,36 @@ runs:
                 echo "  - Whitelists in new file:"
                 jq '.whitelists[]?.name' auto_whitelist_new.json 2>/dev/null || echo "    (cannot parse)"
                 exit 1
+              fi
+
+              if [[ "$NEW_ENDPOINT_COUNT" -lt "$OLD_ENDPOINT_COUNT" ]]; then
+                ENDPOINT_DELTA=$((OLD_ENDPOINT_COUNT - NEW_ENDPOINT_COUNT))
+                if [[ "$ENDPOINT_DELTA" -le 2 ]]; then
+                  echo ""
+                  echo "⚠️  Warning: Endpoint count decreased slightly after augmentation"
+                  echo "   Old whitelist had: $OLD_ENDPOINT_COUNT endpoints"
+                  echo "   New whitelist has: $NEW_ENDPOINT_COUNT endpoints"
+                  echo "   Difference: -$ENDPOINT_DELTA endpoints"
+                  echo "   Continuing (difference within acceptable deduplication threshold ≤2)"
+                else
+                  echo ""
+                  echo "❌ ERROR: Endpoint count decreased after augmentation!"
+                  echo "   Old whitelist had: $OLD_ENDPOINT_COUNT endpoints"
+                  echo "   New whitelist has: $NEW_ENDPOINT_COUNT endpoints"
+                  echo "   Difference: -$ENDPOINT_DELTA endpoints"
+                  echo ""
+                  echo "Auto-whitelist must be monotonically increasing during learning."
+                  echo "This indicates augment-custom-whitelists removed baseline endpoints."
+                  echo ""
+                  echo "Debugging info:"
+                  echo "  - Old file size: $(wc -c < auto_whitelist.json) bytes"
+                  echo "  - New file size: $(wc -c < auto_whitelist_new.json) bytes"
+                  echo "  - Old file first 200 chars:"
+                  head -c 200 auto_whitelist.json | cat -A || echo "    (cannot read file)"
+                  echo "  - New file first 200 chars:"
+                  head -c 200 auto_whitelist_new.json | cat -A || echo "    (cannot read file)"
+                  exit 1
+                fi
               fi
             fi
             

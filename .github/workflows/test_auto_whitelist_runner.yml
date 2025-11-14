@@ -1,0 +1,108 @@
+name: Test Auto-Whitelist Runner
+
+# This workflow runs the test_auto_whitelist_feature.sh script
+# which sequentially triggers workflow runs and validates the auto-whitelist lifecycle
+#
+# This is a "workflow that launches workflows" - it orchestrates multiple
+# runs of test_auto_whitelist_feature.yml to test the full lifecycle
+
+on:
+  schedule:
+    # Run daily at 02:00 UTC (after the main test workflow)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - 'dev'
+      - 'main'
+
+# Auto cancel previous runs if they were not completed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Permissions needed to trigger workflows and download artifacts
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  test-auto-whitelist-runner:
+    name: Run Auto-Whitelist Test Script
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # Allow time for multiple sequential workflow runs
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          # Install jq if not already available
+          if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+          
+          # Verify gh CLI is available (should be pre-installed in GitHub Actions runners)
+          if ! command -v gh &> /dev/null; then
+            echo "Installing gh CLI..."
+            type -p wget >/dev/null || sudo apt-get install -y wget
+            sudo mkdir -p -m 755 /etc/apt/keyrings
+            wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+            sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt-get update -y
+            sudo apt-get install -y gh
+          fi
+          
+          # Verify installations
+          echo "gh version: $(gh --version | head -1)"
+          echo "jq version: $(jq --version)"
+
+      - name: Authenticate GitHub CLI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GITHUB_TOKEN" | gh auth login --with-token
+          gh auth status
+
+      - name: Make test script executable
+        run: |
+          chmod +x ./tests/test_auto_whitelist_feature.sh
+
+      - name: Run Auto-Whitelist Test Script
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=========================================="
+          echo "Starting Auto-Whitelist Test Runner"
+          echo "=========================================="
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "=========================================="
+          echo ""
+          
+          # Run the test script
+          # The script will:
+          # 1. Clean up existing artifacts
+          # 2. Sequentially trigger workflow runs
+          # 3. Wait for each run to complete
+          # 4. Download and validate artifacts
+          # 5. Check if stability is reached
+          # 6. Report final test results
+          ./tests/test_auto_whitelist_feature.sh
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-whitelist-test-results
+          path: |
+            /tmp/auto_whitelist_test_*
+          retention-days: 7
+          if-no-files-found: ignore
+

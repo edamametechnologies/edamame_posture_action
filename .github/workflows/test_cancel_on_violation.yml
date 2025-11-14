@@ -1,0 +1,110 @@
+name: Test Cancel on Violation
+
+# This workflow tests the cancel_on_violation feature:
+# Tests that violations trigger cancellation in both connected and disconnected modes
+# Expected: Workflow should be cancelled when violations are detected
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+        - 'dev'
+        - 'main'
+          
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Allow sequential runs for testing
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  # Test cancellation in connected mode
+  test-cancellation-connected:
+    name: Test Cancellation (Connected Mode)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup EDAMAME Posture with cancel_on_violation
+        uses: ./
+        with:
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}_cancel_test_connected
+          network_scan: true
+          packet_capture: true
+          whitelist: github_ubuntu
+          check_whitelist: true
+          cancel_on_violation: true
+          display_logs: true
+
+      - name: Generate Violation (Unauthorized Connection)
+        run: |
+          echo "Generating unauthorized network connection to trigger cancellation..."
+          echo "This should cause the workflow to be cancelled by EDAMAME Posture"
+          
+          # Make a connection to a domain not in github_ubuntu whitelist
+          # This will trigger a whitelist violation
+          curl -s --max-time 5 https://example.com > /dev/null || true
+          
+          # Wait a moment for the violation to be detected
+          sleep 3
+          
+          echo "⚠️ If you see this message, cancellation may not have worked"
+          echo "Expected: Workflow should be cancelled before this step completes"
+
+      - name: This Should Not Run
+        if: always()
+        run: |
+          echo "❌ ERROR: This step should not run if cancellation worked correctly"
+          echo "The workflow should have been cancelled by EDAMAME Posture"
+          exit 1
+
+  # Test cancellation in disconnected mode
+  test-cancellation-disconnected:
+    name: Test Cancellation (Disconnected Mode)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup EDAMAME Posture in Disconnected Mode with cancel_on_violation
+        uses: ./
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          whitelist: github_ubuntu
+          check_whitelist: true
+          cancel_on_violation: true
+          display_logs: true
+
+      - name: Generate Violation (Unauthorized Connection)
+        run: |
+          echo "Generating unauthorized network connection to trigger cancellation..."
+          echo "This should cause the workflow to be cancelled by EDAMAME Posture"
+          
+          # Make a connection to a domain not in github_ubuntu whitelist
+          curl -s --max-time 5 https://example.com > /dev/null || true
+          
+          # Wait a moment for the violation to be detected
+          sleep 3
+          
+          echo "⚠️ If you see this message, cancellation may not have worked"
+          echo "Expected: Workflow should be cancelled before this step completes"
+
+      - name: This Should Not Run
+        if: always()
+        run: |
+          echo "❌ ERROR: This step should not run if cancellation worked correctly"
+          echo "The workflow should have been cancelled by EDAMAME Posture"
+          exit 1
+
