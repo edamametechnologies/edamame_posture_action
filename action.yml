@@ -153,6 +153,10 @@ inputs:
     description: "Maximum number of auto-whitelist iterations before declaring stable (default: 10)"
     required: false
     default: "20"
+  auto_whitelist_state_artifact_name:
+    description: "Name for the artifact storing auto-whitelist state (default: auto-whitelist-state)"
+    required: false
+    default: "auto-whitelist-state"
   include_local_traffic:
     description: "Include local traffic in network capture and session logs"
     required: false
@@ -967,6 +971,47 @@ runs:
       run: |
         set +e  # Don't exit on error - artifact download failures are expected
         cd
+        
+        STATE_FILE="auto_whitelist_state.json"
+        STATE_ARTIFACT_NAME="${{ inputs.auto_whitelist_state_artifact_name }}"
+        echo "Attempting to download state artifact: $STATE_ARTIFACT_NAME"
+        STATE_INFO=$(gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \
+          --jq '.artifacts[] | select(.name == "'"$STATE_ARTIFACT_NAME"'" and .expired == false) | "\(.id)::\(.workflow_run.id // 0)::\(.workflow_run.run_number // 0)::\(.created_at)"' 2>/dev/null | sort -t':' -k4 | tail -1)
+        if [[ -n "$STATE_INFO" ]]; then
+          IFS='::' read -r STATE_ARTIFACT_ID STATE_SOURCE_RUN_ID STATE_SOURCE_RUN_NUMBER STATE_CREATED_AT <<< "$STATE_INFO"
+          echo "Found state artifact ID $STATE_ARTIFACT_ID from run $STATE_SOURCE_RUN_ID (run number $STATE_SOURCE_RUN_NUMBER, created $STATE_CREATED_AT)"
+          TEMP_STATE_DIR=$(mktemp -d)
+          STATE_ZIP="$TEMP_STATE_DIR/state.zip"
+          if gh api "repos/${{ github.repository }}/actions/artifacts/$STATE_ARTIFACT_ID/zip" > "$STATE_ZIP"; then
+            unzip -q -o "$STATE_ZIP" -d "$TEMP_STATE_DIR"
+            FOUND_STATE=$(find "$TEMP_STATE_DIR" -name "$STATE_FILE" -type f | head -1)
+            if [[ -n "$FOUND_STATE" && -f "$FOUND_STATE" ]]; then
+              cp "$FOUND_STATE" ./"$STATE_FILE"
+              echo "✅ State file downloaded"
+              if command -v jq &> /dev/null; then
+                LAST_RUN_ID=$(jq -r '.last_run_id // empty' "$STATE_FILE")
+                LAST_ITERATION=$(jq -r '.last_iteration // empty' "$STATE_FILE")
+                RECORDED_ARTIFACT=$(jq -r '.artifact_name // empty' "$STATE_FILE")
+                if [[ -n "$LAST_RUN_ID" ]]; then
+                  echo "Recorded last run ID: $LAST_RUN_ID (iteration: ${LAST_ITERATION:-unknown})"
+                  echo "AUTO_WHITELIST_LAST_RUN_ID=$LAST_RUN_ID" >> $GITHUB_ENV
+                  echo "AUTO_WHITELIST_LAST_ITERATION=${LAST_ITERATION:-}" >> $GITHUB_ENV
+                fi
+                if [[ -n "$RECORDED_ARTIFACT" ]]; then
+                  echo "Recorded artifact name: $RECORDED_ARTIFACT"
+                  echo "AUTO_WHITELIST_LAST_ARTIFACT_NAME=$RECORDED_ARTIFACT" >> $GITHUB_ENV
+                fi
+              fi
+            else
+              echo "⚠️ State artifact zip downloaded but $STATE_FILE not found"
+            fi
+          else
+            echo "⚠️ Failed to download state artifact zip"
+          fi
+          rm -rf "$TEMP_STATE_DIR" 2>/dev/null || true
+        else
+          echo "No previous state artifact found"
+        fi
         # Try to download the artifact from the previous run
         echo "Attempting to download auto-whitelist artifact: ${{ inputs.auto_whitelist_artifact_name }}"
         
@@ -979,27 +1024,15 @@ runs:
         echo "Current run ID: $CURRENT_RUN_ID"
         echo "Looking for artifact: ${{ inputs.auto_whitelist_artifact_name }}"
         
-        echo "Searching for previous successful artifacts..."
-        PREVIOUS_SUCCESS_FOUND=false
-        ARTIFACT_INFO=$(gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \
-          --jq '.artifacts[] | select(.name == "'"${{ inputs.auto_whitelist_artifact_name }}"'" and .expired == false and (.workflow_run.id // 0) != '"$CURRENT_RUN_ID"') | @base64' \
-          | head -n1)
+        TARGET_RUN_ID="${AUTO_WHITELIST_LAST_RUN_ID:-}"
+        TARGET_ARTIFACT_NAME="${AUTO_WHITELIST_LAST_ARTIFACT_NAME:-${{ inputs.auto_whitelist_artifact_name }}}"
         
-        if [[ -n "$ARTIFACT_INFO" ]]; then
-          PREVIOUS_SUCCESS_FOUND=true
-          ARTIFACT_JSON=$(echo "$ARTIFACT_INFO" | base64 --decode)
-          ARTIFACT_ID=$(echo "$ARTIFACT_JSON" | jq -r '.id')
-          SOURCE_RUN_ID=$(echo "$ARTIFACT_JSON" | jq -r '.workflow_run.id')
-          SOURCE_RUN_NUMBER=$(echo "$ARTIFACT_JSON" | jq -r '.workflow_run.run_number')
-          CREATED_AT=$(echo "$ARTIFACT_JSON" | jq -r '.created_at')
-          
-          echo "Found artifact ID $ARTIFACT_ID from run $SOURCE_RUN_ID (run number $SOURCE_RUN_NUMBER, created $CREATED_AT)"
-          
+        if [[ -n "$TARGET_RUN_ID" ]]; then
+          echo "Attempting to download artifact from recorded run ID: $TARGET_RUN_ID"
           TEMP_DOWNLOAD_DIR=$(mktemp -d)
-          ARTIFACT_ZIP="$TEMP_DOWNLOAD_DIR/artifact.zip"
-          
-          if gh api "repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" > "$ARTIFACT_ZIP"; then
-            unzip -q -o "$ARTIFACT_ZIP" -d "$TEMP_DOWNLOAD_DIR"
+          DOWNLOAD_OUTPUT=$(gh run download "$TARGET_RUN_ID" --repo ${{ github.repository }} --name "$TARGET_ARTIFACT_NAME" --dir "$TEMP_DOWNLOAD_DIR" 2>&1)
+          DOWNLOAD_EXIT=$?
+          if [[ $DOWNLOAD_EXIT -eq 0 ]]; then
             FOUND_FILE=$(find "$TEMP_DOWNLOAD_DIR" -name "auto_whitelist.json" -type f | head -1)
             if [[ -n "$FOUND_FILE" && -f "$FOUND_FILE" ]]; then
               cp "$FOUND_FILE" ./auto_whitelist.json 2>/dev/null || true
@@ -1007,19 +1040,54 @@ runs:
                 cp "$file" ./ 2>/dev/null || true
               done
               if [[ -f "auto_whitelist.json" ]]; then
-                echo "✅ Successfully downloaded artifact from run $SOURCE_RUN_ID"
+                echo "✅ Successfully downloaded artifact from recorded run $TARGET_RUN_ID"
                 ARTIFACT_FOUND=true
               fi
-            else
-              echo "⚠️ Artifact zip downloaded but auto_whitelist.json not found"
             fi
           else
-            echo "⚠️ Failed to download artifact zip for ID $ARTIFACT_ID"
+            echo "⚠️ Failed to download artifact from recorded run $TARGET_RUN_ID"
           fi
-          
           rm -rf "$TEMP_DOWNLOAD_DIR" 2>/dev/null || true
-        else
-          echo "No matching artifacts found (name=${{ inputs.auto_whitelist_artifact_name }})"
+        fi
+        
+        if [[ "$ARTIFACT_FOUND" != "true" ]]; then
+          echo "Searching for previous successful artifacts..."
+          PREVIOUS_SUCCESS_FOUND=false
+          ARTIFACT_INFO=$(gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \
+            --jq '.artifacts[] | select(.name == "'"${{ inputs.auto_whitelist_artifact_name }}"'" and .expired == false and (.workflow_run.id // 0) != '"$CURRENT_RUN_ID"') | "\(.id)::\(.workflow_run.id // 0)::\(.workflow_run.run_number // 0)::\(.created_at)"' \
+            2>/dev/null | sort -t':' -k4 | tail -1)
+          
+          if [[ -n "$ARTIFACT_INFO" ]]; then
+            PREVIOUS_SUCCESS_FOUND=true
+            IFS='::' read -r ARTIFACT_ID SOURCE_RUN_ID SOURCE_RUN_NUMBER CREATED_AT <<< "$ARTIFACT_INFO"
+            echo "Found artifact ID $ARTIFACT_ID from run $SOURCE_RUN_ID (run number $SOURCE_RUN_NUMBER, created $CREATED_AT)"
+            
+            TEMP_DOWNLOAD_DIR=$(mktemp -d)
+            ARTIFACT_ZIP="$TEMP_DOWNLOAD_DIR/artifact.zip"
+            
+            if gh api "repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" > "$ARTIFACT_ZIP"; then
+              unzip -q -o "$ARTIFACT_ZIP" -d "$TEMP_DOWNLOAD_DIR"
+              FOUND_FILE=$(find "$TEMP_DOWNLOAD_DIR" -name "auto_whitelist.json" -type f | head -1)
+              if [[ -n "$FOUND_FILE" && -f "$FOUND_FILE" ]]; then
+                cp "$FOUND_FILE" ./auto_whitelist.json 2>/dev/null || true
+                find "$TEMP_DOWNLOAD_DIR" \( -name "auto_whitelist*.txt" -o -name "auto_whitelist*.json" \) -type f | while read -r file; do
+                  cp "$file" ./ 2>/dev/null || true
+                done
+                if [[ -f "auto_whitelist.json" ]]; then
+                  echo "✅ Successfully downloaded artifact from run $SOURCE_RUN_ID"
+                  ARTIFACT_FOUND=true
+                fi
+              else
+                echo "⚠️ Artifact zip downloaded but auto_whitelist.json not found"
+              fi
+            else
+              echo "⚠️ Failed to download artifact zip for ID $ARTIFACT_ID"
+            fi
+            
+            rm -rf "$TEMP_DOWNLOAD_DIR" 2>/dev/null || true
+          else
+            echo "No matching artifacts found (name=${{ inputs.auto_whitelist_artifact_name }})"
+          fi
         fi
         
         if [[ "$ARTIFACT_FOUND" == "false" ]]; then
@@ -2002,6 +2070,21 @@ runs:
         fi
       shell: bash
 
+    - name: Save auto-whitelist state
+      if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' }}
+      run: |
+        cd
+        STATE_ITERATION=$(cat auto_whitelist_iteration.txt 2>/dev/null || echo "0")
+        cat <<'EOF' > auto_whitelist_state.json
+        {
+          "last_run_id": "${GITHUB_RUN_ID}",
+          "last_iteration": "__STATE_ITERATION__",
+          "artifact_name": "${{ env.AUTO_WHITELIST_ARTIFACT_NAME || inputs.auto_whitelist_artifact_name }}",
+          "generated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        }
+        EOF
+        sed -i "s/__STATE_ITERATION__/$STATE_ITERATION/" auto_whitelist_state.json
+    
     - name: Upload auto-whitelist artifact
       if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' && always() }}
       uses: actions/upload-artifact@v4
@@ -2012,6 +2095,17 @@ runs:
           ~/auto_whitelist_iteration.txt
           ~/auto_whitelist_stable_count.txt
           ~/auto_whitelist_config.json
+          ~/auto_whitelist_state.json
+        retention-days: 90
+        overwrite: true
+        if-no-files-found: warn
+    
+    - name: Upload auto-whitelist state artifact
+      if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' && always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.auto_whitelist_state_artifact_name }}
+        path: ~/auto_whitelist_state.json
         retention-days: 90
         overwrite: true
         if-no-files-found: warn
