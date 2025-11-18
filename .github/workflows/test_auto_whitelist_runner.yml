@@ -66,7 +66,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$GITHUB_TOKEN" | gh auth login --with-token
-          gh auth status
+          # Verify authentication (gh auth status may return non-zero when using env var)
+          gh auth status || true
+          # Test actual authentication by making a simple API call
+          gh api user --jq '.login' > /dev/null
+          echo "✓ GitHub CLI authenticated successfully"
 
       - name: Make test script executable
         run: |
