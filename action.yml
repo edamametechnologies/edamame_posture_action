@@ -695,7 +695,7 @@ runs:
           echo "Checking policy compliance with domain: $DOMAIN_NAME and policy: $POLICY_NAME"
           
           # Capture the policy check output - use variables to avoid shell interpretation issues
-          policy_output=$("$EDAMAME_POSTURE_CMD" check-policy-for-domain "$DOMAIN_NAME" "$POLICY_NAME")
+          policy_output=$($EDAMAME_POSTURE_CMD check-policy-for-domain "$DOMAIN_NAME" "$POLICY_NAME")
           policy_status=$?
           
           echo "$policy_output"
