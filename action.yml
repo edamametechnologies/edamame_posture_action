@@ -689,22 +689,25 @@ runs:
         cd
         # Check if both domain and policy are provided
         if [[ -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_policy }}" ]]; then
-          echo "Checking policy compliance with domain: ${{ inputs.edamame_domain }} and policy: ${{ inputs.edamame_policy }}"
+          POLICY_NAME="${{ inputs.edamame_policy }}"
+          DOMAIN_NAME="${{ inputs.edamame_domain }}"
           
-          # Capture the policy check output
-          policy_output=$($EDAMAME_POSTURE_CMD check-policy-for-domain "${{ inputs.edamame_domain }}" "${{ inputs.edamame_policy }}")
+          echo "Checking policy compliance with domain: $DOMAIN_NAME and policy: $POLICY_NAME"
+          
+          # Capture the policy check output - use variables to avoid shell interpretation issues
+          policy_output=$("$EDAMAME_POSTURE_CMD" check-policy-for-domain "$DOMAIN_NAME" "$POLICY_NAME")
           policy_status=$?
           
           echo "$policy_output"
           
           # Check if the policy check was successful
           if [[ $policy_status -ne 0 ]]; then
-            echo "Device does not comply with the required policy: ${{ inputs.edamame_policy }} and domain: ${{ inputs.edamame_domain }}"
+            echo "Device does not comply with the required policy: $POLICY_NAME and domain: $DOMAIN_NAME"
             echo "Exiting workflow due to policy non-compliance."
             exit 1
           fi
           
-          echo "Device complies with the required policy: ${{ inputs.edamame_policy }} and domain: ${{ inputs.edamame_domain }}"
+          echo "Device complies with the required policy: $POLICY_NAME and domain: $DOMAIN_NAME"
         fi
       shell: bash
 
