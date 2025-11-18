@@ -79,7 +79,7 @@ jobs:
         uses: ./
         with:
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-          edamame_policy: "Github & Gitlab"
+          edamame_policy: 'Github & Gitlab'
         continue-on-error: true
 
       # Test check-policy (local) with error
@@ -341,7 +341,7 @@ jobs:
         uses: ./
         with:
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-          edamame_policy: "Github & Gitlab"
+          edamame_policy: 'Github & Gitlab'
         continue-on-error: true
 
       # Test check-policy (local) with error
@@ -614,7 +614,7 @@ jobs:
         uses: ./
         with:
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-          edamame_policy: "Github & Gitlab"
+          edamame_policy: 'Github & Gitlab'
         continue-on-error: true
 
       # Test check-policy (local) with error
