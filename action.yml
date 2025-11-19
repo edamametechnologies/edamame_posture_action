@@ -1595,8 +1595,8 @@ runs:
           timeout=true
           for i in {1..10}; do
             attempts=$((attempts + 1))
-            # We use the GitHub token to access the API using gh release list that requires authentication limited to the scope of the token
-            if gh release list --repo ${{ github.repository }}; then
+            # We use the GitHub token to access the Actions artifacts API, which exercises the IP allow list restrictions
+            if gh api repos/${{ github.repository }}/actions/artifacts >/dev/null; then
               timeout=false
               break
             else
