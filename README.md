@@ -106,7 +106,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - If `checkout` is true, tries up to 10 times to fetch and check out the specified branch (using `token`).
 
 11. **Wait for API access**  
-   - If `wait_for_api` is true, periodically invokes `gh api repos/<repo>/actions/artifacts`, allowing time for an IP/runner to be whitelisted in private repos.
+   - If `wait_for_api` is true, periodically invokes `gh api repos/<repo>/actions/runs/<current_run_id>/artifacts`, matching the endpoint used for auto-whitelist artifact downloads so IP allow-listing can complete before continuing.
 
 12. **Wait for https access**  
    - If `wait_for_https` is true, repeatedly checks the repo over https until it is accessible or time runs out.
