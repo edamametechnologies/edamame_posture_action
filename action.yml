@@ -56,6 +56,10 @@ inputs:
     description: "Attempt to cancel the current CI pipeline when violations are detected"
     required: false
     default: "false"
+  cancel_pipeline_script:
+    description: "Path to custom cancellation script (default: $HOME/cancel_pipeline.sh). Script receives violation reason as first argument."
+    required: false
+    default: ""
   disconnected_mode:
     description: "Start EDAMAME Posture in disconnected mode without requiring domain authentication"
     required: false
@@ -718,66 +722,6 @@ runs:
         fi
       shell: bash
 
-    - name: Wait for API access to be granted if requested
-      run: |
-        if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
-          echo "Waiting for GitHub API access to be granted..."
-          attempts=0
-          timeout=true
-          last_error=""
-          
-          for i in {1..10}; do
-            attempts=$((attempts + 1))
-            echo "Attempt $attempts: Testing API access..."
-            
-            # We use the GitHub token to access the run details API, which tests org-level IP allowlist access
-            # This endpoint requires authentication even for public repos and is blocked by IP allowlists
-            # Capture both stdout and stderr to see what's actually happening
-            if output=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }} 2>&1); then
-              timeout=false
-              echo "✅ API access granted!"
-              break
-            else
-              exit_code=$?
-              last_error="$output"
-              echo "⚠️  API call failed with exit code $exit_code"
-              echo "Error output: $last_error"
-              
-              if [ $attempts -lt 10 ]; then
-                echo "Waiting 60 seconds before retry..."
-                sleep 60
-              fi
-            fi
-          done
-
-          # Calculate elapsed time (first attempt is immediate, subsequent attempts wait 60s each)
-          if [ $attempts -gt 1 ]; then
-            elapsed_time=$(( (attempts - 1) * 60 ))
-          else
-            elapsed_time=0
-          fi
-          elapsed_minutes=$((elapsed_time / 60))
-          elapsed_seconds=$((elapsed_time % 60))
-
-          if [ "$timeout" = true ]; then
-            echo ""
-            echo "❌ Timeout occurred while waiting for API access."
-            echo "Total attempts: $attempts"
-            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-            echo "Last error: $last_error"
-            echo ""
-            echo "Dumping EDAMAME logs for debugging..."
-            cd
-            find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
-            exit 1
-          else
-            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-          fi
-        fi
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-
     - name: Start EDAMAME Posture process and wait for connection if all arguments are provided, skip otherwise
       if: ${{ inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
       run: |
@@ -880,8 +824,101 @@ runs:
               START_ARGS+=(--agentic-interval "${{ inputs.agentic_interval }}")
             fi
 
+            # Create cancellation script if cancel_on_violation is enabled
+            # This allows the daemon to cancel the pipeline WITHOUT having direct access to tokens
+            # The script runs in the original environment context and has access to CI variables
+            if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
+              echo "[WARNING] cancel_on_violation enabled - creating pipeline cancellation script"
+              
+              # Determine script path
+              if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
+                CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
+              else
+                CANCEL_SCRIPT_PATH="$HOME/cancel_pipeline.sh"
+              fi
+              
+              echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
+              
+              # Create the script with proper environment detection and cancellation logic
+              cat > "$CANCEL_SCRIPT_PATH" << 'CANCEL_SCRIPT_EOF'
+#!/bin/bash
+# EDAMAME Pipeline Cancellation Script
+# This script is called by the EDAMAME daemon when policy violations are detected
+# It has access to the original CI environment including authentication tokens
+
+set -e
+
+REASON="${1:-Policy violation detected by EDAMAME Posture daemon}"
+
+echo "=== EDAMAME Pipeline Cancellation ==="
+echo "Reason: $REASON"
+echo ""
+
+# Detect CI environment and cancel appropriately
+if [[ -n "$GITHUB_ACTIONS" ]]; then
+    echo "Detected: GitHub Actions"
+    echo "Run ID: $GITHUB_RUN_ID"
+    echo "Repository: $GITHUB_REPOSITORY"
+    
+    if [[ -z "$GITHUB_TOKEN" ]]; then
+        echo "ERROR: GITHUB_TOKEN not available in environment"
+        exit 1
+    fi
+    
+    echo "Attempting to cancel GitHub Actions run..."
+    if gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"; then
+        echo "[OK] GitHub Actions run cancelled successfully"
+        exit 0
+    else
+        echo "[ERROR] Failed to cancel GitHub Actions run"
+        exit 1
+    fi
+    
+elif [[ -n "$GITLAB_CI" ]]; then
+    echo "Detected: GitLab CI"
+    echo "Project ID: $CI_PROJECT_ID"
+    echo "Pipeline ID: $CI_PIPELINE_ID"
+    
+    if [[ -z "$GITLAB_TOKEN" && -z "$CI_JOB_TOKEN" ]]; then
+        echo "ERROR: Neither GITLAB_TOKEN nor CI_JOB_TOKEN available"
+        exit 1
+    fi
+    
+    # Prefer GITLAB_TOKEN if available, otherwise use CI_JOB_TOKEN
+    TOKEN="${GITLAB_TOKEN:-$CI_JOB_TOKEN}"
+    
+    echo "Attempting to cancel GitLab pipeline..."
+    URL="https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/cancel"
+    
+    if curl -s -X POST -H "PRIVATE-TOKEN: $TOKEN" "$URL" > /dev/null; then
+        echo "[OK] GitLab pipeline cancelled successfully"
+        exit 0
+    else
+        echo "[ERROR] Failed to cancel GitLab pipeline"
+        exit 1
+    fi
+    
+else
+    echo "WARNING: No supported CI environment detected"
+    echo "Set GITHUB_ACTIONS or GITLAB_CI to enable automatic cancellation"
+    exit 1
+fi
+CANCEL_SCRIPT_EOF
+
+              chmod 700 "$CANCEL_SCRIPT_PATH"
+              
+              # Export the script path for the daemon to find
+              export EDAMAME_CANCEL_PIPELINE_SCRIPT="$CANCEL_SCRIPT_PATH"
+              
+              echo "[OK] Cancellation script created and configured"
+              echo "   Script path: $CANCEL_SCRIPT_PATH"
+              echo "   The daemon will execute this script when violations are detected"
+              echo "   The script has access to CI tokens from the original environment"
+            fi
+
             echo "Starting EDAMAME Posture..."
             $EDAMAME_POSTURE_CMD "${START_ARGS[@]}"
+            
             echo "Waiting for connection..."
             $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
           fi
@@ -933,21 +970,203 @@ runs:
             START_ARGS+=(--agentic-mode "${{ inputs.agentic_mode }}")
           fi
 
+          # Create cancellation script if cancel_on_violation is enabled
+          # This allows the daemon to cancel the pipeline WITHOUT having direct access to tokens
+          # The script runs in the original environment context and has access to CI variables
+          if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
+            echo "[WARNING] cancel_on_violation enabled - creating pipeline cancellation script"
+            
+            # Determine script path
+            if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
+              CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
+            else
+              CANCEL_SCRIPT_PATH="$HOME/cancel_pipeline.sh"
+            fi
+            
+            echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
+            
+            # Capture CI environment variables now (before sudo)
+            # The script will have these values embedded, not rely on runtime environment
+            CAPTURED_GITHUB_ACTIONS="${GITHUB_ACTIONS:-}"
+            CAPTURED_GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
+            CAPTURED_GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+            CAPTURED_GITHUB_TOKEN="${{ github.token }}"
+            CAPTURED_GITLAB_CI="${GITLAB_CI:-}"
+            CAPTURED_CI_PROJECT_ID="${CI_PROJECT_ID:-}"
+            CAPTURED_CI_PIPELINE_ID="${CI_PIPELINE_ID:-}"
+            CAPTURED_GITLAB_TOKEN="${GITLAB_TOKEN:-}"
+            CAPTURED_CI_JOB_TOKEN="${CI_JOB_TOKEN:-}"
+            
+            # Create the script with captured values (NOT variable references)
+            # This ensures the script works even when executed by daemon running as root
+            cat > "$CANCEL_SCRIPT_PATH" << CANCEL_SCRIPT_EOF
+#!/bin/bash
+# EDAMAME Pipeline Cancellation Script
+# This script is called by the EDAMAME daemon when policy violations are detected
+# Values are captured at script creation time, not runtime (secure even with sudo)
+
+set -e
+
+REASON="\${1:-Policy violation detected by EDAMAME Posture daemon}"
+
+echo "=== EDAMAME Pipeline Cancellation ==="
+echo "Reason: \$REASON"
+echo ""
+
+# Use captured environment values (set during script creation, not runtime)
+GITHUB_ACTIONS="$CAPTURED_GITHUB_ACTIONS"
+GITHUB_RUN_ID="$CAPTURED_GITHUB_RUN_ID"
+GITHUB_REPOSITORY="$CAPTURED_GITHUB_REPOSITORY"
+GITHUB_TOKEN="$CAPTURED_GITHUB_TOKEN"
+GITLAB_CI="$CAPTURED_GITLAB_CI"
+CI_PROJECT_ID="$CAPTURED_CI_PROJECT_ID"
+CI_PIPELINE_ID="$CAPTURED_CI_PIPELINE_ID"
+GITLAB_TOKEN="$CAPTURED_GITLAB_TOKEN"
+CI_JOB_TOKEN="$CAPTURED_CI_JOB_TOKEN"
+
+# Detect CI environment and cancel appropriately
+if [[ -n "\$GITHUB_ACTIONS" ]]; then
+    echo "Detected: GitHub Actions"
+    echo "Run ID: \$GITHUB_RUN_ID"
+    echo "Repository: \$GITHUB_REPOSITORY"
+    
+    if [[ -z "\$GITHUB_TOKEN" ]]; then
+        echo "ERROR: GITHUB_TOKEN not available"
+        exit 1
+    fi
+    
+    echo "Attempting to cancel GitHub Actions run..."
+    # Export token for gh CLI
+    export GH_TOKEN="\$GITHUB_TOKEN"
+    if gh run cancel "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY"; then
+        echo "[OK] GitHub Actions run cancelled successfully"
+        exit 0
+    else
+        echo "[ERROR] Failed to cancel GitHub Actions run"
+        exit 1
+    fi
+    
+elif [[ -n "\$GITLAB_CI" ]]; then
+    echo "Detected: GitLab CI"
+    echo "Project ID: \$CI_PROJECT_ID"
+    echo "Pipeline ID: \$CI_PIPELINE_ID"
+    
+    if [[ -z "\$GITLAB_TOKEN" && -z "\$CI_JOB_TOKEN" ]]; then
+        echo "ERROR: Neither GITLAB_TOKEN nor CI_JOB_TOKEN available"
+        exit 1
+    fi
+    
+    # Prefer GITLAB_TOKEN if available, otherwise use CI_JOB_TOKEN
+    TOKEN="\${GITLAB_TOKEN:-\$CI_JOB_TOKEN}"
+    
+    echo "Attempting to cancel GitLab pipeline..."
+    URL="https://gitlab.com/api/v4/projects/\${CI_PROJECT_ID}/pipelines/\${CI_PIPELINE_ID}/cancel"
+    
+    if curl -s -X POST -H "PRIVATE-TOKEN: \$TOKEN" "\$URL" > /dev/null; then
+        echo "[OK] GitLab pipeline cancelled successfully"
+        exit 0
+    else
+        echo "[ERROR] Failed to cancel GitLab pipeline"
+        exit 1
+    fi
+    
+else
+    echo "WARNING: No supported CI environment detected"
+    echo "GITHUB_ACTIONS=\$GITHUB_ACTIONS"
+    echo "GITLAB_CI=\$GITLAB_CI"
+    exit 1
+fi
+CANCEL_SCRIPT_EOF
+
+            chmod 700 "$CANCEL_SCRIPT_PATH"
+            
+            # Export the script path for the daemon to find
+            export EDAMAME_CANCEL_PIPELINE_SCRIPT="$CANCEL_SCRIPT_PATH"
+            
+            echo "[OK] Cancellation script created and configured"
+            echo "   Script path: $CANCEL_SCRIPT_PATH"
+            echo "   The daemon will execute this script when violations are detected"
+            echo "   The script has access to CI tokens from the original environment"
+          fi
+
           $EDAMAME_POSTURE_CMD "${START_ARGS[@]}"
         fi
       shell: bash
 
-    - name: Detect auto-whitelist mode for second invocation
+    - name: Wait for API access to be granted if requested
+      if: ${{ inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
+      run: |
+        if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
+          echo "Waiting for GitHub API access to be granted..."
+          echo "Note: This runs AFTER the daemon has started and connected"
+          echo "      so the daemon can whitelist the runner IP via EDAMAME backend"
+          attempts=0
+          timeout=true
+          last_error=""
+          
+          for i in {1..10}; do
+            attempts=$((attempts + 1))
+            echo "Attempt $attempts: Testing API access..."
+            
+            # We use the GitHub token to access the run details API, which tests org-level IP allowlist access
+            # This endpoint requires authentication even for public repos and is blocked by IP allowlists
+            # Capture both stdout and stderr to see what's actually happening
+            if output=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }} 2>&1); then
+              timeout=false
+              echo "[OK] API access granted!"
+              break
+            else
+              exit_code=$?
+              last_error="$output"
+              echo "[WARNING] API call failed with exit code $exit_code"
+              echo "Error output: $last_error"
+              
+              if [ $attempts -lt 10 ]; then
+                echo "Waiting 60 seconds before retry..."
+                sleep 60
+              fi
+            fi
+          done
+
+          # Calculate elapsed time (first attempt is immediate, subsequent attempts wait 60s each)
+          if [ $attempts -gt 1 ]; then
+            elapsed_time=$(( (attempts - 1) * 60 ))
+          else
+            elapsed_time=0
+          fi
+          elapsed_minutes=$((elapsed_time / 60))
+          elapsed_seconds=$((elapsed_time % 60))
+
+          if [ "$timeout" = true ]; then
+            echo ""
+            echo "[ERROR] Timeout occurred while waiting for API access."
+            echo "Total attempts: $attempts"
+            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            echo "Last error: $last_error"
+            echo ""
+            echo "Dumping EDAMAME logs for debugging..."
+            cd
+            find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+            exit 1
+          else
+            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+          fi
+        fi
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    - name: Detect auto-whitelist mode
       if: ${{ inputs.dump_sessions_log == 'true' }}
       run: |
         cd
         
-        # Check if first invocation enabled auto-whitelist by looking for state files
+        # Check if auto-whitelist is enabled by looking for config file
         if [[ -f "auto_whitelist_config.json" ]]; then
-          echo "Auto-whitelist mode detected from first invocation"
+          echo "Auto-whitelist mode detected"
           echo "AUTO_WHITELIST_ENABLED=true" >> $GITHUB_ENV
           
-          # Load configuration from first invocation
+          # Load configuration
           ARTIFACT_NAME=$(jq -r '.artifact_name' auto_whitelist_config.json)
           THRESHOLD=$(jq -r '.stability_threshold' auto_whitelist_config.json)
           CONSECUTIVE=$(jq -r '.stability_consecutive_runs' auto_whitelist_config.json)
@@ -958,30 +1177,30 @@ runs:
           echo "AUTO_WHITELIST_CONSECUTIVE=$CONSECUTIVE" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_MAX_ITER=$MAX_ITER" >> $GITHUB_ENV
           
-          echo "Loaded auto-whitelist configuration from first invocation:"
+          echo "Auto-whitelist configuration:"
           echo "  - Artifact name: $ARTIFACT_NAME"
           echo "  - Stability threshold: $THRESHOLD%"
           echo "  - Consecutive runs required: $CONSECUTIVE"
           echo "  - Max iterations: $MAX_ITER"
         else
-          echo "No auto-whitelist configuration found (first invocation didn't use auto_whitelist)"
+          echo "No auto-whitelist configuration found"
           echo "AUTO_WHITELIST_ENABLED=false" >> $GITHUB_ENV
         fi
       shell: bash
 
-    - name: Load auto-whitelist state for second invocation
+    - name: Load auto-whitelist state for dump sessions
       if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' }}
       run: |
         cd
-        echo "Loading auto-whitelist state from first invocation..."
+        echo "Loading auto-whitelist state..."
         echo "Current directory: $(pwd)"
         echo "Files in current directory:"
         ls -la auto_whitelist* 2>/dev/null || echo "No auto_whitelist* files found"
         
-        # Check if files exist from first invocation
+        # Check if files exist
         if [[ -f "auto_whitelist.json" && -f "auto_whitelist_iteration.txt" ]]; then
           ITERATION=$(cat auto_whitelist_iteration.txt)
-          echo "Found auto-whitelist from first invocation: iteration $ITERATION"
+          echo "Found auto-whitelist: iteration $ITERATION"
           echo "AUTO_WHITELIST_ITERATION=$ITERATION" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
           
@@ -998,31 +1217,32 @@ runs:
             echo "Current whitelist contains $ENDPOINT_COUNT endpoints"
           fi
           
-          # CRITICAL: Verify whitelist was loaded into daemon by first invocation
+          # Verify daemon is running and whitelist is loaded
           if [[ "$ITERATION" -gt 0 ]]; then
-            echo "Verifying whitelist is active in daemon (iteration $ITERATION)..."
-            WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "")
-            if [[ "$WHITELIST_NAME" != "custom_whitelist" ]]; then
-              echo ""
-              echo "❌ ERROR: Whitelist file exists but is NOT loaded in daemon"
-              echo "   Expected: custom_whitelist"
-              echo "   Got: $WHITELIST_NAME"
-              echo ""
-              echo "This breaks auto-whitelist - augmentation requires custom_whitelist to be loaded."
-              echo "The first invocation should have loaded the whitelist into the daemon."
-              echo ""
-              echo "Debugging info:"
-              echo "  - Whitelist file: $(ls -lh auto_whitelist.json 2>/dev/null || echo 'missing')"
-              echo "  - Iteration: $ITERATION"
-              echo "  - Daemon status:"
-              $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+            echo "Verifying daemon is running and whitelist is active (iteration $ITERATION)..."
+            
+            # First check if daemon is responsive
+            if ! $EDAMAME_POSTURE_CMD status >/dev/null 2>&1; then
+              echo "ERROR: Daemon is not running or not responsive"
+              echo "The daemon should be running from the setup step"
+              echo "Daemon status:"
+              $EDAMAME_POSTURE_CMD status 2>&1 || echo "(daemon not responding)"
               exit 1
             fi
-            echo "✅ Whitelist 'custom_whitelist' confirmed active in daemon"
+            
+            # Now check whitelist
+            WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "")
+            if [[ "$WHITELIST_NAME" != "custom_whitelist" ]]; then
+              echo "ERROR: Whitelist is NOT loaded in daemon"
+              echo "Expected: custom_whitelist"
+              echo "Got: $WHITELIST_NAME"
+              echo "Whitelist must be loaded for augmentation to work correctly"
+              exit 1
+            fi
+            echo "Daemon is running and whitelist 'custom_whitelist' is active"
           fi
         else
-          echo "⚠️ Warning: No auto-whitelist files found from first invocation"
-          echo "This is unexpected - first invocation should have created these files"
+          echo "Warning: No auto-whitelist files found"
           echo "AUTO_WHITELIST_ITERATION=0" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_EXISTS=false" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
@@ -1043,12 +1263,12 @@ runs:
         STATE_EXIT=$?
         if [[ $STATE_EXIT -ne 0 ]]; then
           if echo "$STATE_INFO" | grep -q "IP allow list enabled"; then
-            echo "❌ ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
+            echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
             echo "Response:"
             echo "$STATE_INFO"
             exit 1
           else
-            echo "⚠️ Failed to query state artifacts: $STATE_INFO"
+            echo "[WARNING]  Failed to query state artifacts: $STATE_INFO"
             STATE_INFO=""
           fi
         else
@@ -1064,7 +1284,7 @@ runs:
             FOUND_STATE=$(find "$TEMP_STATE_DIR" -name "$STATE_FILE" -type f | head -1)
             if [[ -n "$FOUND_STATE" && -f "$FOUND_STATE" ]]; then
               cp "$FOUND_STATE" ./"$STATE_FILE"
-              echo "✅ State file downloaded"
+              echo "[OK] State file downloaded"
               if command -v jq &> /dev/null; then
                 LAST_RUN_ID=$(jq -r '.last_run_id // empty' "$STATE_FILE")
                 LAST_ITERATION=$(jq -r '.last_iteration // empty' "$STATE_FILE")
@@ -1080,10 +1300,10 @@ runs:
                 fi
               fi
             else
-              echo "⚠️ State artifact zip downloaded but $STATE_FILE not found"
+              echo "[WARNING]  State artifact zip downloaded but $STATE_FILE not found"
             fi
           else
-            echo "⚠️ Failed to download state artifact zip"
+            echo "[WARNING]  Failed to download state artifact zip"
           fi
           rm -rf "$TEMP_STATE_DIR" 2>/dev/null || true
         else
@@ -1117,12 +1337,12 @@ runs:
                 cp "$file" ./ 2>/dev/null || true
               done
               if [[ -f "auto_whitelist.json" ]]; then
-                echo "✅ Successfully downloaded artifact from recorded run $TARGET_RUN_ID"
+                echo "[OK] Successfully downloaded artifact from recorded run $TARGET_RUN_ID"
                 ARTIFACT_FOUND=true
               fi
             fi
           else
-            echo "⚠️ Failed to download artifact from recorded run $TARGET_RUN_ID"
+            echo "[WARNING]  Failed to download artifact from recorded run $TARGET_RUN_ID"
           fi
           rm -rf "$TEMP_DOWNLOAD_DIR" 2>/dev/null || true
         fi
@@ -1136,12 +1356,12 @@ runs:
           API_EXIT=$?
           if [[ $API_EXIT -ne 0 ]]; then
             if echo "$ARTIFACT_INFO" | grep -q "IP allow list enabled"; then
-              echo "❌ ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
+              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
               echo "Response:"
               echo "$ARTIFACT_INFO"
               exit 1
             else
-              echo "⚠️ Failed to query artifacts: $ARTIFACT_INFO"
+              echo "[WARNING]  Failed to query artifacts: $ARTIFACT_INFO"
               ARTIFACT_INFO=""
             fi
           else
@@ -1165,14 +1385,14 @@ runs:
                   cp "$file" ./ 2>/dev/null || true
                 done
                 if [[ -f "auto_whitelist.json" ]]; then
-                  echo "✅ Successfully downloaded artifact from run $SOURCE_RUN_ID"
+                  echo "[OK] Successfully downloaded artifact from run $SOURCE_RUN_ID"
                   ARTIFACT_FOUND=true
                 fi
               else
-                echo "⚠️ Artifact zip downloaded but auto_whitelist.json not found"
+                echo "[WARNING]  Artifact zip downloaded but auto_whitelist.json not found"
               fi
             else
-              echo "⚠️ Failed to download artifact zip for ID $ARTIFACT_ID"
+              echo "[WARNING]  Failed to download artifact zip for ID $ARTIFACT_ID"
             fi
             
             rm -rf "$TEMP_DOWNLOAD_DIR" 2>/dev/null || true
@@ -1182,11 +1402,11 @@ runs:
         fi
         
         if [[ "$ARTIFACT_FOUND" == "false" ]]; then
-          echo "ℹ️ No artifact found from previous runs"
+          echo "[INFO]  No artifact found from previous runs"
           if [[ "$PREVIOUS_SUCCESS_FOUND" == "false" ]]; then
             echo "This is expected for the first iteration"
           else
-            echo "⚠️ No artifact found despite previous successful runs - treating as first run"
+            echo "[WARNING]  No artifact found despite previous successful runs - treating as first run"
           fi
         fi
 
@@ -1205,18 +1425,18 @@ runs:
         ls -la auto_whitelist* 2>/dev/null || echo "No auto_whitelist* files found"
         
         if [[ -f "auto_whitelist.json" ]]; then
-          echo "✅ Whitelist file found: auto_whitelist.json"
+          echo "[OK] Whitelist file found: auto_whitelist.json"
           echo "File size: $(wc -c < auto_whitelist.json) bytes"
           
           # Read iteration count
           if [[ -f "auto_whitelist_iteration.txt" ]]; then
             ITERATION=$(cat auto_whitelist_iteration.txt)
-            echo "✅ Found iteration file: auto_whitelist_iteration.txt"
+            echo "[OK] Found iteration file: auto_whitelist_iteration.txt"
             echo "Current iteration: $ITERATION"
             echo "AUTO_WHITELIST_ITERATION=$ITERATION" >> $GITHUB_ENV
             echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
           else
-            echo "⚠️ Warning: auto_whitelist_iteration.txt not found, defaulting to iteration 1"
+            echo "[WARNING]  Warning: auto_whitelist_iteration.txt not found, defaulting to iteration 1"
             echo "AUTO_WHITELIST_ITERATION=1" >> $GITHUB_ENV
             echo "AUTO_WHITELIST_EXISTS=true" >> $GITHUB_ENV
           fi
@@ -1227,21 +1447,21 @@ runs:
             echo "Consecutive stable runs: $STABLE_COUNT"
             echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
           else
-            echo "⚠️ Warning: auto_whitelist_stable_count.txt not found, defaulting to 0"
+            echo "[WARNING]  Warning: auto_whitelist_stable_count.txt not found, defaulting to 0"
             echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
           fi
           
           # Verify the whitelist has endpoints
           if command -v jq &> /dev/null; then
             ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "auto_whitelist.json" 2>/dev/null || echo "0")
-            echo "✅ Downloaded whitelist contains $ENDPOINT_COUNT endpoints"
+            echo "[OK] Downloaded whitelist contains $ENDPOINT_COUNT endpoints"
             echo "This whitelist will be loaded into the daemon in the next step"
           else
-            echo "⚠️ Warning: jq not available, cannot count endpoints"
+            echo "[WARNING]  Warning: jq not available, cannot count endpoints"
           fi
           echo "=== Artifact download check complete ==="
         else
-          echo "❌ No whitelist file found, treating as first run (listen-only mode)"
+          echo "[ERROR] No whitelist file found, treating as first run (listen-only mode)"
           echo "This means:"
           echo "  - No artifact was downloaded from previous runs"
           echo "  - Will initialize empty whitelist"
@@ -1253,10 +1473,10 @@ runs:
         fi
         echo ""
         
-        # Save auto-whitelist configuration to state file for second invocation
-        # This allows second invocation to infer parameters without repeating them
+        # Save auto-whitelist configuration to state file
+        # This configuration will be used when dump_sessions_log is called
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
-          echo "Saving auto-whitelist configuration for second invocation..."
+          echo "Saving auto-whitelist configuration..."
           echo "Current directory: $(pwd)"
           jq -n \
             --arg artifact "${{ inputs.auto_whitelist_artifact_name }}" \
@@ -1269,7 +1489,7 @@ runs:
               stability_consecutive_runs: $consecutive,
               max_iterations: $max_iter
             }' > auto_whitelist_config.json
-          echo "✅ Config saved to: $(pwd)/auto_whitelist_config.json"
+          echo "[OK] Config saved to: $(pwd)/auto_whitelist_config.json"
           echo "Config contents:"
           cat auto_whitelist_config.json
         fi
@@ -1293,7 +1513,7 @@ runs:
               echo "Whitelist file contains $ENDPOINT_COUNT endpoints"
               
               if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
-                echo "⚠️ Warning: Whitelist file '${{ inputs.custom_whitelists_path }}' is empty (no endpoints)"
+                echo "[WARNING]  Warning: Whitelist file '${{ inputs.custom_whitelists_path }}' is empty (no endpoints)"
                 echo "Skipping whitelist load - empty whitelists would mark all sessions as non-conforming"
                 echo "This can happen if:"
                 echo "  - No network sessions were captured yet"
@@ -1302,7 +1522,7 @@ runs:
                 exit 0
               fi
             else
-              echo "⚠️ Warning: jq not available, cannot verify whitelist endpoints. Proceeding anyway..."
+              echo "[WARNING]  Warning: jq not available, cannot verify whitelist endpoints. Proceeding anyway..."
             fi
             
             echo "Applying custom whitelists from: ${{ inputs.custom_whitelists_path }}"
@@ -1318,7 +1538,7 @@ runs:
         if [[ "${{ inputs.auto_whitelist }}" == "true" ]]; then
           echo ""
           echo "=== Auto-Whitelist Mode: Loading Artifact into Daemon ==="
-          echo "Auto-whitelist mode detected in first invocation"
+          echo "Auto-whitelist mode is enabled"
           echo "AUTO_WHITELIST_EXISTS: $AUTO_WHITELIST_EXISTS"
           echo "AUTO_WHITELIST_ITERATION: $AUTO_WHITELIST_ITERATION"
           cd
@@ -1326,12 +1546,12 @@ runs:
           # CRITICAL: Verify daemon is ready BEFORE applying whitelist
           echo "Checking daemon readiness..."
           if ! $EDAMAME_POSTURE_CMD status >/dev/null 2>&1; then
-            echo "❌ ERROR: Daemon is not responding!"
+            echo "[ERROR] ERROR: Daemon is not responding!"
             echo "Cannot apply whitelist - daemon must be running and ready."
             $EDAMAME_POSTURE_CMD status || true
             exit 1
           fi
-          echo "✅ Daemon is ready"
+          echo "[OK] Daemon is ready"
           
           if [[ "$AUTO_WHITELIST_EXISTS" == "true" && -f "auto_whitelist.json" ]]; then
             echo ""
@@ -1351,13 +1571,13 @@ runs:
               echo "Downloaded whitelist file contains $FILE_ENDPOINT_COUNT endpoints"
               
               if [[ "$FILE_ENDPOINT_COUNT" -eq 0 ]]; then
-                echo "⚠️ Warning: Auto-whitelist file 'auto_whitelist.json' is empty (no endpoints)"
+                echo "[WARNING]  Warning: Auto-whitelist file 'auto_whitelist.json' is empty (no endpoints)"
                 echo "Skipping whitelist load - empty whitelists would mark all sessions as non-conforming"
                 echo "This can happen if no network sessions were captured in the previous iteration"
                 exit 0
               fi
             else
-              echo "⚠️ Warning: jq not available, cannot verify endpoint count"
+              echo "[WARNING]  Warning: jq not available, cannot verify endpoint count"
               FILE_ENDPOINT_COUNT="unknown"
             fi
             
@@ -1369,7 +1589,7 @@ runs:
             echo "Calling: $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file \"$WHITELIST_FILE\""
             if ! $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "$WHITELIST_FILE"; then
               echo ""
-              echo "❌ ERROR: set-custom-whitelists-from-file command FAILED!"
+              echo "[ERROR] ERROR: set-custom-whitelists-from-file command FAILED!"
               echo "   Exit code: $?"
               echo "   File: $WHITELIST_FILE"
               echo "   File exists: $([ -f "$WHITELIST_FILE" ] && echo 'yes' || echo 'no')"
@@ -1379,7 +1599,7 @@ runs:
               $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
               exit 1
             fi
-            echo "✅ Command executed successfully"
+            echo "[OK] Command executed successfully"
             
             # CRITICAL: Verify it was loaded correctly
             sleep 1  # Give daemon a moment to process
@@ -1387,7 +1607,7 @@ runs:
             echo "Daemon whitelist AFTER load: $LOADED_NAME"
             if [[ "$LOADED_NAME" != "custom_whitelist" ]]; then
               echo ""
-              echo "❌ ERROR: Whitelist not loaded correctly into daemon!"
+              echo "[ERROR] ERROR: Whitelist not loaded correctly into daemon!"
               echo "   Expected: custom_whitelist"
               echo "   Got: $LOADED_NAME"
               echo "   Before load: $BEFORE_NAME"
@@ -1409,14 +1629,14 @@ runs:
               $EDAMAME_POSTURE_CMD get-whitelist-name || echo "    (command failed)"
               exit 1
             fi
-            echo "✅ Whitelist 'custom_whitelist' confirmed loaded in daemon"
+            echo "[OK] Whitelist 'custom_whitelist' confirmed loaded in daemon"
             
             # CRITICAL: Verify endpoint count matches between file and daemon
             if [[ "$FILE_ENDPOINT_COUNT" != "unknown" ]]; then
               echo "Verifying endpoint count matches between file and daemon..."
               DAEMON_WHITELIST_JSON=$($EDAMAME_POSTURE_CMD get-whitelists 2>/dev/null || echo "")
               if [[ -z "$DAEMON_WHITELIST_JSON" ]]; then
-                echo "❌ ERROR: Failed to get whitelist from daemon!"
+                echo "[ERROR] ERROR: Failed to get whitelist from daemon!"
                 echo "Cannot verify endpoint count - daemon may not be responding correctly"
                 exit 1
               fi
@@ -1438,18 +1658,18 @@ runs:
                 if [[ "$ABS_DIFF" -le 2 ]]; then
                   # Small difference (1-2 endpoints) - likely deduplication or filtering
                   echo ""
-                  echo "⚠️ Warning: Small endpoint count difference (daemon may have deduplicated/filtered)"
+                  echo "[WARNING]  Warning: Small endpoint count difference (daemon may have deduplicated/filtered)"
                   echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
                   echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
                   echo "   Difference: $DIFF endpoints"
                   echo ""
                   echo "This is likely expected behavior - daemon may deduplicate or filter invalid endpoints."
                   echo "Continuing with daemon whitelist count: $DAEMON_ENDPOINT_COUNT"
-                  echo "✅ Endpoint count verified (small difference acceptable): $DAEMON_ENDPOINT_COUNT endpoints"
+                  echo "[OK] Endpoint count verified (small difference acceptable): $DAEMON_ENDPOINT_COUNT endpoints"
                 else
                   # Large difference - indicates real problem
                   echo ""
-                  echo "❌ ERROR: Significant endpoint count mismatch between file and daemon!"
+                  echo "[ERROR] ERROR: Significant endpoint count mismatch between file and daemon!"
                   echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
                   echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
                   echo "   Difference: $DIFF endpoints"
@@ -1466,7 +1686,7 @@ runs:
                   exit 1
                 fi
               else
-                echo "✅ Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints match exactly"
+                echo "[OK] Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints match exactly"
               fi
             fi
           else
@@ -1500,12 +1720,12 @@ runs:
             echo "Calling: $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file \"$EMPTY_WHITELIST_FILE\""
             if ! $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "$EMPTY_WHITELIST_FILE"; then
               echo ""
-              echo "❌ ERROR: Failed to load empty whitelist into daemon!"
+              echo "[ERROR] ERROR: Failed to load empty whitelist into daemon!"
               echo "   Exit code: $?"
               echo "   File: $EMPTY_WHITELIST_FILE"
               exit 1
             fi
-            echo "✅ Empty whitelist loaded successfully"
+            echo "[OK] Empty whitelist loaded successfully"
             
             # CRITICAL: Verify it was loaded correctly
             sleep 1  # Give daemon a moment to process
@@ -1513,19 +1733,19 @@ runs:
             echo "Daemon whitelist AFTER load: $LOADED_NAME"
             if [[ "$LOADED_NAME" != "custom_whitelist" ]]; then
               echo ""
-              echo "❌ ERROR: Empty whitelist not loaded correctly into daemon!"
+              echo "[ERROR] ERROR: Empty whitelist not loaded correctly into daemon!"
               echo "   Expected: custom_whitelist"
               echo "   Got: $LOADED_NAME"
               echo "   Before load: $BEFORE_NAME"
               exit 1
             fi
-            echo "✅ Empty whitelist 'custom_whitelist' confirmed loaded in daemon"
+            echo "[OK] Empty whitelist 'custom_whitelist' confirmed loaded in daemon"
             
             # CRITICAL: Verify endpoint count is 0 in daemon
             echo "Verifying empty whitelist has 0 endpoints in daemon..."
             DAEMON_WHITELIST_JSON=$($EDAMAME_POSTURE_CMD get-whitelists 2>/dev/null || echo "")
             if [[ -z "$DAEMON_WHITELIST_JSON" ]]; then
-              echo "❌ ERROR: Failed to get whitelist from daemon!"
+              echo "[ERROR] ERROR: Failed to get whitelist from daemon!"
               exit 1
             fi
             
@@ -1534,14 +1754,14 @@ runs:
             
             if [[ "$DAEMON_ENDPOINT_COUNT" != "0" ]]; then
               echo ""
-              echo "❌ ERROR: Empty whitelist verification failed!"
+              echo "[ERROR] ERROR: Empty whitelist verification failed!"
               echo "   Expected: 0 endpoints"
               echo "   Got: $DAEMON_ENDPOINT_COUNT endpoints"
               echo ""
               echo "The empty whitelist was not loaded correctly into the daemon."
               exit 1
             fi
-            echo "✅ Empty whitelist verified: 0 endpoints confirmed"
+            echo "[OK] Empty whitelist verified: 0 endpoints confirmed"
           fi
         else
           echo "Auto-whitelist not enabled in this invocation"
@@ -1572,7 +1792,7 @@ runs:
           echo "Augmented whitelist contains $ENDPOINT_COUNT endpoints"
           
           if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
-            echo "⚠️ Warning: Augmented whitelist is empty (no endpoints)"
+            echo "[WARNING]  Warning: Augmented whitelist is empty (no endpoints)"
             echo "This can happen if:"
             echo "  - No baseline whitelist was loaded before augmentation (use set_custom_whitelists: true first)"
             echo "  - No network sessions were captured yet"
@@ -1591,9 +1811,12 @@ runs:
       shell: bash
 
     - name: Wait for https access to the repo be granted if requested
+      if: ${{ inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
       run: |
         if [[ "${{ inputs.wait_for_https }}" == "true" ]]; then
           echo "Waiting for HTTPS access to the repository..."
+          echo "Note: This runs AFTER the daemon has started and connected"
+          echo "      so the daemon can whitelist the runner IP via EDAMAME backend"
           attempts=0
           timeout=true
           repo_url="https://github.com/${{ github.repository }}.git"
@@ -1607,10 +1830,10 @@ runs:
 
             if [[ "$status_code" == "301" || "$status_code" == "200" ]]; then
               timeout=false
-              echo "✅ HTTPS access granted (status: $status_code)!"
+              echo "[OK] HTTPS access granted (status: $status_code)!"
               break
             else
-              echo "⚠️  HTTPS access not yet granted. Status Code: $status_code"
+              echo "[WARNING] HTTPS access not yet granted. Status Code: $status_code"
               if [ $attempts -lt 10 ]; then
                 echo "Waiting 60 seconds before retry..."
                 sleep 60
@@ -1629,7 +1852,7 @@ runs:
 
           if [ "$timeout" = true ]; then
             echo ""
-            echo "❌ Timeout occurred while waiting for HTTPS access to the repo."
+            echo "[ERROR] Timeout occurred while waiting for HTTPS access to the repo."
             echo "Total attempts: $attempts"
             echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
             echo "Last status code: $last_status"
@@ -1717,7 +1940,7 @@ runs:
               echo "Created whitelist contains $ENDPOINT_COUNT endpoints"
               
               if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
-                echo "⚠️ Warning: Created whitelist is empty (no endpoints)"
+                echo "[WARNING]  Warning: Created whitelist is empty (no endpoints)"
                 echo "This can happen if:"
                 echo "  - No network sessions were captured yet (wait longer before creating whitelist)"
                 echo "  - Only ingress (local-to-local) sessions exist (these are excluded from whitelists)"
@@ -1739,7 +1962,7 @@ runs:
       run: |
         cd
         
-        # Use configuration from first invocation (via state file) or fallback to inputs
+        # Use configuration from saved state or fallback to inputs
         THRESHOLD="${AUTO_WHITELIST_THRESHOLD:-${{ inputs.auto_whitelist_stability_threshold }}}"
         CONSECUTIVE="${AUTO_WHITELIST_CONSECUTIVE:-${{ inputs.auto_whitelist_stability_consecutive_runs }}}"
         MAX_ITER="${AUTO_WHITELIST_MAX_ITER:-${{ inputs.auto_whitelist_max_iterations }}}"
@@ -1750,14 +1973,14 @@ runs:
         # CRITICAL: Verify daemon is ready BEFORE checking whitelist
         echo "Checking daemon readiness before augmentation..."
         if ! $EDAMAME_POSTURE_CMD status >/dev/null 2>&1; then
-          echo "❌ ERROR: Daemon is not responding!"
+          echo "[ERROR] ERROR: Daemon is not responding!"
           echo "Cannot proceed with augmentation - daemon must be running and ready."
           echo ""
           echo "Daemon status:"
           $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
           exit 1
         fi
-        echo "✅ Daemon is ready"
+        echo "[OK] Daemon is ready"
         
         # CRITICAL: Verify daemon state before augmentation
         echo "Checking daemon whitelist state..."
@@ -1766,15 +1989,15 @@ runs:
         
         if [[ "$DAEMON_WHITELIST" != "custom_whitelist" && "$AUTO_WHITELIST_ITERATION" -gt 0 ]]; then
           echo ""
-          echo "❌ ERROR: Daemon does not have custom_whitelist loaded!"
+          echo "[ERROR] ERROR: Daemon does not have custom_whitelist loaded!"
           echo "   Expected: custom_whitelist"
           echo "   Actual: $DAEMON_WHITELIST"
           echo ""
           echo "This breaks auto-whitelist - augmentation requires custom_whitelist to be loaded."
           echo "Without it, augmentation creates a fresh whitelist instead of merging with baseline."
           echo ""
-          echo "The first invocation should have loaded the whitelist into the daemon."
-          echo "This error indicates the first invocation failed to apply the whitelist correctly."
+          echo "The daemon should have loaded the whitelist during setup."
+          echo "This error indicates the whitelist was not applied correctly."
           echo ""
           echo "Debugging info:"
           echo "  - Iteration: $AUTO_WHITELIST_ITERATION"
@@ -1785,15 +2008,15 @@ runs:
           echo "  - Daemon status:"
           $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
           echo ""
-          echo "CRITICAL: Cannot proceed with augmentation - whitelist must be loaded in first invocation."
+          echo "CRITICAL: Cannot proceed with augmentation - whitelist must be loaded during setup."
           echo "Augmentation requires custom_whitelist to be active in the daemon."
-          echo "Attempting to reload now would mask the root cause of the first invocation failure."
+          echo "Attempting to reload now would mask the root cause of the setup failure."
           echo ""
-          echo "Fix: Ensure the first invocation successfully loads the whitelist into the daemon."
+          echo "Fix: Ensure the whitelist is successfully loaded into the daemon during setup."
           exit 1
         fi
         
-        echo "✅ Daemon has correct whitelist loaded for augmentation"
+        echo "[OK] Daemon has correct whitelist loaded for augmentation"
         
         # For subsequent runs, force session update before augmentation to ensure exceptions are populated
         if [[ "$AUTO_WHITELIST_EXISTS" == "true" ]]; then
@@ -1810,7 +2033,7 @@ runs:
             
             if ! $EDAMAME_POSTURE_CMD create-custom-whitelists > auto_whitelist_new.json 2>&1; then
               echo ""
-              echo "❌ ERROR: create-custom-whitelists command FAILED!"
+              echo "[ERROR] ERROR: create-custom-whitelists command FAILED!"
               echo "   Exit code: $?"
               echo "   Command output:"
               cat auto_whitelist_new.json 2>/dev/null || echo "    (no output captured)"
@@ -1819,7 +2042,7 @@ runs:
               $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
               exit 1
             fi
-            echo "✅ Create command executed successfully"
+            echo "[OK] Create command executed successfully"
             
             # Save iteration count
             echo "1" > auto_whitelist_iteration.txt
@@ -1830,7 +2053,7 @@ runs:
             echo "Initial whitelist created with $ENDPOINT_COUNT endpoints"
             
             if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
-              echo "⚠️ Warning: Initial auto-whitelist is empty (no endpoints)"
+              echo "[WARNING]  Warning: Initial auto-whitelist is empty (no endpoints)"
               echo "This can happen if no network sessions were captured yet"
               echo "The whitelist will not be loaded automatically if empty"
             fi
@@ -1848,7 +2071,7 @@ runs:
             # Only JSON should go to the file, stderr should be logged separately
             if ! $EDAMAME_POSTURE_CMD augment-custom-whitelists > auto_whitelist_new.json 2> augment_stderr.log; then
               echo ""
-              echo "❌ ERROR: augment-custom-whitelists command FAILED!"
+              echo "[ERROR] ERROR: augment-custom-whitelists command FAILED!"
               echo "   Exit code: $?"
               echo ""
               echo "Command stderr output:"
@@ -1867,15 +2090,15 @@ runs:
             
             # Log stderr if any (for debugging)
             if [[ -s augment_stderr.log ]]; then
-              echo "⚠️  Command stderr output (non-fatal):"
+              echo "[WARNING] Command stderr output (non-fatal):"
               cat augment_stderr.log
             fi
             
-            echo "✅ Augment command executed successfully"
+            echo "[OK] Augment command executed successfully"
             
             # Verify output file was created
             if [[ ! -f "auto_whitelist_new.json" ]]; then
-              echo "❌ ERROR: augment-custom-whitelists did not create output file!"
+              echo "[ERROR] ERROR: augment-custom-whitelists did not create output file!"
               exit 1
             fi
             
@@ -1884,7 +2107,7 @@ runs:
             if command -v jq &> /dev/null; then
               # Check if file is valid JSON
               if ! jq . auto_whitelist_new.json >/dev/null 2>&1; then
-                echo "⚠️  Warning: Output file is not valid JSON, attempting to extract JSON..."
+                echo "[WARNING] Warning: Output file is not valid JSON, attempting to extract JSON..."
                 # Try to extract JSON by finding the first { and using jq to parse from there
                 mv auto_whitelist_new.json auto_whitelist_new.json.orig
                 # Find line starting with { and extract everything from there
@@ -1898,9 +2121,9 @@ runs:
                 # Validate extracted JSON
                 if jq . auto_whitelist_new.json.tmp >/dev/null 2>&1; then
                   mv auto_whitelist_new.json.tmp auto_whitelist_new.json
-                  echo "✅ Extracted valid JSON from command output"
+                  echo "[OK] Extracted valid JSON from command output"
                 else
-                  echo "❌ ERROR: Cannot extract valid JSON from command output"
+                  echo "[ERROR] ERROR: Cannot extract valid JSON from command output"
                   echo "First 1000 chars of output:"
                   head -c 1000 auto_whitelist_new.json.orig | cat -A
                   echo ""
@@ -1909,7 +2132,7 @@ runs:
                   exit 1
                 fi
               else
-                echo "✅ Output file is valid JSON"
+                echo "[OK] Output file is valid JSON"
               fi
             fi
             
@@ -1922,7 +2145,7 @@ runs:
               
               if [[ "$NEW_ENDPOINT_COUNT" -eq 0 && "$OLD_ENDPOINT_COUNT" -gt 0 ]]; then
                 echo ""
-                echo "❌ ERROR: Augmentation resulted in empty whitelist!"
+                echo "[ERROR] ERROR: Augmentation resulted in empty whitelist!"
                 echo "   Old whitelist had: $OLD_ENDPOINT_COUNT endpoints"
                 echo "   New whitelist has: $NEW_ENDPOINT_COUNT endpoints"
                 echo ""
@@ -1943,14 +2166,14 @@ runs:
                 ENDPOINT_DELTA=$((OLD_ENDPOINT_COUNT - NEW_ENDPOINT_COUNT))
                 if [[ "$ENDPOINT_DELTA" -le 2 ]]; then
                   echo ""
-                  echo "⚠️  Warning: Endpoint count decreased slightly after augmentation"
+                  echo "[WARNING] Warning: Endpoint count decreased slightly after augmentation"
                   echo "   Old whitelist had: $OLD_ENDPOINT_COUNT endpoints"
                   echo "   New whitelist has: $NEW_ENDPOINT_COUNT endpoints"
                   echo "   Difference: -$ENDPOINT_DELTA endpoints"
                   echo "   Continuing (difference within acceptable deduplication threshold ≤2)"
                 else
                   echo ""
-                  echo "❌ ERROR: Endpoint count decreased after augmentation!"
+                  echo "[ERROR] ERROR: Endpoint count decreased after augmentation!"
                   echo "   Old whitelist had: $OLD_ENDPOINT_COUNT endpoints"
                   echo "   New whitelist has: $NEW_ENDPOINT_COUNT endpoints"
                   echo "   Difference: -$ENDPOINT_DELTA endpoints"
@@ -1992,12 +2215,12 @@ runs:
               echo "$STABLE_COUNT" > auto_whitelist_stable_count.txt
               echo "AUTO_WHITELIST_STABLE_COUNT=$STABLE_COUNT" >> $GITHUB_ENV
               
-              echo "✅ Whitelist is STABLE for this run (diff: ${DIFF_PERCENT}% <= threshold: ${THRESHOLD}%)"
+              echo "[OK] Whitelist is STABLE for this run (diff: ${DIFF_PERCENT}% <= threshold: ${THRESHOLD}%)"
               echo "   Consecutive stable runs: $STABLE_COUNT / $CONSECUTIVE required"
               
               # Check if we have enough consecutive stable runs
               if [[ $STABLE_COUNT -ge $CONSECUTIVE ]]; then
-                echo "🎉 Whitelist is FULLY STABLE ($STABLE_COUNT consecutive runs with no changes)"
+                echo "[SUCCESS] Whitelist is FULLY STABLE ($STABLE_COUNT consecutive runs with no changes)"
                 # Update iteration and whitelist even when fully stable
                 NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
                 echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
@@ -2012,7 +2235,7 @@ runs:
                 echo "AUTO_WHITELIST_STATUS=stable" >> $GITHUB_ENV
                 echo "AUTO_WHITELIST_STABLE=true" >> $GITHUB_ENV
               else
-                echo "🔄 Whitelist is stable for this run, but need more consecutive confirmations"
+                echo "[PROGRESS] Whitelist is stable for this run, but need more consecutive confirmations"
                 # Update iteration and whitelist when stable but not fully stable
                 NEXT_ITERATION=$((AUTO_WHITELIST_ITERATION + 1))
                 echo "$NEXT_ITERATION" > auto_whitelist_iteration.txt
@@ -2029,7 +2252,7 @@ runs:
               fi
             else
               # Whitelist changed - reset consecutive stable count
-              echo "🔄 Whitelist is EVOLVING (diff: ${DIFF_PERCENT}% > threshold: ${THRESHOLD}%)"
+              echo "[PROGRESS] Whitelist is EVOLVING (diff: ${DIFF_PERCENT}% > threshold: ${THRESHOLD}%)"
               echo "0" > auto_whitelist_stable_count.txt
               echo "AUTO_WHITELIST_STABLE_COUNT=0" >> $GITHUB_ENV
               
@@ -2045,7 +2268,7 @@ runs:
               
               # Check if max iterations reached
               if [[ $NEXT_ITERATION -ge $MAX_ITER ]]; then
-                echo "⚠️  Maximum iterations reached ($MAX_ITER), declaring stable"
+                echo "[WARNING] Maximum iterations reached ($MAX_ITER), declaring stable"
                 echo "AUTO_WHITELIST_STATUS=max_iterations" >> $GITHUB_ENV
                 echo "AUTO_WHITELIST_STABLE=true" >> $GITHUB_ENV
               else
@@ -2074,11 +2297,11 @@ runs:
         if [[ "$AUTO_WHITELIST_ENABLED" == "true" ]]; then
           # Auto-whitelist mode: only enforce when stable
           if [[ "$AUTO_WHITELIST_STABLE" == "true" ]]; then
-            echo "ℹ️  Auto-whitelist is STABLE - enforcing whitelist violations"
+            echo "[INFO] Auto-whitelist is STABLE - enforcing whitelist violations"
             echo "   Any whitelist exceptions will cause this step to fail"
             ARGS+=(--fail-on-whitelist)
           else
-            echo "ℹ️  Auto-whitelist is LEARNING/EVOLVING - whitelist exceptions are expected"
+            echo "[INFO] Auto-whitelist is LEARNING/EVOLVING - whitelist exceptions are expected"
             echo "   New endpoints will be discovered and added to the whitelist"
             echo "   This step will NOT fail on whitelist exceptions during learning"
             # Do NOT add --fail-on-whitelist during learning
@@ -2111,14 +2334,14 @@ runs:
           
           if [[ $EXIT_CODE -ne 0 ]]; then
             echo ""
-            echo "ℹ️  Non-zero exit code ($EXIT_CODE) - this is expected during learning phase"
+            echo "[INFO] Non-zero exit code ($EXIT_CODE) - this is expected during learning phase"
             echo "   Non-conforming sessions detected (ignoring during learning)"
             echo "   These sessions will be added to the whitelist via augmentation"
             echo "   This is normal behavior - whitelist is still evolving"
             echo ""
             # Don't exit - continue with augmentation
           else
-            echo "✅ No whitelist exceptions detected"
+            echo "[OK] No whitelist exceptions detected"
           fi
         else
           # Stable phase or manual mode: fail on errors
@@ -2217,34 +2440,34 @@ runs:
         # Display summary with enforcement status
         if [[ "$AUTO_WHITELIST_STATUS" == "created" ]]; then
           echo ""
-          echo "ℹ️  This was the first run in listen-only mode."
+          echo "[INFO] This was the first run in listen-only mode."
           echo "   Whitelist exceptions are NORMAL and did NOT cause failure."
           echo "   Re-run the workflow to start refining the whitelist."
         elif [[ "$AUTO_WHITELIST_STATUS" == "evolving" ]]; then
           echo ""
-          echo "🔄 Whitelist is still evolving (${AUTO_WHITELIST_DIFF}% change)."
+          echo "[PROGRESS] Whitelist is still evolving (${AUTO_WHITELIST_DIFF}% change)."
           echo "   New endpoints were discovered and added to the whitelist."
           echo "   Whitelist exceptions are EXPECTED and did NOT cause failure."
           echo "   Consecutive stable runs reset to 0."
           echo "   Re-run the workflow to continue refinement."
         elif [[ "$AUTO_WHITELIST_STATUS" == "confirming_stability" ]]; then
           echo ""
-          echo "🔄 Whitelist had no changes this run (${AUTO_WHITELIST_DIFF}%)."
+          echo "[PROGRESS] Whitelist had no changes this run (${AUTO_WHITELIST_DIFF}%)."
           echo "   No new endpoints discovered - counting stable runs."
           echo "   Whitelist exceptions still allowed (NOT failing yet)."
           echo "   Consecutive stable runs: $AUTO_WHITELIST_STABLE_COUNT / $CONSECUTIVE"
           echo "   Re-run the workflow to confirm stability."
         elif [[ "$AUTO_WHITELIST_STATUS" == "stable" ]]; then
           echo ""
-          echo "✅ Whitelist has stabilized!"
+          echo "[OK] Whitelist has stabilized!"
           echo "   Achieved $AUTO_WHITELIST_STABLE_COUNT consecutive runs with no changes."
-          echo "   🚨 ENFORCEMENT ENABLED: Future runs will FAIL on whitelist violations."
+          echo "   ENFORCEMENT ENABLED: Future runs will FAIL on whitelist violations."
           echo "   Any new endpoint will be treated as a potential supply chain attack."
         elif [[ "$AUTO_WHITELIST_STATUS" == "max_iterations" ]]; then
           echo ""
-          echo "⚠️  Maximum iterations reached."
+          echo "[WARNING] Maximum iterations reached."
           echo "   Whitelist declared stable even though still evolving."
-          echo "   🚨 ENFORCEMENT ENABLED: Future runs will FAIL on whitelist violations."
+          echo "   ENFORCEMENT ENABLED: Future runs will FAIL on whitelist violations."
         fi
       shell: bash
       env:
