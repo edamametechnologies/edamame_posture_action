@@ -718,6 +718,66 @@ runs:
         fi
       shell: bash
 
+    - name: Wait for API access to be granted if requested
+      run: |
+        if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
+          echo "Waiting for GitHub API access to be granted..."
+          attempts=0
+          timeout=true
+          last_error=""
+          
+          for i in {1..10}; do
+            attempts=$((attempts + 1))
+            echo "Attempt $attempts: Testing API access..."
+            
+            # We use the GitHub token to access the run details API, which tests org-level IP allowlist access
+            # This endpoint requires authentication even for public repos and is blocked by IP allowlists
+            # Capture both stdout and stderr to see what's actually happening
+            if output=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }} 2>&1); then
+              timeout=false
+              echo "✅ API access granted!"
+              break
+            else
+              exit_code=$?
+              last_error="$output"
+              echo "⚠️  API call failed with exit code $exit_code"
+              echo "Error output: $last_error"
+              
+              if [ $attempts -lt 10 ]; then
+                echo "Waiting 60 seconds before retry..."
+                sleep 60
+              fi
+            fi
+          done
+
+          # Calculate elapsed time (first attempt is immediate, subsequent attempts wait 60s each)
+          if [ $attempts -gt 1 ]; then
+            elapsed_time=$(( (attempts - 1) * 60 ))
+          else
+            elapsed_time=0
+          fi
+          elapsed_minutes=$((elapsed_time / 60))
+          elapsed_seconds=$((elapsed_time % 60))
+
+          if [ "$timeout" = true ]; then
+            echo ""
+            echo "❌ Timeout occurred while waiting for API access."
+            echo "Total attempts: $attempts"
+            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            echo "Last error: $last_error"
+            echo ""
+            echo "Dumping EDAMAME logs for debugging..."
+            cd
+            find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+            exit 1
+          else
+            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+          fi
+        fi
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+
     - name: Start EDAMAME Posture process and wait for connection if all arguments are provided, skip otherwise
       if: ${{ inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
       run: |
@@ -1530,6 +1590,60 @@ runs:
         echo "Augmented whitelist saved to: ${{ inputs.custom_whitelists_path }}"
       shell: bash
 
+    - name: Wait for https access to the repo be granted if requested
+      run: |
+        if [[ "${{ inputs.wait_for_https }}" == "true" ]]; then
+          echo "Waiting for HTTPS access to the repository..."
+          attempts=0
+          timeout=true
+          repo_url="https://github.com/${{ github.repository }}.git"
+          last_status=""
+
+          for i in {1..10}; do
+            attempts=$((attempts + 1))
+            echo "Attempt $attempts: Checking HTTPS access to the repo..."
+            status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${{ inputs.token }}" $repo_url)
+            last_status="$status_code"
+
+            if [[ "$status_code" == "301" || "$status_code" == "200" ]]; then
+              timeout=false
+              echo "✅ HTTPS access granted (status: $status_code)!"
+              break
+            else
+              echo "⚠️  HTTPS access not yet granted. Status Code: $status_code"
+              if [ $attempts -lt 10 ]; then
+                echo "Waiting 60 seconds before retry..."
+                sleep 60
+              fi
+            fi
+          done
+
+          # Calculate elapsed time (first attempt is immediate, subsequent attempts wait 60s each)
+          if [ $attempts -gt 1 ]; then
+            elapsed_time=$(( (attempts - 1) * 60 ))
+          else
+            elapsed_time=0
+          fi
+          elapsed_minutes=$((elapsed_time / 60))
+          elapsed_seconds=$((elapsed_time % 60))
+
+          if [ "$timeout" = true ]; then
+            echo ""
+            echo "❌ Timeout occurred while waiting for HTTPS access to the repo."
+            echo "Total attempts: $attempts"
+            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+            echo "Last status code: $last_status"
+            echo ""
+            echo "Dumping EDAMAME logs for debugging..."
+            cd
+            find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+            exit 1
+          else
+            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
+          fi
+        fi
+      shell: bash
+
     - name: Checkout the repo through the git CLI if requested
       run: |
         if [[ "${{ inputs.checkout }}" == "true" ]]; then
@@ -1584,81 +1698,6 @@ runs:
               echo "Expected: ${{ github.sha }}"
               echo "Actual: $(git rev-parse HEAD)"
             fi
-          fi
-        fi
-      shell: bash
-
-    - name: Wait for API access to be granted if requested
-      run: |
-        if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
-          attempts=0
-          timeout=true
-          for i in {1..10}; do
-            attempts=$((attempts + 1))
-            # We use the GitHub token to access the run-scoped Actions artifacts API, which matches the endpoint used later
-            if gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts >/dev/null; then
-              timeout=false
-              break
-            else
-              sleep 60
-            fi
-          done
-
-          elapsed_time=$((attempts * 60))
-          elapsed_minutes=$((elapsed_time / 60))
-          elapsed_seconds=$((elapsed_time % 60))
-
-          if [ "$timeout" = true ]; then
-            echo "Timeout occurred while waiting for API access."
-            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-            # Dump the logs
-            cd
-            find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
-            exit 1
-          else
-            echo "API access granted."
-            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-          fi
-        fi
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-
-    - name: Wait for https access to the repo be granted if requested
-      run: |
-        if [[ "${{ inputs.wait_for_https }}" == "true" ]]; then
-          attempts=0
-          timeout=true
-          repo_url="https://github.com/${{ github.repository }}.git"
-
-          for i in {1..10}; do
-            attempts=$((attempts + 1))
-            echo "Attempt $attempts: Checking https access to the repo..."
-            status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${{ inputs.token }}" $repo_url)
-
-            if [[ "$status_code" == "301" || "$status_code" == "200" ]]; then
-              timeout=false
-              break
-            else
-              echo "https access to the repo not yet granted. Curl Status Code: $status_code. Waiting for 60 seconds..."
-              sleep 60
-            fi
-          done
-
-          elapsed_time=$((attempts * 60))
-          elapsed_minutes=$((elapsed_time / 60))
-          elapsed_seconds=$((elapsed_time % 60))
-
-          if [ "$timeout" = true ]; then
-            echo "Timeout occurred while waiting for https access to the repo."
-            echo "Total time before timeout: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
-            # Dump the logs
-            cd
-            find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
-            exit 1
-          else
-            echo "https access to the repo granted."
-            echo "Time taken to grant access: ${elapsed_minutes} minutes and ${elapsed_seconds} seconds."
           fi
         fi
       shell: bash
