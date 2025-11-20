@@ -46,6 +46,9 @@ jobs:
 
       - name: Generate Violation (Unauthorized Connection)
         run: |
+          echo "Waiting 60 seconds..."
+          sleep 60
+
           echo "Generating unauthorized network connection to trigger cancellation..."
           echo "This should cause the workflow to be cancelled by EDAMAME Posture"
           
@@ -56,12 +59,13 @@ jobs:
           # Wait for the violation to be detected by the daemon
           # The daemon checks for violations every 10 seconds, so we need to wait at least 15 seconds
           # to ensure it has time to detect and execute the cancellation
-          echo "Waiting 20 seconds for daemon to detect violation and cancel pipeline..."
-          for i in {1..20}; do
-            echo "  $i/20 seconds..."
-            sleep 1
+          echo "Waiting for daemon to detect violation and cancel pipeline..."
+          for i in {1..10}; do
+            # Dump sessions log
+            $EDAMAME_POSTURE_CMD dump-sessions-log || echo "Non conforming sessions detected"
+            sleep 20
           done
-          
+
           echo "[WARNING] If you see this message, cancellation may not have worked"
           echo "Expected: Workflow should be cancelled before reaching this point"
 
@@ -104,12 +108,13 @@ jobs:
           # Wait for the violation to be detected by the daemon
           # The daemon checks for violations every 10 seconds, so we need to wait at least 15 seconds
           # to ensure it has time to detect and execute the cancellation
-          echo "Waiting 20 seconds for daemon to detect violation and cancel pipeline..."
-          for i in {1..20}; do
-            echo "  $i/20 seconds..."
-            sleep 1
+          echo "Waiting for daemon to detect violation and cancel pipeline..."
+          for i in {1..10}; do
+            # Dump sessions log
+            $EDAMAME_POSTURE_CMD dump-sessions-log || echo "Non conforming sessions detected"
+            sleep 20
           done
-          
+
           echo "[WARNING] If you see this message, cancellation may not have worked"
           echo "Expected: Workflow should be cancelled before reaching this point"
 
