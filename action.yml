@@ -423,7 +423,7 @@ runs:
 
         # --- Determine Fallback Version via API ---
         API_FALLBACK_VERSION=""
-        HARDCODED_FALLBACK_VERSION="0.9.60" # Define hardcoded fallback
+        HARDCODED_FALLBACK_VERSION="0.9.75" # Define hardcoded fallback
         echo "Attempting to get fallback version via API..."
         WAIT_TIME=5
         for i in {1..3}; do # Limit retries
@@ -839,71 +839,23 @@ runs:
               
               echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
               
-              # Create the script with proper environment detection and cancellation logic
-              cat > "$CANCEL_SCRIPT_PATH" << 'CANCEL_SCRIPT_EOF'
-#!/bin/bash
-# EDAMAME Pipeline Cancellation Script
-# This script is called by the EDAMAME daemon when policy violations are detected
-# It has access to the original CI environment including authentication tokens
-
-set -e
-
-REASON="${1:-Policy violation detected by EDAMAME Posture daemon}"
-
-echo "=== EDAMAME Pipeline Cancellation ==="
-echo "Reason: $REASON"
-echo ""
-
-# Detect CI environment and cancel appropriately
-if [[ -n "$GITHUB_ACTIONS" ]]; then
-    echo "Detected: GitHub Actions"
-    echo "Run ID: $GITHUB_RUN_ID"
-    echo "Repository: $GITHUB_REPOSITORY"
-    
-    if [[ -z "$GITHUB_TOKEN" ]]; then
-        echo "ERROR: GITHUB_TOKEN not available in environment"
-        exit 1
-    fi
-    
-    echo "Attempting to cancel GitHub Actions run..."
-    if gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"; then
-        echo "[OK] GitHub Actions run cancelled successfully"
-        exit 0
-    else
-        echo "[ERROR] Failed to cancel GitHub Actions run"
-        exit 1
-    fi
-    
-elif [[ -n "$GITLAB_CI" ]]; then
-    echo "Detected: GitLab CI"
-    echo "Project ID: $CI_PROJECT_ID"
-    echo "Pipeline ID: $CI_PIPELINE_ID"
-    
-    if [[ -z "$GITLAB_TOKEN" && -z "$CI_JOB_TOKEN" ]]; then
-        echo "ERROR: Neither GITLAB_TOKEN nor CI_JOB_TOKEN available"
-        exit 1
-    fi
-    
-    # Prefer GITLAB_TOKEN if available, otherwise use CI_JOB_TOKEN
-    TOKEN="${GITLAB_TOKEN:-$CI_JOB_TOKEN}"
-    
-    echo "Attempting to cancel GitLab pipeline..."
-    URL="https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/cancel"
-    
-    if curl -s -X POST -H "PRIVATE-TOKEN: $TOKEN" "$URL" > /dev/null; then
-        echo "[OK] GitLab pipeline cancelled successfully"
-        exit 0
-    else
-        echo "[ERROR] Failed to cancel GitLab pipeline"
-        exit 1
-    fi
-    
-else
-    echo "WARNING: No supported CI environment detected"
-    echo "Set GITHUB_ACTIONS or GITLAB_CI to enable automatic cancellation"
-    exit 1
-fi
-CANCEL_SCRIPT_EOF
+              # Capture CI environment variables now (before sudo)
+              # The script will have these values embedded, not rely on runtime environment
+              CAPTURED_GITHUB_ACTIONS="${GITHUB_ACTIONS:-}"
+              CAPTURED_GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
+              CAPTURED_GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+              CAPTURED_GITHUB_TOKEN="${{ github.token }}"
+              CAPTURED_GITLAB_CI="${GITLAB_CI:-}"
+              CAPTURED_CI_PROJECT_ID="${CI_PROJECT_ID:-}"
+              CAPTURED_CI_PIPELINE_ID="${CI_PIPELINE_ID:-}"
+              CAPTURED_GITLAB_TOKEN="${GITLAB_TOKEN:-}"
+              CAPTURED_CI_JOB_TOKEN="${CI_JOB_TOKEN:-}"
+              
+              # Create cancellation script using printf to avoid YAML heredoc issues
+              printf '#!/bin/bash\n# EDAMAME Pipeline Cancellation Script\nset -e\nREASON="${1:-Policy violation detected}"\necho "=== EDAMAME Pipeline Cancellation ==="\necho "Reason: $REASON"\nGITHUB_ACTIONS="%s"\nGITHUB_RUN_ID="%s"\nGITHUB_REPOSITORY="%s"\nGITHUB_TOKEN="%s"\nGITLAB_CI="%s"\nCI_PROJECT_ID="%s"\nCI_PIPELINE_ID="%s"\nGITLAB_TOKEN="%s"\nCI_JOB_TOKEN="%s"\nif [[ -n "$GITHUB_ACTIONS" ]]; then\n  export GH_TOKEN="$GITHUB_TOKEN"\n  gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" && echo "[OK] Cancelled" || echo "[ERROR] Failed"\nelif [[ -n "$GITLAB_CI" ]]; then\n  TOKEN="${GITLAB_TOKEN:-$CI_JOB_TOKEN}"\n  curl -s -X POST -H "PRIVATE-TOKEN: $TOKEN" "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/cancel"\nelse\n  echo "[ERROR] No CI environment detected"\n  exit 1\nfi\n' \
+                "$CAPTURED_GITHUB_ACTIONS" "$CAPTURED_GITHUB_RUN_ID" "$CAPTURED_GITHUB_REPOSITORY" "$CAPTURED_GITHUB_TOKEN" \
+                "$CAPTURED_GITLAB_CI" "$CAPTURED_CI_PROJECT_ID" "$CAPTURED_CI_PIPELINE_ID" "$CAPTURED_GITLAB_TOKEN" "$CAPTURED_CI_JOB_TOKEN" \
+                > "$CANCEL_SCRIPT_PATH"
 
               chmod 700 "$CANCEL_SCRIPT_PATH"
               
@@ -997,86 +949,11 @@ CANCEL_SCRIPT_EOF
             CAPTURED_GITLAB_TOKEN="${GITLAB_TOKEN:-}"
             CAPTURED_CI_JOB_TOKEN="${CI_JOB_TOKEN:-}"
             
-            # Create the script with captured values (NOT variable references)
-            # This ensures the script works even when executed by daemon running as root
-            cat > "$CANCEL_SCRIPT_PATH" << CANCEL_SCRIPT_EOF
-#!/bin/bash
-# EDAMAME Pipeline Cancellation Script
-# This script is called by the EDAMAME daemon when policy violations are detected
-# Values are captured at script creation time, not runtime (secure even with sudo)
-
-set -e
-
-REASON="\${1:-Policy violation detected by EDAMAME Posture daemon}"
-
-echo "=== EDAMAME Pipeline Cancellation ==="
-echo "Reason: \$REASON"
-echo ""
-
-# Use captured environment values (set during script creation, not runtime)
-GITHUB_ACTIONS="$CAPTURED_GITHUB_ACTIONS"
-GITHUB_RUN_ID="$CAPTURED_GITHUB_RUN_ID"
-GITHUB_REPOSITORY="$CAPTURED_GITHUB_REPOSITORY"
-GITHUB_TOKEN="$CAPTURED_GITHUB_TOKEN"
-GITLAB_CI="$CAPTURED_GITLAB_CI"
-CI_PROJECT_ID="$CAPTURED_CI_PROJECT_ID"
-CI_PIPELINE_ID="$CAPTURED_CI_PIPELINE_ID"
-GITLAB_TOKEN="$CAPTURED_GITLAB_TOKEN"
-CI_JOB_TOKEN="$CAPTURED_CI_JOB_TOKEN"
-
-# Detect CI environment and cancel appropriately
-if [[ -n "\$GITHUB_ACTIONS" ]]; then
-    echo "Detected: GitHub Actions"
-    echo "Run ID: \$GITHUB_RUN_ID"
-    echo "Repository: \$GITHUB_REPOSITORY"
-    
-    if [[ -z "\$GITHUB_TOKEN" ]]; then
-        echo "ERROR: GITHUB_TOKEN not available"
-        exit 1
-    fi
-    
-    echo "Attempting to cancel GitHub Actions run..."
-    # Export token for gh CLI
-    export GH_TOKEN="\$GITHUB_TOKEN"
-    if gh run cancel "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY"; then
-        echo "[OK] GitHub Actions run cancelled successfully"
-        exit 0
-    else
-        echo "[ERROR] Failed to cancel GitHub Actions run"
-        exit 1
-    fi
-    
-elif [[ -n "\$GITLAB_CI" ]]; then
-    echo "Detected: GitLab CI"
-    echo "Project ID: \$CI_PROJECT_ID"
-    echo "Pipeline ID: \$CI_PIPELINE_ID"
-    
-    if [[ -z "\$GITLAB_TOKEN" && -z "\$CI_JOB_TOKEN" ]]; then
-        echo "ERROR: Neither GITLAB_TOKEN nor CI_JOB_TOKEN available"
-        exit 1
-    fi
-    
-    # Prefer GITLAB_TOKEN if available, otherwise use CI_JOB_TOKEN
-    TOKEN="\${GITLAB_TOKEN:-\$CI_JOB_TOKEN}"
-    
-    echo "Attempting to cancel GitLab pipeline..."
-    URL="https://gitlab.com/api/v4/projects/\${CI_PROJECT_ID}/pipelines/\${CI_PIPELINE_ID}/cancel"
-    
-    if curl -s -X POST -H "PRIVATE-TOKEN: \$TOKEN" "\$URL" > /dev/null; then
-        echo "[OK] GitLab pipeline cancelled successfully"
-        exit 0
-    else
-        echo "[ERROR] Failed to cancel GitLab pipeline"
-        exit 1
-    fi
-    
-else
-    echo "WARNING: No supported CI environment detected"
-    echo "GITHUB_ACTIONS=\$GITHUB_ACTIONS"
-    echo "GITLAB_CI=\$GITLAB_CI"
-    exit 1
-fi
-CANCEL_SCRIPT_EOF
+            # Create cancellation script using printf to avoid YAML heredoc issues
+            printf '#!/bin/bash\n# EDAMAME Pipeline Cancellation Script\nset -e\nREASON="${1:-Policy violation detected}"\necho "=== EDAMAME Pipeline Cancellation ==="\necho "Reason: $REASON"\nGITHUB_ACTIONS="%s"\nGITHUB_RUN_ID="%s"\nGITHUB_REPOSITORY="%s"\nGITHUB_TOKEN="%s"\nGITLAB_CI="%s"\nCI_PROJECT_ID="%s"\nCI_PIPELINE_ID="%s"\nGITLAB_TOKEN="%s"\nCI_JOB_TOKEN="%s"\nif [[ -n "$GITHUB_ACTIONS" ]]; then\n  export GH_TOKEN="$GITHUB_TOKEN"\n  gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" && echo "[OK] Cancelled" || echo "[ERROR] Failed"\nelif [[ -n "$GITLAB_CI" ]]; then\n  TOKEN="${GITLAB_TOKEN:-$CI_JOB_TOKEN}"\n  curl -s -X POST -H "PRIVATE-TOKEN: $TOKEN" "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/cancel"\nelse\n  echo "[ERROR] No CI environment detected"\n  exit 1\nfi\n' \
+              "$CAPTURED_GITHUB_ACTIONS" "$CAPTURED_GITHUB_RUN_ID" "$CAPTURED_GITHUB_REPOSITORY" "$CAPTURED_GITHUB_TOKEN" \
+              "$CAPTURED_GITLAB_CI" "$CAPTURED_CI_PROJECT_ID" "$CAPTURED_CI_PIPELINE_ID" "$CAPTURED_GITLAB_TOKEN" "$CAPTURED_CI_JOB_TOKEN" \
+              > "$CANCEL_SCRIPT_PATH"
 
             chmod 700 "$CANCEL_SCRIPT_PATH"
             
