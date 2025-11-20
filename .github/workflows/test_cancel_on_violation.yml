@@ -53,16 +53,22 @@ jobs:
           # This will trigger a whitelist violation
           curl -s --max-time 5 https://example.com > /dev/null || true
           
-          # Wait a moment for the violation to be detected
-          sleep 3
+          # Wait for the violation to be detected by the daemon
+          # The daemon checks for violations every 10 seconds, so we need to wait at least 15 seconds
+          # to ensure it has time to detect and execute the cancellation
+          echo "Waiting 20 seconds for daemon to detect violation and cancel pipeline..."
+          for i in {1..20}; do
+            echo "  $i/20 seconds..."
+            sleep 1
+          done
           
-          echo "⚠️ If you see this message, cancellation may not have worked"
-          echo "Expected: Workflow should be cancelled before this step completes"
+          echo "[WARNING] If you see this message, cancellation may not have worked"
+          echo "Expected: Workflow should be cancelled before reaching this point"
 
       - name: This Should Not Run
         if: always()
         run: |
-          echo "❌ ERROR: This step should not run if cancellation worked correctly"
+          echo "[ERROR] ERROR: This step should not run if cancellation worked correctly"
           echo "The workflow should have been cancelled by EDAMAME Posture"
           exit 1
 
@@ -95,16 +101,22 @@ jobs:
           # Make a connection to a domain not in github_ubuntu whitelist
           curl -s --max-time 5 https://example.com > /dev/null || true
           
-          # Wait a moment for the violation to be detected
-          sleep 3
+          # Wait for the violation to be detected by the daemon
+          # The daemon checks for violations every 10 seconds, so we need to wait at least 15 seconds
+          # to ensure it has time to detect and execute the cancellation
+          echo "Waiting 20 seconds for daemon to detect violation and cancel pipeline..."
+          for i in {1..20}; do
+            echo "  $i/20 seconds..."
+            sleep 1
+          done
           
-          echo "⚠️ If you see this message, cancellation may not have worked"
-          echo "Expected: Workflow should be cancelled before this step completes"
+          echo "[WARNING] If you see this message, cancellation may not have worked"
+          echo "Expected: Workflow should be cancelled before reaching this point"
 
       - name: This Should Not Run
         if: always()
         run: |
-          echo "❌ ERROR: This step should not run if cancellation worked correctly"
+          echo "[ERROR] ERROR: This step should not run if cancellation worked correctly"
           echo "The workflow should have been cancelled by EDAMAME Posture"
           exit 1
 

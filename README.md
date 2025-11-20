@@ -35,6 +35,7 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 - `check_blacklist`: When `true`, fail if blacklisted sessions are observed during capture (default: true)  
 - `check_anomalous`: When `true`, fail if anomalous sessions are detected during capture (default: true)  
 - `cancel_on_violation`: When `true`, attempt to cancel the current CI pipeline if violations are detected during capture (default: false)  
+- `cancel_pipeline_script`: Path to custom cancellation script (default: $HOME/cancel_pipeline.sh). Script receives violation reason as first argument. See Pipeline Cancellation section for details.
 - `disconnected_mode`: Start EDAMAME Posture in disconnected mode without requiring domain authentication (default: false)
 - `dump_sessions_log`: Dump sessions log (default: false)  
 - `checkout`: Checkout the repo through the git CLI (default: false)  
@@ -102,20 +103,47 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
    - If `edamame_user`, `edamame_domain`, `edamame_pin`, and `edamame_id` are all set, attempts to start in the background.  
    - Adds a unique suffix to `edamame_id` when running on ephemeral (matrix or short-lived) runners.
 
-10. **Checkout the repo through the git CLI**  
-   - If `checkout` is true, tries up to 10 times to fetch and check out the specified branch (using `token`).
+10. **Start EDAMAME Posture daemon**  
+   - Starts the background daemon in connected or disconnected mode (skipped if `dump_sessions_log` or `stop` is true)
+   - Creates cancellation script if `cancel_on_violation` is enabled
+   - Waits for connection to EDAMAME backend (if in connected mode)
 
 11. **Wait for API access**  
-   - If `wait_for_api` is true, periodically invokes `gh api repos/<repo>/actions/runs/<current_run_id>/artifacts`, matching the endpoint used for auto-whitelist artifact downloads so IP allow-listing can complete before continuing.
+   - If `wait_for_api` is true, periodically tests API access using `gh api` until granted or timeout
+   - Runs AFTER daemon has started and connected (daemon can whitelist runner IP via EDAMAME backend)
+   - Required for organizations with IP allow lists enabled
 
-12. **Wait for https access**  
-   - If `wait_for_https` is true, repeatedly checks the repo over https until it is accessible or time runs out.
+12. **Download auto-whitelist artifacts**  
+   - Downloads previous whitelist from GitHub artifacts (if `auto_whitelist` is true)
+   - Files saved to $HOME for daemon to load
 
-13. **Display posture logs**  
-   - If `display_logs` is true, prints the EDAMAME CLI's logs.
+13. **Apply custom whitelists to daemon**  
+   - Loads whitelist into daemon memory from auto_whitelist.json or custom file
+   - Daemon uses this for real-time network traffic enforcement
 
-14. **Dump sessions log**  
-   - If `dump_sessions_log` is true on a supported OS, runs `get-sessions`.  
+14. **Wait for https access**  
+   - If `wait_for_https` is true, repeatedly checks repo HTTPS access until granted or timeout
+   - Runs AFTER daemon has started and connected
+
+15. **Checkout the repo through the git CLI**  
+   - If `checkout` is true, tries up to 10 times to fetch and check out the specified branch
+
+16. **Create or augment auto-whitelist**  
+   - If `dump_sessions_log` is true and auto-whitelist enabled, augments whitelist with captured traffic
+   - Compares with baseline to detect stability
+
+17. **Dump sessions log**  
+   - If `dump_sessions_log` is true, retrieves network sessions from daemon
+   - Enforces violations if whitelist is stable
+
+18. **Upload artifacts**  
+   - Uploads auto-whitelist files to GitHub artifacts for next run
+
+19. **Display posture logs**  
+   - If `display_logs` is true, prints the EDAMAME daemon logs
+
+20. **Stop EDAMAME Posture**  
+   - If `stop` is true, stops the background daemon process  
    - If `exit_on_whitelist_exceptions` is true and the CLI reports whitelist exceptions, the step exits with an error status.
 
 15. **Create custom whitelist**  
@@ -255,17 +283,32 @@ This GitHub Action provides multiple automation capabilities that can be combine
     check_blacklist: true           # Enable real-time blacklist checking
     check_anomalous: true           # Enable real-time anomaly detection
     cancel_on_violation: true       # Cancel pipeline on violation
+    # cancel_pipeline_script: custom_path.sh  # Optional: custom cancellation script
 ```
 
 **How it works**:
 - EDAMAME monitors network traffic in real-time during workflow execution
-- If a violation is detected, attempts to cancel the entire workflow immediately
-- Provides defense-in-depth beyond just exit code checking at workflow end
+- Daemon checks for violations every 10 seconds
+- When a violation is detected, executes cancellation script to stop the workflow
+- Cancellation typically occurs within 10-15 seconds of violation
+
+**Security Model**:
+- Action creates `$HOME/cancel_pipeline.sh` with captured CI environment variables
+- Script contains embedded `GITHUB_TOKEN` value (not environment reference)
+- Daemon executes script when violations detected
+- Daemon never has direct access to authentication tokens
+- Works securely even when daemon runs with sudo/elevated privileges
+
+**Inputs**:
+- `cancel_on_violation`: Enable automatic cancellation (default: false)
+- `cancel_pipeline_script`: Custom script path (default: $HOME/cancel_pipeline.sh)
 
 **Best for**:
 - High-security environments where violations must stop immediately
 - Preventing data exfiltration in progress
 - Reducing wasted compute time on compromised builds
+
+**Note**: Provides defense-in-depth beyond just exit code checking at workflow end.
 
 ### Combining Automation Options
 
