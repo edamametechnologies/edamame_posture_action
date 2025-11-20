@@ -57,7 +57,7 @@ inputs:
     required: false
     default: "false"
   cancel_pipeline_script:
-    description: "Path to custom cancellation script (default: $HOME/cancel_pipeline.sh). Script receives violation reason as first argument."
+    description: "Path to custom cancellation script (default: /tmp/cancel_pipeline.sh). Script receives violation reason as first argument."
     required: false
     default: ""
   disconnected_mode:
@@ -834,7 +834,8 @@ runs:
               if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
                 CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
               else
-                CANCEL_SCRIPT_PATH="$HOME/cancel_pipeline.sh"
+                # Use /tmp instead of $HOME because daemon runs with sudo and has different $HOME
+                CANCEL_SCRIPT_PATH="/tmp/cancel_pipeline.sh"
               fi
               
               echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
@@ -932,7 +933,8 @@ runs:
             if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
               CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
             else
-              CANCEL_SCRIPT_PATH="$HOME/cancel_pipeline.sh"
+              # Use /tmp instead of $HOME because daemon runs with sudo and has different $HOME
+              CANCEL_SCRIPT_PATH="/tmp/cancel_pipeline.sh"
             fi
             
             echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
