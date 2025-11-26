@@ -30,7 +30,7 @@ jobs:
   test-auto-whitelist-runner:
     name: Run Auto-Whitelist Test Script
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # Allow time for multiple sequential workflow runs
+    timeout-minutes: 180  # Allow time for multiple sequential workflow runs
     
     steps:
       - name: Setup EDAMAME Posture
