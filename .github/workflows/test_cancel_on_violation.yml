@@ -62,7 +62,7 @@ jobs:
           echo "Waiting for daemon to detect violation and cancel pipeline..."
           for i in {1..10}; do
             # Dump sessions log
-            $EDAMAME_POSTURE_CMD dump-sessions-log || echo "Non conforming sessions detected"
+            "$EDAMAME_POSTURE_CMD" get-sessions || echo "Non conforming sessions detected"
             sleep 20
           done
 
@@ -111,7 +111,7 @@ jobs:
           echo "Waiting for daemon to detect violation and cancel pipeline..."
           for i in {1..10}; do
             # Dump sessions log
-             ~/edamame_posture dump-sessions-log || echo "Non conforming sessions detected"
+            "$EDAMAME_POSTURE_CMD" get-sessions || echo "Non conforming sessions detected"
             sleep 20
           done
 
