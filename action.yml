@@ -259,6 +259,27 @@ runs:
             echo "No apt/dpkg locks held, proceeding..."
           }
           
+          apt_cmd_with_retry() {
+            local max_attempts=5
+            local delay_seconds=10
+            local attempt=1
+            local cmd=("$@")
+            while true; do
+              wait_for_apt_locks
+              if "${cmd[@]}"; then
+                return 0
+              fi
+              exit_code=$?
+              if (( attempt >= max_attempts )); then
+                echo "Command failed after $max_attempts attempts: ${cmd[*]}"
+                return $exit_code
+              fi
+              echo "Command failed with exit code $exit_code (attempt $attempt/$max_attempts). Retrying in $delay_seconds seconds..."
+              sleep $delay_seconds
+              attempt=$((attempt + 1))
+            done
+          }
+          
           # Avoid prompts during apt-get install
           export DEBIAN_FRONTEND=noninteractive
           
@@ -266,81 +287,68 @@ runs:
           if ! command -v sudo &> /dev/null; then
             echo "Installing sudo..."
             # Wait for apt lock before any operations
-            wait_for_apt_locks
-            apt-get update -y
-            wait_for_apt_locks
-            apt-get install -y --no-install-recommends sudo
+            apt_cmd_with_retry apt-get update -y
+            apt_cmd_with_retry apt-get install -y --no-install-recommends sudo
             
             # Wait again after installing sudo
             wait_for_apt_locks
           fi          
           # Update package lists
           echo "Updating package lists..."
-          wait_for_apt_locks
-          sudo -E apt-get update
+          apt_cmd_with_retry sudo -E apt-get update
 
           # Check/install git
           if ! command -v git &> /dev/null; then
             echo "Installing git..."
-            wait_for_apt_locks
-            sudo -E apt-get install -y git
+            apt_cmd_with_retry sudo -E apt-get install -y git
           fi
 
           # Check/install gh
           if ! command -v gh &> /dev/null; then
             echo "Installing gh..."
-            wait_for_apt_locks
-            (type -p wget >/dev/null || (wait_for_apt_locks; sudo -E apt-get update -y && wait_for_apt_locks && sudo -E apt-get install -y wget)) \
+            (type -p wget >/dev/null || (apt_cmd_with_retry sudo -E apt-get update -y && apt_cmd_with_retry sudo -E apt-get install -y wget)) \
               && sudo mkdir -p -m 755 /etc/apt/keyrings \
                     && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
                     && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
               && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
               && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-              && wait_for_apt_locks \
-              && sudo -E apt-get update -y \
-              && wait_for_apt_locks \
-              && sudo -E apt-get install -y gh
+              && apt_cmd_with_retry sudo -E apt-get update -y \
+              && apt_cmd_with_retry sudo -E apt-get install -y gh
           fi
 
           # Check/install wget
           if ! command -v wget &> /dev/null; then
             echo "Installing wget..."
-            wait_for_apt_locks
-            sudo -E apt-get install -y wget
+            apt_cmd_with_retry sudo -E apt-get install -y wget
           fi
 
           # Check/install curl
           if ! command -v curl &> /dev/null; then
             echo "Installing curl..."
-            wait_for_apt_locks
-            sudo -E apt-get install -y curl
+            apt_cmd_with_retry sudo -E apt-get install -y curl
           fi
 
           # Check/install jq
           if ! command -v jq &> /dev/null; then
             echo "Installing jq..."
-            wait_for_apt_locks
-            sudo -E apt-get install -y jq
+            apt_cmd_with_retry sudo -E apt-get install -y jq
           fi
 
           # Check/install bc (needed for auto-whitelist floating-point comparisons)
           if ! command -v bc &> /dev/null; then
             echo "Installing bc..."
-            wait_for_apt_locks
-            sudo -E apt-get install -y bc
+            apt_cmd_with_retry sudo -E apt-get install -y bc
           fi
 
           # Check/install libpcap0.8t64
           if ! dpkg -s libpcap0.8t64 &> /dev/null; then
             echo "Installing libpcap0.8t64..."
-            wait_for_apt_locks
             # Install libpcap0.8t64 if available, otherwise install libpcap0.8
-            if ! sudo -E apt-get install -y libpcap0.8t64  &> /dev/null; then
+            if ! apt_cmd_with_retry sudo -E apt-get install -y libpcap0.8t64 &> /dev/null; then
               echo "Failed to install libpcap0.8t64, using libpcap0.8 instead"
               if ! dpkg -s libpcap0.8 &> /dev/null; then
                 echo "Installing libpcap0.8..."
-                wait_for_apt_locks
-                sudo -E apt-get install -y libpcap0.8
+                apt_cmd_with_retry sudo -E apt-get install -y libpcap0.8
               fi
             fi
           fi
@@ -348,15 +356,13 @@ runs:
           # Check/install build-essential
           if ! dpkg -s build-essential &> /dev/null; then
             echo "Installing build-essential..."
-            wait_for_apt_locks
-            sudo -E apt-get install -y build-essential
+            apt_cmd_with_retry sudo -E apt-get install -y build-essential
           fi
 
           # Check/install node + npm
           if ! command -v node &> /dev/null; then
             echo "Installing node + npm..."
-            wait_for_apt_locks
-            sudo -E apt-get install -y nodejs npm
+            apt_cmd_with_retry sudo -E apt-get install -y nodejs npm
           fi
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
           # Check/install gh
