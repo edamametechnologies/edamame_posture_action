@@ -344,7 +344,7 @@ runs:
           if ! dpkg -s libpcap0.8t64 &> /dev/null; then
             echo "Installing libpcap0.8t64..."
             # Install libpcap0.8t64 if available, otherwise install libpcap0.8
-            if ! apt_cmd_with_retry sudo -E apt-get install -y libpcap0.8t64 &> /dev/null; then
+            if ! apt_cmd_with_retry sudo -E apt-get install -y libpcap0.8t64; then
               echo "Failed to install libpcap0.8t64, using libpcap0.8 instead"
               if ! dpkg -s libpcap0.8 &> /dev/null; then
                 echo "Installing libpcap0.8..."
