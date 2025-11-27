@@ -361,11 +361,39 @@ runs:
             fi
 
             echo "libpcap.so.0.8 not found, attempting to create compatibility symlink..."
-            local latest_pcap
-            latest_pcap=$(ldconfig -p | grep 'libpcap\.so' | head -n1 | awk '{print $NF}')
+            find_libpcap_shared() {
+              local candidate=""
+              if command -v ldconfig >/dev/null 2>&1; then
+                candidate=$(ldconfig -p | awk '/libpcap\.so/{print $NF; exit}')
+              fi
 
-            if [[ -z "$latest_pcap" || ! -f "$latest_pcap" ]]; then
-              echo "[WARNING] Could not locate existing libpcap shared library via ldconfig."
+              if [[ -n "$candidate" && -f "$candidate" ]]; then
+                echo "$candidate"
+                return 0
+              fi
+
+              for dir in \
+                /usr/lib \
+                /usr/lib64 \
+                /usr/lib/x86_64-linux-gnu \
+                /usr/lib/aarch64-linux-gnu \
+                /lib \
+                /lib64 \
+                /lib/x86_64-linux-gnu \
+                /lib/aarch64-linux-gnu; do
+                candidate=$(ls "$dir"/libpcap.so.* 2>/dev/null | head -n1)
+                if [[ -n "$candidate" && -f "$candidate" ]]; then
+                  echo "$candidate"
+                  return 0
+                fi
+              done
+
+              return 1
+            }
+
+            local latest_pcap
+            if ! latest_pcap=$(find_libpcap_shared); then
+              echo "[WARNING] Could not locate existing libpcap shared library via ldconfig or file search."
               return 1
             fi
 
@@ -378,11 +406,11 @@ runs:
             else
               echo "Creating compatibility symlink: $target -> $latest_pcap"
               sudo ln -sf "$latest_pcap" "$target"
-              sudo ldconfig
+              sudo ldconfig || true
             fi
           }
 
-          ensure_libpcap_soname || echo "[WARNING] Unable to ensure libpcap legacy soname"
+          ensure_libpcap_soname || echo "[WARNING] Unable to ensure libpcap legacy soname (libpcap.so.0.8)"
 
           # Check/install build-essential
           if ! dpkg -s build-essential &> /dev/null; then
