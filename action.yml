@@ -340,18 +340,21 @@ runs:
             apt_cmd_with_retry sudo -E apt-get install -y bc
           fi
 
-          # Check/install libpcap0.8t64
-          if ! dpkg -s libpcap0.8t64 &> /dev/null; then
-            echo "Installing libpcap0.8t64..."
-            # Install libpcap0.8t64 if available, otherwise install libpcap0.8
-            if ! apt_cmd_with_retry sudo -E apt-get install -y libpcap0.8t64; then
-              echo "Failed to install libpcap0.8t64, using libpcap0.8 instead"
-              if ! dpkg -s libpcap0.8 &> /dev/null; then
-                echo "Installing libpcap0.8..."
+          install_libpcap() {
+            echo "Ensuring libpcap runtime is installed..."
+            if apt-cache show libpcap0.8t64 >/dev/null 2>&1; then
+              echo "Installing libpcap0.8t64..."
+              if ! apt_cmd_with_retry sudo -E apt-get install -y libpcap0.8t64; then
+                echo "[WARNING] Failed to install libpcap0.8t64, falling back to libpcap0.8"
                 apt_cmd_with_retry sudo -E apt-get install -y libpcap0.8
               fi
+            else
+              echo "Package libpcap0.8t64 not available on this distro. Installing libpcap0.8..."
+              apt_cmd_with_retry sudo -E apt-get install -y libpcap0.8
             fi
-          fi
+          }
+
+          install_libpcap
 
           # Ensure libpcap legacy soname is available (needed on Ubuntu 20.04)
           ensure_libpcap_soname() {
@@ -363,6 +366,16 @@ runs:
             echo "libpcap.so.0.8 not found, attempting to create compatibility symlink..."
             find_libpcap_shared() {
               local candidate=""
+              for pkg in libpcap0.8t64 libpcap0.8; do
+                if dpkg -s "$pkg" >/dev/null 2>&1; then
+                  candidate=$(dpkg -L "$pkg" | grep -E 'libpcap\.so([0-9\.]*)?$' | head -n1)
+                  if [[ -n "$candidate" && -f "$candidate" ]]; then
+                    echo "$candidate"
+                    return 0
+                  fi
+                fi
+              done
+
               if command -v ldconfig >/dev/null 2>&1; then
                 candidate=$(ldconfig -p | awk '/libpcap\.so/{print $NF; exit}')
               fi
