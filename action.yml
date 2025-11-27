@@ -353,6 +353,37 @@ runs:
             fi
           fi
 
+          # Ensure libpcap legacy soname is available (needed on Ubuntu 20.04)
+          ensure_libpcap_soname() {
+            if ldconfig -p | grep -q 'libpcap\.so\.0\.8'; then
+              echo "libpcap.so.0.8 already available"
+              return 0
+            fi
+
+            echo "libpcap.so.0.8 not found, attempting to create compatibility symlink..."
+            local latest_pcap
+            latest_pcap=$(ldconfig -p | grep 'libpcap\.so' | head -n1 | awk '{print $NF}')
+
+            if [[ -z "$latest_pcap" || ! -f "$latest_pcap" ]]; then
+              echo "[WARNING] Could not locate existing libpcap shared library via ldconfig."
+              return 1
+            fi
+
+            local pcap_dir
+            pcap_dir=$(dirname "$latest_pcap")
+            local target="$pcap_dir/libpcap.so.0.8"
+
+            if [[ -f "$target" ]]; then
+              echo "Compatibility symlink already exists at $target"
+            else
+              echo "Creating compatibility symlink: $target -> $latest_pcap"
+              sudo ln -sf "$latest_pcap" "$target"
+              sudo ldconfig
+            fi
+          }
+
+          ensure_libpcap_soname || echo "[WARNING] Unable to ensure libpcap legacy soname"
+
           # Check/install build-essential
           if ! dpkg -s build-essential &> /dev/null; then
             echo "Installing build-essential..."
