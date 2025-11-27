@@ -110,10 +110,9 @@ jobs:
           exit_on_whitelist_exceptions: false
         continue-on-error: true
 
-      # Test create custom whitelists on macOS and Linux
+      # Test create custom whitelists
       - name: Test create custom whitelists on macOS and Linux
         id: test-create-custom-whitelist
-        if: runner.os == 'macos' || runner.os == 'linux'
         uses: ./
         with:
           create_custom_whitelists: true
@@ -183,16 +182,14 @@ jobs:
       # Stop posture before auto-whitelist test
       - name: Stop posture before auto-whitelist test
         id: test-stop-before-auto-whitelist
-        if: runner.os == 'macos' || runner.os == 'linux'
         uses: ./
         with:
           stop: true
         continue-on-error: true
 
-      # Test auto-whitelist feature (macOS and Linux only)
+      # Test auto-whitelist feature
       - name: Test auto-whitelist feature
         id: test-auto-whitelist
-        if: runner.os == 'macos' || runner.os == 'linux'
         uses: ./
         with:
           disconnected_mode: true
