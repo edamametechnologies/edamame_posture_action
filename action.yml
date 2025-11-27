@@ -1754,11 +1754,21 @@ runs:
           # Initialize the repo if it doesn't exist
           git init || true
 
-          # Add the remote if it doesn't exist
-          if git remote | grep -q '^origin$'; then
-            git remote set-url origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
+          # Add the remote if it doesn't exist (support GHES/self-hosted via GITHUB_SERVER_URL)
+          server_url="${GITHUB_SERVER_URL:-https://github.com}"
+          server_url="${server_url%/}"
+          if [[ "$server_url" == *"://"* ]]; then
+            server_scheme="${server_url%%://*}"
+            server_host_path="${server_url#*://}"
           else
-            git remote add origin https://x-access-token:${{ inputs.token }}@github.com/${{ github.repository }}.git || true
+            server_scheme="https"
+            server_host_path="$server_url"
+          fi
+          remote_url="${server_scheme}://x-access-token:${{ inputs.token }}@${server_host_path}/${{ github.repository }}.git"
+          if git remote | grep -q '^origin$'; then
+            git remote set-url origin "$remote_url" || true
+          else
+            git remote add origin "$remote_url" || true
           fi
           for i in {1..10}; do
             echo "Attempt $i: Checking out the repo through the git CLI..."
