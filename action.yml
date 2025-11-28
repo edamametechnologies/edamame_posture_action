@@ -701,6 +701,14 @@ runs:
                     echo "[OK] Successfully installed edamame-posture via APK"
                     INSTALLED_VIA_PACKAGE_MANAGER=true
                     INSTALL_METHOD="apk"
+                    
+                    # APK package may auto-start service - stop it if running
+                    # The action will start it manually with appropriate configuration
+                    echo "Stopping any auto-started service..."
+                    if command -v rc-service >/dev/null 2>&1; then
+                      sudo rc-service edamame_posture stop 2>/dev/null || true
+                    fi
+                    echo "[INFO] Service stopped if it was running"
                   else
                     echo "[WARNING] APK installation failed (package may not be published yet), falling back to direct download"
                     USE_PACKAGE_MANAGER=false
@@ -732,6 +740,13 @@ runs:
                     echo "[OK] Successfully installed edamame-posture via APT"
                     INSTALLED_VIA_PACKAGE_MANAGER=true
                     INSTALL_METHOD="apt"
+                    
+                    # APT package auto-starts systemd service - stop it immediately
+                    # The action will start it manually with appropriate configuration
+                    echo "Stopping auto-started systemd service..."
+                    sudo systemctl stop edamame_posture.service 2>/dev/null || true
+                    sudo systemctl disable edamame_posture.service 2>/dev/null || true
+                    echo "[INFO] Systemd service stopped and disabled"
                   else
                     echo "[WARNING] APT installation failed (package may not be published yet), falling back to direct download"
                     USE_PACKAGE_MANAGER=false
@@ -1124,21 +1139,17 @@ runs:
           echo "Starting EDAMAME Posture in disconnected mode..."
           
           # Stop any existing posture process before starting in disconnected mode
-          # This is especially important if installed via package manager (APT/APK starts service automatically)
-          echo "Stopping any existing EDAMAME Posture process before starting in disconnected mode..."
+          # This handles cases where disconnected mode is called multiple times or after connected mode
+          echo "Stopping any existing EDAMAME Posture process..."
           
-          # On Linux, if installed via package manager, stop and disable the systemd service
-          # We want to run in disconnected mode directly, not use the service
-          if [[ "$RUNNER_OS" == "Linux" ]] && [[ "${{ steps.install_posture.outputs.installed_via_package_manager }}" == "true" ]]; then
-            echo "Detected package manager installation on Linux"
-            echo "Stopping and disabling systemd service (we'll run in disconnected mode directly)..."
-            sudo systemctl stop edamame_posture.service 2>/dev/null || echo "[INFO] Service not running"
-            sudo systemctl disable edamame_posture.service 2>/dev/null || echo "[INFO] Service not enabled"
-            sleep 2
+          # Try to stop via CLI first
+          $EDAMAME_POSTURE_CMD stop > /dev/null 2>&1 || true
+          
+          # On Linux, also ensure systemd service is stopped (in case it was started manually)
+          if [[ "$RUNNER_OS" == "Linux" ]] && command -v systemctl >/dev/null 2>&1; then
+            sudo systemctl stop edamame_posture.service 2>/dev/null || true
           fi
           
-          # Also try to stop via CLI (for non-systemd installations or manual starts)
-          $EDAMAME_POSTURE_CMD stop > /dev/null 2>&1 || echo "No existing posture process to stop (or stop failed, continuing anyway)..."
           # Give it a moment to fully stop
           sleep 2
 
