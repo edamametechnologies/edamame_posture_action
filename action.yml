@@ -521,14 +521,19 @@ runs:
             # Try to install via Homebrew
             echo "Attempting to install via Homebrew..."
             
-            # Add tap if not already added
+            # Add tap if not already added (skip if fails - formula might not be published yet)
             if ! brew tap | grep -q "edamametechnologies/tap"; then
               echo "Adding edamametechnologies/tap..."
-              brew tap edamametechnologies/tap || echo "[WARNING] Failed to add tap, will try installation anyway"
+              if brew tap edamametechnologies/tap 2>/dev/null; then
+                echo "[OK] Tap added successfully"
+              else
+                echo "[WARNING] Failed to add tap (repository may not exist yet), falling back to direct download"
+                USE_PACKAGE_MANAGER=false
+              fi
             fi
             
-            # Try to install
-            if brew install edamame-posture 2>/dev/null; then
+            # Try to install (only if tap was added successfully)
+            if [[ "$USE_PACKAGE_MANAGER" == "true" ]] && brew install edamame-posture 2>/dev/null; then
               echo "[OK] Successfully installed edamame-posture via Homebrew"
               INSTALLED_VIA_PACKAGE_MANAGER=true
               INSTALL_METHOD="homebrew"
@@ -580,12 +585,13 @@ runs:
           elif [[ "$USE_PACKAGE_MANAGER" == "true" ]]; then
             # Try to install via Chocolatey
             echo "Attempting to install via Chocolatey..."
+            # Chocolatey install can fail if package doesn't exist in repository yet
             if choco install edamame-posture -y 2>/dev/null; then
               echo "[OK] Successfully installed edamame-posture via Chocolatey"
               INSTALLED_VIA_PACKAGE_MANAGER=true
               INSTALL_METHOD="chocolatey"
             else
-              echo "[WARNING] Chocolatey installation failed, falling back to direct download"
+              echo "[WARNING] Chocolatey installation failed (package may not be published yet), falling back to direct download"
               USE_PACKAGE_MANAGER=false
             fi
           fi
@@ -679,9 +685,12 @@ runs:
                   
                   if ! grep -q "$REPO_URL" /etc/apk/repositories 2>/dev/null; then
                     echo "Adding EDAMAME APK repository..."
-                    # Import signing key
-                    wget -q -O /tmp/edamame.rsa.pub "https://edamame.s3.eu-west-1.amazonaws.com/repo/alpine/v3.15/${ARCH}/edamame.rsa.pub"
-                    sudo cp /tmp/edamame.rsa.pub /etc/apk/keys/ 2>/dev/null || echo "[WARNING] Failed to copy signing key"
+                    # Import signing key (may fail if not yet published)
+                    if wget -q -O /tmp/edamame.rsa.pub "https://edamame.s3.eu-west-1.amazonaws.com/repo/alpine/v3.15/${ARCH}/edamame.rsa.pub" 2>/dev/null; then
+                      sudo cp /tmp/edamame.rsa.pub /etc/apk/keys/ 2>/dev/null || echo "[WARNING] Failed to copy signing key"
+                    else
+                      echo "[WARNING] Failed to download signing key (repository may not be set up yet)"
+                    fi
                     # Add repository
                     echo "$REPO_URL" | sudo tee -a /etc/apk/repositories >/dev/null
                   fi
@@ -693,7 +702,7 @@ runs:
                     INSTALLED_VIA_PACKAGE_MANAGER=true
                     INSTALL_METHOD="apk"
                   else
-                    echo "[WARNING] APK installation failed, falling back to direct download"
+                    echo "[WARNING] APK installation failed (package may not be published yet), falling back to direct download"
                     USE_PACKAGE_MANAGER=false
                   fi
                 fi
@@ -706,8 +715,12 @@ runs:
                   # Check if repository is already configured
                   if ! grep -q "edamame.s3.eu-west-1.amazonaws.com/repo" /etc/apt/sources.list.d/edamame.list 2>/dev/null; then
                     echo "Adding EDAMAME APT repository..."
-                    # Import GPG key
-                    wget -q -O - https://edamame.s3.eu-west-1.amazonaws.com/repo/public.key | sudo gpg --dearmor -o /usr/share/keyrings/edamame.gpg 2>/dev/null || echo "[WARNING] Failed to import GPG key"
+                    # Import GPG key (may fail if not yet published)
+                    if wget -q -O - https://edamame.s3.eu-west-1.amazonaws.com/repo/public.key | sudo gpg --dearmor -o /usr/share/keyrings/edamame.gpg 2>/dev/null; then
+                      echo "[OK] GPG key imported"
+                    else
+                      echo "[WARNING] Failed to import GPG key (repository may not be set up yet)"
+                    fi
                     # Add repository
                     ARCH=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
                     echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/edamame.gpg] https://edamame.s3.eu-west-1.amazonaws.com/repo stable main" | sudo tee /etc/apt/sources.list.d/edamame.list >/dev/null
@@ -720,7 +733,7 @@ runs:
                     INSTALLED_VIA_PACKAGE_MANAGER=true
                     INSTALL_METHOD="apt"
                   else
-                    echo "[WARNING] APT installation failed, falling back to direct download"
+                    echo "[WARNING] APT installation failed (package may not be published yet), falling back to direct download"
                     USE_PACKAGE_MANAGER=false
                   fi
                 fi
@@ -1111,8 +1124,20 @@ runs:
           echo "Starting EDAMAME Posture in disconnected mode..."
           
           # Stop any existing posture process before starting in disconnected mode
-          # background-start-disconnected will fail with "Core services are already running" if posture is running
+          # This is especially important if installed via package manager (APT/APK starts service automatically)
           echo "Stopping any existing EDAMAME Posture process before starting in disconnected mode..."
+          
+          # On Linux, if installed via package manager, stop and disable the systemd service
+          # We want to run in disconnected mode directly, not use the service
+          if [[ "$RUNNER_OS" == "Linux" ]] && [[ "${{ steps.install_posture.outputs.installed_via_package_manager }}" == "true" ]]; then
+            echo "Detected package manager installation on Linux"
+            echo "Stopping and disabling systemd service (we'll run in disconnected mode directly)..."
+            sudo systemctl stop edamame_posture.service 2>/dev/null || echo "[INFO] Service not running"
+            sudo systemctl disable edamame_posture.service 2>/dev/null || echo "[INFO] Service not enabled"
+            sleep 2
+          fi
+          
+          # Also try to stop via CLI (for non-systemd installations or manual starts)
           $EDAMAME_POSTURE_CMD stop > /dev/null 2>&1 || echo "No existing posture process to stop (or stop failed, continuing anyway)..."
           # Give it a moment to fully stop
           sleep 2
