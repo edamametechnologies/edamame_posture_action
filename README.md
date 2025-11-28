@@ -159,18 +159,19 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method:
    - Creates cancellation script if `cancel_on_violation` is enabled
    - Waits for connection to EDAMAME backend (if in connected mode)
 
-11. **Wait for API access**  
-   - If `wait_for_api` is true, periodically tests API access using `gh api` until granted or timeout
-   - Runs AFTER daemon has started and connected (daemon can whitelist runner IP via EDAMAME backend)
-   - Required for organizations with IP allow lists enabled
-
-12. **Download auto-whitelist artifacts**  
+11. **Download auto-whitelist artifacts**  
    - Downloads previous whitelist from GitHub artifacts (if `auto_whitelist` is true)
    - Files saved to $HOME for daemon to load
 
-13. **Apply custom whitelists to daemon**  
+12. **Apply custom whitelists to daemon**  
    - Loads whitelist into daemon memory from auto_whitelist.json or custom file
    - Daemon uses this for real-time network traffic enforcement
+   - Runs immediately after startup to ensure subsequent steps are monitored
+
+13. **Wait for API access**  
+   - If `wait_for_api` is true, periodically tests API access using `gh api` until granted or timeout
+   - Runs AFTER daemon has started and connected (daemon can whitelist runner IP via EDAMAME backend)
+   - Required for organizations with IP allow lists enabled
 
 14. **Wait for https access**  
    - If `wait_for_https` is true, repeatedly checks repo HTTPS access until granted or timeout
@@ -959,6 +960,7 @@ You can manually edit these files to:
 2. Enable both `check_whitelist: true` (real-time) and `exit_on_whitelist_exceptions: true` (end-of-run)
 3. Check that EDAMAME Posture has network capture permissions
 4. On Windows, note that packet capture has licensing limitations
+5. If using a custom whitelist without a default `whitelist` name, ensure `set_custom_whitelists` is true. The action will load the whitelist immediately after startup.
 
 ### Advanced Features
 
