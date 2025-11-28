@@ -474,530 +474,88 @@ runs:
 
     - name: Install or Update EDAMAME Posture
       id: install_posture
-      run: |
-        set -e
-        
-        echo "=== EDAMAME Posture Installation ==="
-        
-        # Determine if we need debug version
-        if [[ "${{ inputs.debug }}" == "true" ]]; then
-          echo "Debug mode is enabled - package managers don't support debug versions"
-          echo "Will fallback to direct binary download for debug builds"
-          USE_PACKAGE_MANAGER=false
-        else
-          USE_PACKAGE_MANAGER=true
-        fi
-        
-        # Track installation method and state
-        INSTALL_METHOD="none"
-        BINARY_ALREADY_PRESENT=false
-        INSTALLED_VIA_PACKAGE_MANAGER=false
-        
-        ############################################################################################
-        # macOS Installation
-        ############################################################################################
-        if [[ "$RUNNER_OS" == "macOS" ]]; then
-          echo "Platform: macOS"
-          
-          # Check if already installed via Homebrew
-          if brew list edamame-posture &>/dev/null; then
-            echo "[OK] EDAMAME Posture is already installed via Homebrew"
-            BINARY_ALREADY_PRESENT=true
-            INSTALLED_VIA_PACKAGE_MANAGER=true
-            INSTALL_METHOD="homebrew"
-            
-            # Try to upgrade
-            echo "Attempting to upgrade to latest version..."
-            if brew upgrade edamame-posture 2>/dev/null; then
-              echo "[OK] Successfully upgraded edamame-posture"
-            else
-              echo "[INFO] No upgrade available or upgrade failed (already at latest version)"
-            fi
-          elif command -v edamame_posture &>/dev/null; then
-            echo "[OK] EDAMAME Posture is already installed (not via Homebrew)"
-            BINARY_ALREADY_PRESENT=true
-            INSTALL_METHOD="existing"
-          elif [[ "$USE_PACKAGE_MANAGER" == "true" ]]; then
-            # Try to install via Homebrew
-            echo "Attempting to install via Homebrew..."
-            
-            # Try to add tap if not already added
-            TAP_ADDED=false
-            if brew tap | grep -q "edamametechnologies/tap"; then
-              echo "[OK] Tap already added"
-              TAP_ADDED=true
-            else
-              echo "Adding edamametechnologies/tap..."
-              # Redirect errors to capture output
-              TAP_OUTPUT=$(brew tap edamametechnologies/tap 2>&1) && TAP_ADDED=true || TAP_ADDED=false
-              
-              if [ "$TAP_ADDED" = true ]; then
-                echo "[OK] Tap added successfully"
-              else
-                # Check if tap exists but failed to clone (auth issue vs not exists)
-                if echo "$TAP_OUTPUT" | grep -qi "authentication\|credentials\|permission"; then
-                  echo "[INFO] Tap exists but has authentication issues"
-                  echo "[INFO] Trying direct formula URL instead..."
-                  # Try to install directly without tap
-                  if brew install edamametechnologies/tap/edamame-posture 2>/dev/null; then
-                    echo "[OK] Installed via direct formula URL"
-                    INSTALLED_VIA_PACKAGE_MANAGER=true
-                    INSTALL_METHOD="homebrew"
-                    TAP_ADDED=true
-                  fi
-                else
-                  echo "[WARNING] Failed to add tap (may not be published yet)"
-                fi
-              fi
-            fi
-            
-            # Try to install via tap (if tap was added successfully)
-            if [ "$TAP_ADDED" = true ] && [ "$INSTALLED_VIA_PACKAGE_MANAGER" = false ]; then
-              if brew install edamame-posture 2>/dev/null; then
-                echo "[OK] Successfully installed edamame-posture via Homebrew"
-                INSTALLED_VIA_PACKAGE_MANAGER=true
-                INSTALL_METHOD="homebrew"
-              else
-                echo "[WARNING] Formula installation failed"
-                USE_PACKAGE_MANAGER=false
-              fi
-            fi
-            
-            # If all Homebrew attempts failed, fall back to binary
-            if [ "$INSTALLED_VIA_PACKAGE_MANAGER" = false ]; then
-              echo "[INFO] Falling back to direct binary download"
-              USE_PACKAGE_MANAGER=false
-            fi
-          fi
-          
-          # Fallback to direct download if package manager didn't work
-          if [[ "$INSTALLED_VIA_PACKAGE_MANAGER" == "false" && "$BINARY_ALREADY_PRESENT" == "false" ]]; then
-            echo "Downloading EDAMAME Posture binary for macOS..."
-            cd
-            
-            # Determine version and filename
-            if [[ "${{ inputs.debug }}" == "true" ]]; then
-              # Debug version - needs specific version number
-              LATEST_VERSION=$(curl -s -H "Authorization: token ${{ inputs.token }}" https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//' || echo "0.9.75")
-              BINARY_NAME="edamame_posture-${LATEST_VERSION}-universal-apple-darwin-debug"
-              DOWNLOAD_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${LATEST_VERSION}/${BINARY_NAME}"
-            else
-              # Release version - can use redirect
-              BINARY_NAME="edamame_posture-universal-apple-darwin"
-              DOWNLOAD_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest/download/${BINARY_NAME}"
-            fi
-            
-            echo "Downloading from: $DOWNLOAD_URL"
-            if ! wget --no-verbose "$DOWNLOAD_URL" -O edamame_posture; then
-              # Fallback to hardcoded version
-              echo "Latest download failed, trying fallback version..."
-              wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.9.75/edamame_posture-0.9.75-universal-apple-darwin -O edamame_posture
-            fi
-            chmod +x edamame_posture
-            INSTALL_METHOD="binary"
-          fi
-        
-        ############################################################################################
-        # Windows Installation  
-        ############################################################################################
-        elif [[ "$RUNNER_OS" == "Windows" ]]; then
-          echo "Platform: Windows"
-          
-          # Check if already installed via Chocolatey
-          if choco list --local-only --exact edamame-posture 2>/dev/null | grep -q "^edamame-posture"; then
-            echo "[OK] EDAMAME Posture is already installed via Chocolatey"
-            BINARY_ALREADY_PRESENT=true
-            INSTALLED_VIA_PACKAGE_MANAGER=true
-            INSTALL_METHOD="chocolatey"
-            
-            # Try to upgrade
-            echo "Attempting to upgrade to latest version..."
-            if choco upgrade edamame-posture -y 2>/dev/null; then
-              echo "[OK] Successfully upgraded edamame-posture"
-            else
-              echo "[INFO] No upgrade available or upgrade failed (already at latest version)"
-            fi
-          elif command -v edamame_posture &>/dev/null; then
-            echo "[OK] EDAMAME Posture is already installed (not via Chocolatey)"
-            BINARY_ALREADY_PRESENT=true
-            INSTALL_METHOD="existing"
-          elif [[ "$USE_PACKAGE_MANAGER" == "true" ]]; then
-            # Try to install via Chocolatey
-            echo "Attempting to install via Chocolatey..."
-            # Chocolatey install can fail if package doesn't exist in repository yet
-            if choco install edamame-posture -y 2>/dev/null; then
-              echo "[OK] Successfully installed edamame-posture via Chocolatey"
-              INSTALLED_VIA_PACKAGE_MANAGER=true
-              INSTALL_METHOD="chocolatey"
-            else
-              echo "[WARNING] Chocolatey installation failed (package may not be published yet), falling back to direct download"
-              USE_PACKAGE_MANAGER=false
-            fi
-          fi
-          
-          # Fallback to direct download if package manager didn't work
-          if [[ "$INSTALLED_VIA_PACKAGE_MANAGER" == "false" && "$BINARY_ALREADY_PRESENT" == "false" ]]; then
-            echo "Downloading EDAMAME Posture binary for Windows..."
-            cd
-            
-            # Determine version and filename
-            if [[ "${{ inputs.debug }}" == "true" ]]; then
-              # Debug version - needs specific version number
-              LATEST_VERSION=$(curl -s -H "Authorization: token ${{ inputs.token }}" https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//' || echo "0.9.75")
-              BINARY_NAME="edamame_posture-${LATEST_VERSION}-x86_64-pc-windows-msvc-debug.exe"
-              DOWNLOAD_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${LATEST_VERSION}/${BINARY_NAME}"
-            else
-              # Release version - can use redirect
-              BINARY_NAME="edamame_posture-x86_64-pc-windows-msvc.exe"
-              DOWNLOAD_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest/download/${BINARY_NAME}"
-            fi
-            
-            echo "Downloading from: $DOWNLOAD_URL"
-            if ! wget --no-verbose "$DOWNLOAD_URL" -O edamame_posture.exe; then
-              # Fallback to hardcoded version
-              echo "Latest download failed, trying fallback version..."
-              wget --no-verbose https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v0.9.75/edamame_posture-0.9.75-x86_64-pc-windows-msvc.exe -O edamame_posture.exe
-            fi
-            INSTALL_METHOD="binary"
-          fi
-        
-        ############################################################################################
-        # Linux Installation
-        ############################################################################################
-        elif [[ "$RUNNER_OS" == "Linux" ]]; then
-          echo "Platform: Linux"
-          
-          # Detect Linux distribution
-          if [[ -f /etc/os-release ]]; then
-            source /etc/os-release
-            echo "Distribution: $ID"
-          else
-            echo "[WARNING] /etc/os-release not found, cannot detect distribution"
-            ID="unknown"
-          fi
-          
-          # Check if already installed in system
-          if command -v edamame_posture &>/dev/null; then
-            EXISTING_PATH=$(command -v edamame_posture)
-            echo "[OK] EDAMAME Posture is already installed at: $EXISTING_PATH"
-            BINARY_ALREADY_PRESENT=true
-            
-            # Determine how it was installed and try to upgrade
-            case "$ID" in
-              "alpine")
-                if apk info edamame-posture &>/dev/null; then
-                  INSTALLED_VIA_PACKAGE_MANAGER=true
-                  INSTALL_METHOD="apk"
-                  echo "Installed via: APK"
-                  echo "Attempting to upgrade..."
-                  if sudo apk upgrade edamame-posture 2>/dev/null; then
-                    echo "[OK] Successfully upgraded edamame-posture"
-                  else
-                    echo "[INFO] No upgrade available (already at latest version)"
-                  fi
-                else
-                  INSTALL_METHOD="existing"
-                  echo "Installed via: Direct binary"
-                fi
-                ;;
-              "ubuntu"|"debian"|"raspbian")
-                if dpkg -l edamame-posture &>/dev/null; then
-                  INSTALLED_VIA_PACKAGE_MANAGER=true
-                  INSTALL_METHOD="apt"
-                  echo "Installed via: APT"
-                  echo "Attempting to upgrade..."
-                  if sudo apt-get update -qq && sudo apt-get install --only-upgrade -y edamame-posture 2>/dev/null; then
-                    echo "[OK] Successfully upgraded edamame-posture"
-                  else
-                    echo "[INFO] No upgrade available (already at latest version)"
-                  fi
-                else
-                  INSTALL_METHOD="existing"
-                  echo "Installed via: Direct binary"
-                fi
-                ;;
-              *)
-                INSTALL_METHOD="existing"
-                echo "Installed via: Unknown method"
-                ;;
-            esac
-          else
-            # Not installed - try package manager first
-            echo "EDAMAME Posture is not installed, attempting package manager installation..."
-            
-            case "$ID" in
-              "alpine")
-                if [[ "$USE_PACKAGE_MANAGER" == "true" ]]; then
-                  echo "Attempting to install via APK..."
-                  
-                  # Check if repository is already configured
-                  ARCH=$(uname -m)
-                  REPO_URL="https://edamame.s3.eu-west-1.amazonaws.com/repo/alpine/v3.15/main"
-                  
-                  if ! grep -q "$REPO_URL" /etc/apk/repositories 2>/dev/null; then
-                    echo "Adding EDAMAME APK repository..."
-                    # Import signing key (may fail if not yet published)
-                    if wget -q -O /tmp/edamame.rsa.pub "https://edamame.s3.eu-west-1.amazonaws.com/repo/alpine/v3.15/${ARCH}/edamame.rsa.pub" 2>/dev/null; then
-                      sudo cp /tmp/edamame.rsa.pub /etc/apk/keys/ 2>/dev/null || echo "[WARNING] Failed to copy signing key"
-                    else
-                      echo "[WARNING] Failed to download signing key (repository may not be set up yet)"
-                    fi
-                    # Add repository
-                    echo "$REPO_URL" | sudo tee -a /etc/apk/repositories >/dev/null
-                  fi
-                  
-                  # Update and install
-                  sudo apk update 2>/dev/null || echo "[WARNING] apk update failed"
-                  if sudo apk add edamame-posture 2>/dev/null; then
-                    echo "[OK] Successfully installed edamame-posture via APK"
-                    INSTALLED_VIA_PACKAGE_MANAGER=true
-                    INSTALL_METHOD="apk"
-                    
-                    # APK package may auto-start service - stop it if running
-                    # The action will start it manually with appropriate configuration
-                    echo "Stopping any auto-started service..."
-                    if command -v rc-service >/dev/null 2>&1; then
-                      sudo rc-service edamame_posture stop 2>/dev/null || true
-                    fi
-                    echo "[INFO] Service stopped if it was running"
-                  else
-                    echo "[WARNING] APK installation failed (package may not be published yet), falling back to direct download"
-                    USE_PACKAGE_MANAGER=false
-                  fi
-                fi
-                ;;
-              
-              "ubuntu"|"debian"|"raspbian")
-                if [[ "$USE_PACKAGE_MANAGER" == "true" ]]; then
-                  echo "Attempting to install via APT..."
-                  
-                  # Check if repository is already configured
-                  if ! grep -q "edamame.s3.eu-west-1.amazonaws.com/repo" /etc/apt/sources.list.d/edamame.list 2>/dev/null; then
-                    echo "Adding EDAMAME APT repository..."
-                    # Import GPG key (may fail if not yet published)
-                    if wget -q -O - https://edamame.s3.eu-west-1.amazonaws.com/repo/public.key | sudo gpg --dearmor -o /usr/share/keyrings/edamame.gpg 2>/dev/null; then
-                      echo "[OK] GPG key imported"
-                    else
-                      echo "[WARNING] Failed to import GPG key (repository may not be set up yet)"
-                    fi
-                    # Add repository
-                    ARCH=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
-                    echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/edamame.gpg] https://edamame.s3.eu-west-1.amazonaws.com/repo stable main" | sudo tee /etc/apt/sources.list.d/edamame.list >/dev/null
-                  fi
-                  
-                  # Update and install
-                  sudo apt-get update -qq 2>/dev/null || echo "[WARNING] apt-get update failed"
-                  if sudo apt-get install -y edamame-posture 2>/dev/null; then
-                    echo "[OK] Successfully installed edamame-posture via APT"
-                    INSTALLED_VIA_PACKAGE_MANAGER=true
-                    INSTALL_METHOD="apt"
-                    
-                    # APT package auto-starts systemd service - stop it immediately
-                    # The action will start it manually with appropriate configuration
-                    echo "Stopping auto-started systemd service..."
-                    sudo systemctl stop edamame_posture.service 2>/dev/null || true
-                    sudo systemctl disable edamame_posture.service 2>/dev/null || true
-                    echo "[INFO] Systemd service stopped and disabled"
-                  else
-                    echo "[WARNING] APT installation failed (package may not be published yet), falling back to direct download"
-                    USE_PACKAGE_MANAGER=false
-                  fi
-                fi
-                ;;
-              
-              *)
-                echo "[INFO] Unknown Linux distribution: $ID, will use direct download"
-                USE_PACKAGE_MANAGER=false
-                ;;
-            esac
-            
-            # Fallback to direct download if package manager didn't work
-            if [[ "$INSTALLED_VIA_PACKAGE_MANAGER" == "false" ]]; then
-              echo "Falling back to direct binary download..."
-              cd
-              ARCH=$(uname -m)
-              
-              # Get latest version for debug builds if needed
-              if [[ "${{ inputs.debug }}" == "true" ]]; then
-                LATEST_VERSION=$(curl -s -H "Authorization: token ${{ inputs.token }}" https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//' || echo "0.9.75")
-              fi
-              
-              # Default suffix
-              BIN_SUFFIX="-unknown-linux-gnu"
-              
-              # Determine suffix based on OS/Distro/GLIBC
-              case "$ID" in
-                "alpine")
-                  BIN_SUFFIX="-unknown-linux-musl"
-                  ;;
-                *)
-                  # For glibc-based distros, check version for x86_64 compatibility
-                  if [[ "$ARCH" == "x86_64" ]]; then
-                    MIN_GLIBC_VERSION="2.29"
-                    if command -v getconf >/dev/null 2>&1; then
-                      GLIBC_VERSION=$(getconf GNU_LIBC_VERSION | awk '{print $2}')
-                      echo "Detected GLIBC version: $GLIBC_VERSION"
-                      # Compare versions: if system glibc < 2.29, use musl
-                      if printf '%s\n%s\n' "$MIN_GLIBC_VERSION" "$GLIBC_VERSION" | sort -V | head -n 1 | grep -q "$GLIBC_VERSION" && [[ "$GLIBC_VERSION" != "$MIN_GLIBC_VERSION" ]]; then
-                        echo "Warning: GLIBC version $GLIBC_VERSION is older than minimum required version $MIN_GLIBC_VERSION"
-                        echo "Fallback to using x86_64-unknown-linux-musl version of the binary"
-                        BIN_SUFFIX="-unknown-linux-musl"
-                      else
-                        echo "GLIBC version $GLIBC_VERSION is sufficient"
-                        BIN_SUFFIX="-unknown-linux-gnu"
-                      fi
-                    else
-                      echo "Unable to detect GLIBC version, defaulting to gnu"
-                      BIN_SUFFIX="-unknown-linux-gnu"
-                    fi
-                  else
-                    # Non-x86_64 (arm64, etc) uses standard gnu suffix
-                    BIN_SUFFIX="-unknown-linux-gnu"
-                  fi
-                  ;;
-              esac
-              
-              # Adjust suffix/arch for specific architectures
-              case "$ARCH" in
-                "x86_64")
-                  # Suffix already determined above
-                  ;;
-                "i686")
-                  # i686 always uses gnu
-                  BIN_SUFFIX="-unknown-linux-gnu"
-                  ;;
-                "aarch64")
-                  # Alpine aarch64 needs musl, others gnu
-                  if [[ "$ID" == "alpine" ]]; then
-                    BIN_SUFFIX="-unknown-linux-musl"
-                  else
-                    BIN_SUFFIX="-unknown-linux-gnu"
-                  fi
-                  ;;
-                "armv7l"|"armhf")
-                  ARCH="armv7"
-                  BIN_SUFFIX="-unknown-linux-gnueabihf"
-                  ;;
-                *)
-                  echo "[ERROR] Unsupported architecture: $ARCH"
-                  exit 1
-                  ;;
-              esac
-              
-              # Construct download URL
-              if [[ "${{ inputs.debug }}" == "true" ]]; then
-                # Debug build
-                BINARY_NAME="edamame_posture-${LATEST_VERSION}-${ARCH}${BIN_SUFFIX}-debug"
-                DOWNLOAD_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${LATEST_VERSION}/${BINARY_NAME}"
-              else
-                # Release build
-                BINARY_NAME="edamame_posture-${ARCH}${BIN_SUFFIX}"
-                DOWNLOAD_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest/download/${BINARY_NAME}"
-              fi
-              
-              echo "Downloading from: $DOWNLOAD_URL"
-              if ! wget --no-verbose "$DOWNLOAD_URL" -O edamame_posture; then
-                echo "Latest download failed, trying fallback version..."
-                # Fallback version
-                FALLBACK_VER="0.9.75"
-                FALLBACK_NAME="edamame_posture-${FALLBACK_VER}-${ARCH}${BIN_SUFFIX}"
-                if [[ "${{ inputs.debug }}" == "true" ]]; then
-                   FALLBACK_NAME="${FALLBACK_NAME}-debug"
-                fi
-                wget --no-verbose "https://github.com/edamametechnologies/edamame_posture_cli/releases/download/v${FALLBACK_VER}/${FALLBACK_NAME}" -O edamame_posture
-              fi
-              chmod +x edamame_posture
-              INSTALL_METHOD="binary"
-            fi
-          fi
-        else
-          echo "[ERROR] Unsupported OS: $RUNNER_OS"
-          exit 1
-        fi
-        
-        echo ""
-        echo "=== Installation Summary ==="
-        echo "Method: $INSTALL_METHOD"
-        echo "Already present: $BINARY_ALREADY_PRESENT"
-        echo "Via package manager: $INSTALLED_VIA_PACKAGE_MANAGER"
-        
-        # Set outputs
-        echo "binary_already_present=$BINARY_ALREADY_PRESENT" >> $GITHUB_OUTPUT
-        echo "installed_via_package_manager=$INSTALLED_VIA_PACKAGE_MANAGER" >> $GITHUB_OUTPUT
-        echo "install_method=$INSTALL_METHOD" >> $GITHUB_OUTPUT
       shell: bash
+      env:
+        INSTALL_STATE_FILE: ${{ runner.temp }}/edamame_install_state
+      run: |
+        set -euo pipefail
+        STATE_FILE="$INSTALL_STATE_FILE"
+        INSTALL_ARGS=(--state-file "$STATE_FILE" --ci-mode)
+        if [[ "${{ inputs.debug }}" == "true" ]]; then
+          INSTALL_ARGS+=(--debug-build)
+        fi
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          INSTALL_ARGS+=(--install-dir "$HOME")
+        fi
+        echo "Running installer with args: ${INSTALL_ARGS[*]}"
+        curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/main/install.sh | sh -s -- "${INSTALL_ARGS[@]}"
+        if [[ ! -f "$STATE_FILE" ]]; then
+          echo "[ERROR] Installer did not produce state file at $STATE_FILE"
+                  exit 1
+        fi
+        echo "=== Installer State ==="
+        cat "$STATE_FILE"
+        # shellcheck disable=SC1090
+        source "$STATE_FILE"
+        echo "binary_already_present=${binary_already_present:-false}" >> "$GITHUB_OUTPUT"
+        echo "installed_via_package_manager=${installed_via_package_manager:-false}" >> "$GITHUB_OUTPUT"
+        echo "install_method=${install_method:-binary}" >> "$GITHUB_OUTPUT"
+        echo "binary_path=${binary_path:-}" >> "$GITHUB_OUTPUT"
 
     - name: Set EDAMAME_POSTURE_CMD variable
+      shell: bash
       run: |
+        set -euo pipefail
         echo "=== Setting EDAMAME_POSTURE_CMD ==="
         echo "Install method: ${{ steps.install_posture.outputs.install_method }}"
         echo "Installed via package manager: ${{ steps.install_posture.outputs.installed_via_package_manager }}"
-        
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          # Windows: Check if installed via Chocolatey (in PATH) or local binary
-          if command -v edamame_posture &>/dev/null; then
-            # Installed via Chocolatey or in PATH
-            EDAMAME_POSTURE_CMD="edamame_posture"
-            echo "Using system-installed edamame_posture (Chocolatey or PATH)"
+        BINARY_PATH="${{ steps.install_posture.outputs.binary_path }}"
+        if [[ -z "$BINARY_PATH" ]]; then
+          if command -v edamame_posture >/dev/null 2>&1; then
+            BINARY_PATH=$(command -v edamame_posture)
+          elif [[ -f "$HOME/edamame_posture" ]]; then
+            BINARY_PATH="$HOME/edamame_posture"
           elif [[ -f "$HOME/edamame_posture.exe" ]]; then
-            # Local binary in home directory
-            cd
-            EDAMAME_POSTURE_CMD="./edamame_posture.exe"
-            echo "Using local binary: $HOME/edamame_posture.exe"
+            BINARY_PATH="$HOME/edamame_posture.exe"
           else
             echo "[ERROR] edamame_posture not found!"
             exit 1
           fi
-          echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
-          
-        elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          # macOS: Check if installed via Homebrew (in PATH) or local binary
-          if command -v edamame_posture >/dev/null 2>&1; then
-            # Installed via Homebrew or in PATH - needs sudo
-            EDAMAME_POSTURE_CMD="sudo edamame_posture"
-            INSTALL_LOCATION=$(command -v edamame_posture)
-            echo "Using system-installed edamame_posture at: $INSTALL_LOCATION"
-          elif [[ -f "$HOME/edamame_posture" ]]; then
-            # Local binary in home directory - needs sudo
-            cd
-            EDAMAME_POSTURE_CMD="sudo ./edamame_posture"
-            echo "Using local binary: $HOME/edamame_posture"
-          else
-            echo "[ERROR] edamame_posture not found!"
-            exit 1
-          fi
-          echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
-          
-        elif [[ "$RUNNER_OS" == "Linux" ]]; then
-          # Linux: Check package manager installation or local binary
-          if command -v edamame_posture >/dev/null 2>&1; then
-            # Installed via APK/APT or in PATH - needs sudo
-            EDAMAME_POSTURE_CMD="sudo edamame_posture"
-            INSTALL_LOCATION=$(command -v edamame_posture)
-            echo "Using system-installed edamame_posture at: $INSTALL_LOCATION"
-          elif [[ -f "$HOME/edamame_posture" ]]; then
-            # Local binary in home directory - needs sudo
-            cd
-            EDAMAME_POSTURE_CMD="sudo ./edamame_posture"
-            echo "Using local binary: $HOME/edamame_posture"
-          else
-            echo "[ERROR] edamame_posture not found!"
-            exit 1
-          fi
-          echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
-        else
-          echo "[ERROR] Unsupported OS: $RUNNER_OS"
-          exit 1
         fi
-        
-        echo "EDAMAME_POSTURE_CMD set to: $EDAMAME_POSTURE_CMD"
-        
-        # Set log level to debug if debug mode is enabled
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          EDAMAME_POSTURE_CMD="$BINARY_PATH"
+        else
+          EDAMAME_POSTURE_CMD="sudo $BINARY_PATH"
+        fi
+        echo "Using binary at: $BINARY_PATH"
+        echo "EDAMAME_BINARY_PATH=$BINARY_PATH" >> $GITHUB_ENV
+        echo "EDAMAME_POSTURE_CMD=$EDAMAME_POSTURE_CMD" >> $GITHUB_ENV
         if [[ "${{ inputs.debug }}" == "true" ]]; then
           echo "EDAMAME_LOG_LEVEL=debug" >> $GITHUB_ENV
           echo "Debug logging enabled"
         fi
+        echo "EDAMAME_POSTURE_CMD set to: $EDAMAME_POSTURE_CMD"
+
+    - name: Inspect edamame_posture service (if present)
+      if: runner.os == 'Linux'
       shell: bash
+      run: |
+        set -euo pipefail
+        if command -v systemctl >/dev/null 2>&1; then
+          echo "=== systemctl status edamame_posture ==="
+          sudo systemctl status edamame_posture.service --no-pager || true
+          SERVICE_USER=$(systemctl show -p User edamame_posture.service 2>/dev/null | cut -d'=' -f2)
+          if [[ -z "$SERVICE_USER" ]]; then
+            SERVICE_USER="root (default)"
+          fi
+          echo "Configured systemd service user: $SERVICE_USER"
+        elif command -v rc-service >/dev/null 2>&1; then
+          echo "=== rc-service edamame_posture status ==="
+          sudo rc-service edamame_posture status || true
+          echo "OpenRC services run as root by default (override via init script as needed)."
+        else
+          echo "No system service manager detected; skipping service inspection."
+        fi
 
     - name: Show initial posture
       run: |
@@ -1094,6 +652,7 @@ runs:
         cd
         # Check if all arguments are provided
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
+          SKIP_START=false
           if [[ "${{ steps.install_posture.outputs.binary_already_present }}" == "true" ]]; then
             echo "EDAMAME Posture binary is already present. Checking status..."
             # Continue even if there are errors; capture both stdout and stderr
@@ -1108,11 +667,39 @@ runs:
               echo "edamame_posture is connected: $connected"
             fi
 
-            # Compare with inputs
+            current_user="$({ grep -i 'Connected user' posture_status.txt | head -n1 | sed -E 's/.*Connected user:[[:space:]]*//I' | xargs; } || true)"
+            current_domain="$({ grep -i 'Connected domain' posture_status.txt | head -n1 | sed -E 's/.*Connected domain:[[:space:]]*//I' | xargs; } || true)"
+
+            # Compare with inputs; restart if mismatched
             if [[ "$connected" == "true" ]]; then
-              echo "EDAMAME Posture is already running with the specified user and domain. Skipping start process."
-              # Instead of exiting, use a variable to control the flow
-              SKIP_START=true
+              mismatch=false
+              if [[ -n "${{ inputs.edamame_user }}" && "$current_user" != "${{ inputs.edamame_user }}" ]]; then
+                mismatch=true
+              fi
+              if [[ -n "${{ inputs.edamame_domain }}" && "$current_domain" != "${{ inputs.edamame_domain }}" ]]; then
+                mismatch=true
+              fi
+
+              if [[ "$mismatch" == "true" ]]; then
+                echo "Connected user/domain ($current_user / $current_domain) differ from requested (${{ inputs.edamame_user }} / ${{ inputs.edamame_domain }}). Restarting posture..."
+                $EDAMAME_POSTURE_CMD stop > /dev/null 2>&1 || true
+                if command -v systemctl >/dev/null 2>&1; then
+                  sudo systemctl stop edamame_posture.service 2>/dev/null || true
+                elif command -v rc-service >/dev/null 2>&1; then
+                  sudo rc-service edamame_posture stop 2>/dev/null || true
+                fi
+                SKIP_START=false
+              else
+                SKIP_START=true
+              fi
+            fi
+
+            if [[ "$connected" == "true" ]]; then
+              if [[ "$SKIP_START" == "true" ]]; then
+                echo "EDAMAME Posture is already running with the requested credentials. Skipping start process."
+              else
+                echo "Connected posture will be restarted with the requested credentials."
+              fi
             else
               # Linux 
               if [[ "$RUNNER_OS" == "Linux" ]]; then
