@@ -649,7 +649,7 @@ runs:
                   echo "Installed via: Direct binary"
                 fi
                 ;;
-              "ubuntu"|"debian")
+              "ubuntu"|"debian"|"raspbian")
                 if dpkg -l edamame-posture &>/dev/null; then
                   INSTALLED_VIA_PACKAGE_MANAGER=true
                   INSTALL_METHOD="apt"
@@ -716,7 +716,7 @@ runs:
                 fi
                 ;;
               
-              "ubuntu"|"debian")
+              "ubuntu"|"debian"|"raspbian")
                 if [[ "$USE_PACKAGE_MANAGER" == "true" ]]; then
                   echo "Attempting to install via APT..."
                   
