@@ -4,18 +4,61 @@
 This GitHub Actions workflow sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli), a security posture management tool.  
 It supports Windows, Linux, and macOS runners, checking for and installing any missing dependencies such as wget, curl, jq, Node.js, etc.
 
-## Behavior in Self-Hosted vs. GitHub-Hosted Runners
+## Installation Behavior
 
-- **Self-Hosted Runners (Posture Already Installed)**  
-  If your self-hosted runner already has the EDAMAME Posture CLI installed (e.g., in `/usr/bin` or a pre-configured location), this action will detect the existing binary and skip the download. It then checks the posture service status:
-  - If you are **already connected** (matching `edamame_user` and `edamame_domain`), the action will **skip** starting the service again.
+This action uses an intelligent installation strategy that prefers package managers over direct binary downloads:
 
-- **GitHub-Hosted Runners (Posture Not Installed)**  
-  On a typical GitHub-hosted runner, EDAMAME Posture is not installed by default. The action will:
-  1. Download the appropriate EDAMAME Posture binary for the runner's operating system.  
-  2. Attempt to remediate or start the posture service using the provided inputs.  
-     - If the required arguments (`edamame_user`, `edamame_domain`, `edamame_pin`, `edamame_id`) are present, it starts EDAMAME Posture in the background and waits for a successful connection.  
-     - If inputs are missing or invalid, the step is skipped or fails with an error message.
+### Package Manager Priority (Default)
+
+The action automatically detects the platform and attempts installation via the appropriate package manager:
+
+| Platform | Package Manager | Command | Fallback |
+|----------|----------------|---------|----------|
+| **macOS** | Homebrew | `brew install edamame-posture` | Direct binary download |
+| **Windows** | Chocolatey | `choco install edamame-posture` | Direct binary download |
+| **Linux (Alpine)** | APK | `apk add edamame-posture` | Direct binary download |
+| **Linux (Debian/Ubuntu)** | APT | `apt install edamame-posture` | Direct binary download |
+| **Linux (Other)** | N/A | - | Direct binary download |
+
+### Installation States
+
+The action handles different installation states intelligently:
+
+1. **Not Installed**
+   - Attempts package manager installation first
+   - Falls back to direct binary download if package manager fails
+   - Makes binary executable and sets up environment
+
+2. **Already Installed**
+   - Detects existing installation (via package manager or binary)
+   - If installed via package manager: attempts to upgrade to latest version
+   - If already running with matching credentials: skips restart
+   - Sets appropriate command path for subsequent steps
+
+3. **Debug Mode**
+   - Package managers don't support debug builds
+   - Automatically falls back to direct binary download
+   - Downloads debug version from GitHub releases
+
+### Command Path Resolution
+
+The action sets `EDAMAME_POSTURE_CMD` based on the installation method:
+
+- **Package Manager Install**: `sudo edamame_posture` (Linux/macOS) or `edamame_posture` (Windows)
+- **Direct Binary Install**: `sudo ./edamame_posture` (Linux/macOS) or `./edamame_posture.exe` (Windows)
+- **Pre-existing Install**: Detected automatically from system PATH
+
+### Self-Hosted vs. GitHub-Hosted Runners
+
+- **Self-Hosted Runners**  
+  - Detects existing installations and preserves them
+  - Attempts upgrades via the same method used for installation
+  - Skips restart if already running with correct configuration
+
+- **GitHub-Hosted Runners**  
+  - Fresh installation on each run
+  - Prefers package managers for cleaner, system-integrated installs
+  - Falls back to binary download if package manager unavailable
 
 ## Inputs
 
@@ -71,9 +114,17 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 1. **Dependencies**  
    Checks for and installs required dependencies for your runner's OS—wget, curl, jq, Node.js, etc.—using either Chocolatey (Windows), apt-get (Linux), or Homebrew (macOS).
 
-2. **Download EDAMAME Posture binary**  
-   - Looks for an existing binary. If found, skips download. Otherwise, downloads the latest (or fallback) version.  
-   - Implements exponential backoff if rate-limited by GitHub's public API.
+2. **Install or Update EDAMAME Posture**  
+   - **Detection**: Checks if EDAMAME Posture is already installed
+   - **Package Manager Priority**: 
+     - macOS: Attempts `brew install edamame-posture` (or `brew upgrade` if installed)
+     - Windows: Attempts `choco install edamame-posture` (or `choco upgrade` if installed)
+     - Alpine Linux: Attempts `apk add edamame-posture` (or `apk upgrade` if installed)
+     - Debian/Ubuntu: Attempts `apt install edamame-posture` (or `apt upgrade` if installed)
+   - **Fallback**: Downloads appropriate binary from GitHub releases if package manager fails
+   - **Repository Setup**: Automatically adds package repositories and signing keys if needed
+   - **Debug Mode**: Bypasses package managers and downloads debug binaries directly
+   - **Outputs**: Sets `install_method`, `binary_already_present`, and `installed_via_package_manager` for use in subsequent steps
 
 3. **Show initial posture**  
    - Calls `score` to display the current posture prior to any remediation.
@@ -1197,6 +1248,64 @@ Auto-whitelist works seamlessly with other EDAMAME features:
     check_anomalous: true                         # Also check ML anomalies
     cancel_on_violation: true                     # Cancel on any violation
 ```
+
+## Advanced Installation Features
+
+### Automatic Repository Configuration
+
+When using package managers, the action automatically configures the necessary repositories and signing keys:
+
+**Alpine Linux (APK)**:
+```bash
+# Automatically downloads and installs signing key
+wget -O /tmp/edamame.rsa.pub https://edamame.s3.eu-west-1.amazonaws.com/repo/alpine/v3.15/{arch}/edamame.rsa.pub
+sudo cp /tmp/edamame.rsa.pub /etc/apk/keys/
+
+# Adds repository
+echo "https://edamame.s3.eu-west-1.amazonaws.com/repo/alpine/v3.15/main" | sudo tee -a /etc/apk/repositories
+```
+
+**Debian/Ubuntu (APT)**:
+```bash
+# Automatically imports GPG key
+wget -O - https://edamame.s3.eu-west-1.amazonaws.com/repo/public.key | sudo gpg --dearmor -o /usr/share/keyrings/edamame.gpg
+
+# Adds repository
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/edamame.gpg] https://edamame.s3.eu-west-1.amazonaws.com/repo stable main" | sudo tee /etc/apt/sources.list.d/edamame.list
+```
+
+**macOS (Homebrew)**:
+```bash
+# Automatically adds tap
+brew tap edamametechnologies/tap
+```
+
+### Upgrade Behavior
+
+If EDAMAME Posture is already installed via a package manager, the action will attempt to upgrade it:
+
+- **Automatic Updates**: Runs `brew upgrade`, `choco upgrade`, `apk upgrade`, or `apt upgrade` as appropriate
+- **Version Consistency**: Ensures runners always use the latest stable version
+- **Graceful Handling**: Continues with existing version if upgrade fails or isn't needed
+
+### Benefits of Package Manager Installation
+
+Using package managers provides several advantages over direct binary downloads:
+
+1. **System Integration**: Binaries installed in standard system paths (`/usr/bin`, `/usr/local/bin`)
+2. **Automatic Updates**: Easy to keep up-to-date with latest security fixes
+3. **Dependency Management**: Package managers handle any system dependencies
+4. **Cleaner Uninstall**: Standard removal process via package manager
+5. **Consistent Paths**: No need to track different binary locations
+
+### Fallback Strategy
+
+If package manager installation fails, the action gracefully falls back to direct binary download:
+
+- Downloads from GitHub releases using latest tag redirect
+- Supports debug builds (not available via package managers)
+- Handles rate limiting with automatic retries
+- Places binary in `$HOME` directory with execute permissions
 
 ## Note
 For public repos that need access to private repos (or other restricted endpoints), pass the `token` input to this action. This allows the action to handle partial or delayed permissions during checkout, API access, or HTTPS waiting steps.
