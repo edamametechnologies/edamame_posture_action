@@ -502,7 +502,15 @@ runs:
             echo "install_method=unknown"
             echo "installed_via_package_manager=unknown"
             echo "binary_already_present=false"
-            echo "platform=${RUNNER_OS,,}"
+            if [[ "$RUNNER_OS" == "Linux" ]]; then
+              echo "platform=linux"
+            elif [[ "$RUNNER_OS" == "macOS" ]]; then
+              echo "platform=macos"
+            elif [[ "$RUNNER_OS" == "Windows" ]]; then
+              echo "platform=windows"
+            else
+              echo "platform=$RUNNER_OS"
+            fi
           } > "$STATE_FILE"
         fi
         echo "=== Installer State ==="
