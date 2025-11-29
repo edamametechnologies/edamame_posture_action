@@ -497,13 +497,13 @@ runs:
             exit 1
           fi
           mkdir -p "$(dirname "$STATE_FILE")"
-          cat > "$STATE_FILE" <<EOF
-binary_path=${binary_path}
-install_method=unknown
-installed_via_package_manager=unknown
-binary_already_present=false
-platform=${RUNNER_OS,,}
-EOF
+          {
+            echo "binary_path=${binary_path}"
+            echo "install_method=unknown"
+            echo "installed_via_package_manager=unknown"
+            echo "binary_already_present=false"
+            echo "platform=${RUNNER_OS,,}"
+          } > "$STATE_FILE"
         fi
         echo "=== Installer State ==="
         cat "$STATE_FILE"
