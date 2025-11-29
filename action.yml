@@ -490,8 +490,20 @@ runs:
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
         curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/main/install.sh | sh -s -- "${INSTALL_ARGS[@]}"
         if [[ ! -f "$STATE_FILE" ]]; then
-          echo "[ERROR] Installer did not produce state file at $STATE_FILE"
-                  exit 1
+          echo "[WARNING] Installer did not produce state file at $STATE_FILE; reconstructing from current system state."
+          binary_path=$(command -v edamame_posture 2>/dev/null || echo "")
+          if [[ -z "$binary_path" ]]; then
+            echo "[ERROR] Unable to locate edamame_posture binary after installation."
+            exit 1
+          fi
+          mkdir -p "$(dirname "$STATE_FILE")"
+          cat > "$STATE_FILE" <<EOF
+binary_path=${binary_path}
+install_method=unknown
+installed_via_package_manager=unknown
+binary_already_present=false
+platform=${RUNNER_OS,,}
+EOF
         fi
         echo "=== Installer State ==="
         cat "$STATE_FILE"
