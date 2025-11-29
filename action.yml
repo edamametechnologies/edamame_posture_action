@@ -541,7 +541,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if command -v systemctl >/dev/null 2>&1; then
+        if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
           echo "=== systemctl status edamame_posture ==="
           sudo systemctl status edamame_posture.service --no-pager || true
           SERVICE_USER=$(systemctl show -p User edamame_posture.service 2>/dev/null | cut -d'=' -f2)
@@ -554,7 +554,7 @@ runs:
           sudo rc-service edamame_posture status || true
           echo "OpenRC services run as root by default (override via init script as needed)."
         else
-          echo "No system service manager detected; skipping service inspection."
+          echo "systemd/OpenRC not detected (likely container without init); skipping service inspection."
         fi
 
     - name: Show initial posture
