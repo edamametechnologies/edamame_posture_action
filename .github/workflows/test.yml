@@ -296,7 +296,11 @@ jobs:
       # Manual checkout because actions/checkout@v4 requires node20 which is not supported on older Ubuntu containers
       - name: Manual checkout for containers
         run: |
+          apt-get update -y
+          apt-get install -y git
+          # Without that git pull in edamame_posture_action fails as well as other actions
           git config --global --add safe.directory '*'
+          # Clone repository
           git clone https://github.com/${{ github.repository }}.git .
           git checkout ${{ github.ref_name }}
 
@@ -563,7 +567,9 @@ jobs:
       # Manual checkout for Alpine
       - name: Manual checkout for Alpine
         run: |
-          # Configure git
+          apt-get update -y
+          apt-get install -y git
+          # Without that git pull in edamame_posture_action fails as well as other actions
           git config --global --add safe.directory '*'
           # Clone repository
           git clone https://github.com/${{ github.repository }}.git .
