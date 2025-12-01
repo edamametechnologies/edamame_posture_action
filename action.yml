@@ -260,6 +260,7 @@ runs:
             echo "No apt/dpkg locks held, proceeding..."
           }
           
+          export DEBIAN_FRONTEND=noninteractive
           apt_cmd_with_retry() {
             local max_attempts=5
             local delay_seconds=10
