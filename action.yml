@@ -281,9 +281,6 @@ runs:
             done
           }
           
-          # Avoid prompts during apt-get install
-          export DEBIAN_FRONTEND=noninteractive
-          
           # Install sudo if needed
           if ! command -v sudo &> /dev/null; then
             echo "Installing sudo..."
@@ -295,7 +292,7 @@ runs:
           fi          
           # Update package lists
           echo "Updating package lists..."
-          apt_cmd_with_retry sudo -E apt-get update
+          apt_cmd_with_retry sudo -E apt-get update -y
 
           # Check/install git
           if ! command -v git &> /dev/null; then
