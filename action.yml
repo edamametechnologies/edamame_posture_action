@@ -462,7 +462,7 @@ runs:
           fi
         fi
         echo "Installer downloaded from $DOWNLOAD_SOURCE source. Executing..."
-        sh "$TMP_INSTALL_SCRIPT" -- "${INSTALL_ARGS[@]}"
+        sh "$TMP_INSTALL_SCRIPT" "${INSTALL_ARGS[@]}"
         rm -f "$TMP_INSTALL_SCRIPT"
         if [[ ! -f "$STATE_FILE" ]]; then
           echo "[WARNING] Installer did not produce state file at $STATE_FILE; reconstructing from current system state."
