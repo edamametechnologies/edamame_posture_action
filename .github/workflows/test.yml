@@ -292,18 +292,11 @@ jobs:
       options: --cap-add=NET_ADMIN --cap-add=NET_RAW
 
     steps:
-      # Needed when we are running in a container
-      - name: Setup permissions for git and install missing packages
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update -y
-          apt-get install -y git curl
-          git config --global --add safe.directory '*'
-
       # We don't use the EDAMAME Posture Action here, because we want to fully test the action.yml file
       # Manual checkout because actions/checkout@v4 requires node20 which is not supported on older Ubuntu containers
       - name: Manual checkout for containers
         run: |
+          git config --global --add safe.directory '*'
           git clone https://github.com/${{ github.repository }}.git .
           git checkout ${{ github.ref_name }}
 
@@ -532,8 +525,7 @@ jobs:
           exit 1
 
   test-alpine:
-    # We need to wait a long time for musl aarch64 due to the use of qemu
-    timeout-minutes: 180
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
