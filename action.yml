@@ -407,7 +407,26 @@ runs:
           INSTALL_ARGS+=(--install-dir "$HOME")
         fi
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
-        curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/main/install.sh | sh -s -- "${INSTALL_ARGS[@]}"
+        INSTALL_SCRIPT_REF="v0"
+        RELEASE_API="https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases?per_page=2"
+        echo "Determining latest installer release from: $RELEASE_API"
+        if command -v curl >/dev/null 2>&1; then
+          LATEST_JSON=$(curl -fsSL "$RELEASE_API" 2>/dev/null || true)
+        elif command -v wget >/dev/null 2>&1; then
+          LATEST_JSON=$(wget -q -O - "$RELEASE_API" 2>/dev/null || true)
+        else
+          LATEST_JSON=""
+        fi
+        if [[ -n "$LATEST_JSON" ]]; then
+          LATEST_TAG=$(printf '%s\n' "$LATEST_JSON" | awk -F\" '/"tag_name"[[:space:]]*:/ {tag=$4; gsub(/^v/, "", tag); if(tag!="") {print "v"tag; exit}}')
+          if [[ -n "$LATEST_TAG" ]]; then
+            INSTALL_SCRIPT_REF="$LATEST_TAG"
+          fi
+        fi
+        echo "Using installer reference: $INSTALL_SCRIPT_REF"
+        INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/${INSTALL_SCRIPT_REF}/install.sh"
+        echo "Downloading installer from: $INSTALL_SCRIPT_URL"
+        curl --proto '=https' --tlsv1.2 -sSf "$INSTALL_SCRIPT_URL" | sh -s -- "${INSTALL_ARGS[@]}"
         if [[ ! -f "$STATE_FILE" ]]; then
           echo "[WARNING] Installer did not produce state file at $STATE_FILE; reconstructing from current system state."
           binary_path=$(command -v edamame_posture 2>/dev/null || echo "")
