@@ -696,18 +696,7 @@ runs:
                 echo "Connected posture will be restarted with the requested credentials."
               fi
             else
-              # Linux 
-              if [[ "$RUNNER_OS" == "Linux" ]]; then
-                # We assume the edamame_posture service is installed
-                echo "edamame_posture service is installed but isn't connected, please configure it properly in order to use this runner"
-                exit 1
-              elif [[ "$RUNNER_OS" == "macOS" ]]; then
-                # There are no macOS edamame_posture service package yet, so we have to start the process in the background
-                echo "edamame_posture service is installed but isn't connected, it will be automatically started in the background"
-              elif [[ "$RUNNER_OS" == "Windows" ]]; then
-                # There are no Windows edamame_posture service package yet, so we have to start the process in the background
-                echo "edamame_posture service is installed but isn't connected, it will be automatically started in the background"
-              fi
+              echo "EDAMAME Posture service is installed but isn't connected, it will be automatically started in the background."
             fi
           fi
 
