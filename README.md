@@ -78,7 +78,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method:
 - `check_blacklist`: When `true`, fail if blacklisted sessions are observed during capture (default: true)  
 - `check_anomalous`: When `true`, fail if anomalous sessions are detected during capture (default: true)  
 - `cancel_on_violation`: When `true`, attempt to cancel the current CI pipeline if violations are detected during capture (default: false)  
-- `cancel_pipeline_script`: Path to custom cancellation script (default: $HOME/cancel_pipeline.sh). Script receives violation reason as first argument. See Pipeline Cancellation section for details.
+- `cancel_pipeline_script`: Path to custom cancellation script (default: auto-generated `/tmp/cancel_pipeline.sh`). Script receives violation reason as first argument. See Pipeline Cancellation section for details.
 - `disconnected_mode`: Start EDAMAME Posture in disconnected mode without requiring domain authentication (default: false)
 - `dump_sessions_log`: Dump sessions log (default: false)  
 - `checkout`: Checkout the repo through the git CLI (default: false)  
@@ -89,7 +89,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method:
 - `token`: GitHub token to checkout the repo (default: ${{ github.token }})  
 - `display_logs`: Display posture logs (default: false)  
 - `debug`: Enable debug mode - downloads debug version of binary and sets log level to debug (default: false)  
-- `whitelist`: Whitelist to use for the network scan (default: github). A platform-dependent suffix (`_windows`, `_macos`, or `_linux`) is automatically appended to this value based on the runner's operating system.
+- `whitelist`: Whitelist to use for the network scan (default: ""). The action forwards the value exactly as provided—set this when you want EDAMAME to enforce a named whitelist.
 - `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true)
 - `exit_on_blacklisted_sessions`: Exit with error when blacklisted sessions are detected (default: false)
 - `exit_on_anomalous_sessions`: Exit with error when anomalous sessions are detected (default: false)
@@ -98,16 +98,20 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method:
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
 - `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
 - `augment_custom_whitelists`: When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true` with packet capture enabled.
-- `auto_whitelist`: Enable automated whitelist lifecycle management across workflow runs. **Requires connected mode** (edamame_user/domain/pin) for artifact access when IP allow lists are enabled. See **Automated Whitelist Lifecycle** section below (default: false)
+- `auto_whitelist`: Enable automated whitelist lifecycle management across workflow runs. Requires `network_scan: true` with packet capture enabled so traffic can be observed. See **Automated Whitelist Lifecycle** below (default: false)
 - `auto_whitelist_artifact_name`: Name for GitHub artifact to store auto-whitelist state (default: "edamame-auto-whitelist")
 - `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
 - `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
 - `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "15")
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
-- `agentic_provider`: LLM provider for AI assistant: `claude`, `openai`, `ollama`, or none. Requires `EDAMAME_LLM_API_KEY` environment variable (default: "")
+- `agentic_provider`: LLM provider for AI assistant: `claude`, `openai`, `ollama`, or none. Requires `EDAMAME_LLM_API_KEY` environment variable (default: "none")
 - `agentic_interval`: Interval in seconds for automated AI assistant todo processing (default: 3600)
 - `stop`: Stop the background process  (default: false)
+
+### Connected Mode and IP Allow Lists
+
+Some GitHub organizations enforce IP allow lists that block unauthenticated artifact and API access. In those environments, provide connected-mode credentials (`edamame_user`, `edamame_domain`, `edamame_pin`, `edamame_id`) so EDAMAME can authenticate the runner before it downloads or uploads artifacts (for example, while using auto-whitelist or other artifact-dependent features). Disconnected runners without IP restrictions can continue using the action—including auto-whitelist—without those credentials.
 
 ## Steps
 
@@ -232,6 +236,8 @@ This GitHub Action provides multiple automation capabilities that can be combine
 
 **Purpose**: Automatically fix common security issues before your build starts.
 
+> ⚠️ **Extreme caution**: Auto-remediation can change authentication, firewall, or remote access settings on the runner. Misconfiguration may lock you out of self-hosted machines or kill long-lived sessions. Use it only when you fully understand every fix that may be applied, and avoid enabling it on shared or critical infrastructure without staged testing.
+
 **How to enable**:
 ```yaml
 - uses: edamametechnologies/edamame_posture_action@v0
@@ -248,6 +254,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 **Limitations**:
 - One-time action only (doesn't monitor for new issues during build)
 - Some fixes skipped by default to avoid disrupting CI environment
+- By default, the action skips remediation of `remote login enabled`, `remote desktop enabled`, and `local firewall disabled` (see `skip_remediations` input). If you override `skip_remediations`, make sure to preserve those entries unless you explicitly want the action to change those services—removing them can cut off RDP/SSH access or switch firewall states in the middle of a job.
 
 ### 2. AI Assistant (Continuous Remediation)
 
@@ -345,7 +352,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 - Cancellation typically occurs within 10-15 seconds of violation
 
 **Security Model**:
-- Action creates `$HOME/cancel_pipeline.sh` with captured CI environment variables
+- Action creates `/tmp/cancel_pipeline.sh` (when no custom path is provided) with captured CI environment variables so the sudoed daemon can execute it reliably
 - Script contains embedded `GITHUB_TOKEN` value (not environment reference)
 - Daemon executes script when violations detected
 - Daemon never has direct access to authentication tokens
@@ -353,7 +360,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 
 **Inputs**:
 - `cancel_on_violation`: Enable automatic cancellation (default: false)
-- `cancel_pipeline_script`: Custom script path (default: $HOME/cancel_pipeline.sh)
+- `cancel_pipeline_script`: Custom script path (default: /tmp/cancel_pipeline.sh)
 
 **Best for**:
 - High-security environments where violations must stop immediately

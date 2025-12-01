@@ -32,6 +32,7 @@ inputs:
   skip_remediations:
     description: "Remediations to skip when performing auto-remediations (comma separated)"
     required: false
+    default: "remote login enabled,remote desktop enabled,local firewall disabled"
   network_scan:
     description: "Scan network for critical devices (only applicable if the background process is started)"
     required: false
@@ -131,7 +132,7 @@ inputs:
   auto_whitelist:
     description: |
       Enable auto-whitelist mode: first run is listen-only, subsequent runs refine whitelist until stable.
-      Requires disconnected_mode=true, network_scan=true, packet_capture=true.
+      Recommended settings: network_scan=true with packet_capture enabled so traffic is captured for comparison.
       
       Usage pattern (two-invocation):
       1. First invocation: Setup with auto_whitelist=true (starts daemon, applies whitelist)
