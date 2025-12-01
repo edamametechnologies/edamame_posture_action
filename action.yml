@@ -433,7 +433,7 @@ runs:
           fi
         fi
         echo "Using installer reference: $INSTALL_SCRIPT_REF"
-        INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/${INSTALL_SCRIPT_REF}/install.sh"
+        INSTALL_SCRIPT_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
         echo "Downloading installer from: $INSTALL_SCRIPT_URL"
         curl --proto '=https' --tlsv1.2 -sSf "$INSTALL_SCRIPT_URL" | sh -s -- "${INSTALL_ARGS[@]}"
         if [[ ! -f "$STATE_FILE" ]]; then
