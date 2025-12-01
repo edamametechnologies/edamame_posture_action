@@ -433,9 +433,37 @@ runs:
           fi
         fi
         echo "Using installer reference: $INSTALL_SCRIPT_REF"
-        INSTALL_SCRIPT_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
-        echo "Downloading installer from: $INSTALL_SCRIPT_URL"
-        curl --proto '=https' --tlsv1.2 -sSf "$INSTALL_SCRIPT_URL" | sh -s -- "${INSTALL_ARGS[@]}"
+        download_file() {
+          local url="$1"
+          local destination="$2"
+          if command -v curl >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$destination"
+          elif command -v wget >/dev/null 2>&1; then
+            wget -q "$url" -O "$destination"
+          else
+            return 1
+          fi
+        }
+        RELEASE_INSTALL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
+        RAW_INSTALL_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/${INSTALL_SCRIPT_REF}/install.sh"
+        TMP_INSTALL_SCRIPT=$(mktemp)
+        DOWNLOAD_SOURCE=""
+        echo "Attempting to download installer from release asset: $RELEASE_INSTALL_URL"
+        if download_file "$RELEASE_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
+          DOWNLOAD_SOURCE="release"
+        else
+          echo "[WARNING] Failed to download installer from release asset. Falling back to raw source."
+          if download_file "$RAW_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
+            DOWNLOAD_SOURCE="raw"
+          else
+            echo "[ERROR] Unable to download installer from either release asset or raw source."
+            rm -f "$TMP_INSTALL_SCRIPT"
+            exit 1
+          fi
+        fi
+        echo "Installer downloaded from $DOWNLOAD_SOURCE source. Executing..."
+        sh "$TMP_INSTALL_SCRIPT" -- "${INSTALL_ARGS[@]}"
+        rm -f "$TMP_INSTALL_SCRIPT"
         if [[ ! -f "$STATE_FILE" ]]; then
           echo "[WARNING] Installer did not produce state file at $STATE_FILE; reconstructing from current system state."
           binary_path=$(command -v edamame_posture 2>/dev/null || echo "")
