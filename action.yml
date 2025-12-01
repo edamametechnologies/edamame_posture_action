@@ -407,7 +407,7 @@ runs:
           INSTALL_ARGS+=(--install-dir "$HOME")
         fi
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
-        INSTALL_SCRIPT_REF="v0"
+        INSTALL_SCRIPT_REF="v0.9.82"
         RELEASE_API="https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases?per_page=2"
         echo "Determining latest installer release from: $RELEASE_API"
         if command -v curl >/dev/null 2>&1; then
@@ -418,7 +418,16 @@ runs:
           LATEST_JSON=""
         fi
         if [[ -n "$LATEST_JSON" ]]; then
-          LATEST_TAG=$(printf '%s\n' "$LATEST_JSON" | awk -F\" '/"tag_name"[[:space:]]*:/ {tag=$4; gsub(/^v/, "", tag); if(tag!="") {print "v"tag; exit}}')
+          LATEST_TAG=$(awk -F\" '
+            /"tag_name"[[:space:]]*:/ {
+              tag=$4
+              gsub(/^v/, "", tag)
+              if (tag != "") {
+                print "v" tag
+                exit
+              }
+            }
+          ' <<< "$LATEST_JSON")
           if [[ -n "$LATEST_TAG" ]]; then
             INSTALL_SCRIPT_REF="$LATEST_TAG"
           fi
