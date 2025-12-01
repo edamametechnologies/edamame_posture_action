@@ -567,11 +567,6 @@ jobs:
       # Manual checkout for Alpine
       - name: Manual checkout for Alpine
         run: |
-          apt-get update -y
-          apt-get install -y git
-          # Without that git pull in edamame_posture_action fails as well as other actions
-          git config --global --add safe.directory '*'
-          # Clone repository
           git clone https://github.com/${{ github.repository }}.git .
           git checkout ${{ github.ref_name }}
         shell: alpine.sh {0}
