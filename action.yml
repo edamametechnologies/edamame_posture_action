@@ -417,7 +417,7 @@ runs:
         
         # Add connection parameters only if this is initial setup
         if [[ "$IS_INITIAL_SETUP" == "true" ]]; then
-          echo "Initial setup detected - passing credentials to installer"
+          echo "Initial setup detected - passing credentials and network flags to installer"
           if [[ -n "${{ inputs.edamame_user }}" ]]; then
             INSTALL_ARGS+=(--user "${{ inputs.edamame_user }}")
           fi
@@ -433,14 +433,14 @@ runs:
             IDSUFFIX=$(node -e "console.log(Date.now())")
             INSTALL_ARGS+=(--device-id "${{ inputs.edamame_id }}_${IDSUFFIX}")
           fi
-        fi
-        
-        # Add network monitoring flags
-        if [[ "${{ inputs.network_scan }}" == "true" ]]; then
-          INSTALL_ARGS+=(--start-lanscan)
-        fi
-        if [[ "${{ inputs.packet_capture }}" == "true" || ( "${{ inputs.packet_capture }}" == "auto" && "${{ inputs.network_scan }}" == "true" ) ]]; then
-          INSTALL_ARGS+=(--start-capture)
+          
+          # Add network monitoring flags (only on initial setup to persist in service config)
+          if [[ "${{ inputs.network_scan }}" == "true" ]]; then
+            INSTALL_ARGS+=(--start-lanscan)
+          fi
+          if [[ "${{ inputs.packet_capture }}" == "true" || ( "${{ inputs.packet_capture }}" == "auto" && "${{ inputs.network_scan }}" == "true" ) ]]; then
+            INSTALL_ARGS+=(--start-capture)
+          fi
         fi
         
         # Add whitelist configuration
