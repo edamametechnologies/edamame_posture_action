@@ -110,6 +110,16 @@ jobs:
           exit_on_whitelist_exceptions: false
         continue-on-error: true
 
+      # Generate traffic to ensure whitelist creation has data
+      - name: Generate traffic for whitelist
+        run: |
+          echo "Generating traffic..."
+          curl -s https://www.google.com > /dev/null || true
+          curl -s https://github.com > /dev/null || true
+          # Give daemon time to process packets
+          sleep 5
+        shell: bash
+
       # Test create custom whitelists
       - name: Test create custom whitelists on macOS and Linux
         id: test-create-custom-whitelist
@@ -365,6 +375,17 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
         continue-on-error: true
+
+      # Generate traffic to ensure whitelist creation has data
+      - name: Generate traffic for whitelist
+        run: |
+          echo "Generating traffic..."
+          curl -s https://www.google.com > /dev/null || true
+          curl -s https://github.com > /dev/null || true
+          curl -s https://api.github.com > /dev/null || true
+          # Give daemon time to process packets
+          sleep 10
+        shell: bash
 
       # Test create custom whitelists
       - name: Test create custom whitelists
@@ -633,6 +654,17 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
         continue-on-error: true
+
+      # Generate traffic to ensure whitelist creation has data
+      - name: Generate traffic for whitelist
+        run: |
+          echo "Generating traffic..."
+          curl -s https://www.google.com > /dev/null || true
+          curl -s https://github.com > /dev/null || true
+          curl -s https://api.github.com > /dev/null || true
+          # Give daemon time to process packets
+          sleep 10
+        shell: bash
 
       # Test create custom whitelists
       - name: Test create custom whitelists
