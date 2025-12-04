@@ -111,7 +111,7 @@ jobs:
         continue-on-error: true
 
       # Test create custom whitelists
-      - name: Test create custom whitelists on macOS and Linux
+      - name: Test create custom whitelists
         id: test-create-custom-whitelist
         uses: ./
         with:
@@ -122,7 +122,7 @@ jobs:
       # Test set custom whitelist
       - name: Test set custom whitelist
         id: test-set-custom-whitelist
-        if: (runner.os == 'macos' || runner.os == 'linux') && steps.test-create-custom-whitelist.outcome == 'success'
+        if: steps.test-create-custom-whitelist.outcome == 'success'
         uses: ./
         with:
           set_custom_whitelists: true
@@ -132,7 +132,7 @@ jobs:
       # Force session update and verify whitelist is active before augmentation
       - name: Verify whitelist active and force session update
         id: test-verify-whitelist-before-augment
-        if: (runner.os == 'macos' || runner.os == 'linux') && steps.test-set-custom-whitelist.outcome == 'success'
+        if: steps.test-set-custom-whitelist.outcome == 'success'
         uses: ./
         with:
           dump_sessions_log: true
@@ -152,7 +152,7 @@ jobs:
       # Test augment custom whitelist
       - name: Test augment custom whitelist
         id: test-augment-whitelist
-        if: (runner.os == 'macos' || runner.os == 'linux') && steps.test-set-custom-whitelist.outcome == 'success'
+        if: steps.test-set-custom-whitelist.outcome == 'success'
         uses: ./
         with:
           augment_custom_whitelists: true
@@ -404,6 +404,16 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
         continue-on-error: true
+
+      # Generate traffic to ensure whitelist creation has data
+      - name: Generate traffic for whitelist
+        run: |
+          echo "Generating traffic..."
+          curl -s https://www.google.com > /dev/null || true
+          curl -s https://github.com > /dev/null || true
+          # Give daemon time to process packets
+          sleep 10
+        shell: bash
 
       # Test augment custom whitelist
       - name: Test augment custom whitelist
@@ -672,6 +682,16 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
         continue-on-error: true
+
+      # Generate traffic to ensure whitelist creation has data
+      - name: Generate traffic for whitelist
+        run: |
+          echo "Generating traffic..."
+          curl -s https://www.google.com > /dev/null || true
+          curl -s https://github.com > /dev/null || true
+          # Give daemon time to process packets
+          sleep 10
+        shell: bash
 
       # Test augment custom whitelist
       - name: Test augment custom whitelist
