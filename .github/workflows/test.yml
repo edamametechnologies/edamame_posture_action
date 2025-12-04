@@ -138,7 +138,17 @@ jobs:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: false
         continue-on-error: true
-        
+      
+      # Generate traffic to ensure whitelist creation has data
+      - name: Generate traffic for whitelist
+        run: |
+          echo "Generating traffic..."
+          curl -s https://www.google.com > /dev/null || true
+          curl -s https://github.com > /dev/null || true
+          # Give daemon time to process packets
+          sleep 10
+        shell: bash
+
       # Test augment custom whitelist
       - name: Test augment custom whitelist
         id: test-augment-whitelist
