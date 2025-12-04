@@ -397,13 +397,63 @@ runs:
       run: |
         set -euo pipefail
         STATE_FILE="$INSTALL_STATE_FILE"
-        INSTALL_ARGS=(--state-file "$STATE_FILE" --ci-mode)
+        INSTALL_ARGS=(--state-file "$STATE_FILE")
+        
+        # Add connection parameters if provided
+        if [[ -n "${{ inputs.edamame_user }}" ]]; then
+          INSTALL_ARGS+=(--user "${{ inputs.edamame_user }}")
+        fi
+        if [[ -n "${{ inputs.edamame_domain }}" ]]; then
+          INSTALL_ARGS+=(--domain "${{ inputs.edamame_domain }}")
+        fi
+        if [[ -n "${{ inputs.edamame_pin }}" ]]; then
+          INSTALL_ARGS+=(--pin "${{ inputs.edamame_pin }}")
+        fi
+        
+        # Add device ID with timestamp suffix for uniqueness
+        if [[ -n "${{ inputs.edamame_id }}" ]]; then
+          IDSUFFIX=$(node -e "console.log(Date.now())")
+          INSTALL_ARGS+=(--device-id "${{ inputs.edamame_id }}_${IDSUFFIX}")
+        fi
+        
+        # Add network monitoring flags
+        if [[ "${{ inputs.network_scan }}" == "true" ]]; then
+          INSTALL_ARGS+=(--start-lanscan)
+        fi
+        if [[ "${{ inputs.packet_capture }}" == "true" || ( "${{ inputs.packet_capture }}" == "auto" && "${{ inputs.network_scan }}" == "true" ) ]]; then
+          INSTALL_ARGS+=(--start-capture)
+        fi
+        
+        # Add whitelist configuration
+        if [[ -n "${{ inputs.whitelist }}" ]]; then
+          INSTALL_ARGS+=(--whitelist "${{ inputs.whitelist }}")
+        fi
+        if [[ "${{ inputs.check_whitelist }}" == "true" || -n "${{ inputs.whitelist }}" ]]; then
+          INSTALL_ARGS+=(--fail-on-whitelist)
+        fi
+        if [[ "${{ inputs.check_blacklist }}" == "true" ]]; then
+          INSTALL_ARGS+=(--fail-on-blacklist)
+        fi
+        if [[ "${{ inputs.check_anomalous }}" == "true" ]]; then
+          INSTALL_ARGS+=(--fail-on-anomalous)
+        fi
+        if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
+          INSTALL_ARGS+=(--cancel-on-violation)
+        fi
+        if [[ "${{ inputs.include_local_traffic }}" == "true" ]]; then
+          INSTALL_ARGS+=(--include-local-traffic)
+        fi
+        
+        # Add debug build flag
         if [[ "${{ inputs.debug }}" == "true" ]]; then
           INSTALL_ARGS+=(--debug-build)
         fi
+        
+        # Platform-specific flags
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           INSTALL_ARGS+=(--install-dir "$HOME")
         fi
+        
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
         INSTALL_SCRIPT_REF="v0.9.82"
         RELEASE_API="https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases?per_page=2"
@@ -639,185 +689,26 @@ runs:
         fi
       shell: bash
 
-    - name: Start EDAMAME Posture process and wait for connection if all arguments are provided, skip otherwise
-      if: ${{ inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
+    - name: Wait for EDAMAME Posture connection
+      if: ${{ inputs.dump_sessions_log != 'true' && inputs.stop != 'true' && inputs.disconnected_mode != 'true' }}
       run: |
         cd
-        # Check if all arguments are provided
-        if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" && -n "${{ inputs.edamame_id }}" ]]; then
-          SKIP_START=false
-          if [[ "${{ steps.install_posture.outputs.binary_already_present }}" == "true" ]]; then
-            echo "EDAMAME Posture binary is already present. Checking status..."
-            # Continue even if there are errors; capture both stdout and stderr
-            $EDAMAME_POSTURE_CMD status > posture_status.txt 2>&1 || true
-
-            # Check if the output indicates Error getting connection status: transport error
-            if grep -q "Error getting connection status: transport error" posture_status.txt; then
-              echo "edamame_posture is installed but isn't connected"
-            else
-              connected="$({ grep -i 'connected:' posture_status.txt | awk -F': ' '{print $2}'; } || true)"
-              connected="${connected:-false}"
-              echo "edamame_posture is connected: $connected"
-            fi
-
-            current_user="$({ grep -i 'Connected user' posture_status.txt | head -n1 | sed -E 's/.*Connected user:[[:space:]]*//I' | xargs; } || true)"
-            current_domain="$({ grep -i 'Connected domain' posture_status.txt | head -n1 | sed -E 's/.*Connected domain:[[:space:]]*//I' | xargs; } || true)"
-
-            # Compare with inputs; restart if mismatched
-            if [[ "$connected" == "true" ]]; then
-              mismatch=false
-              if [[ -n "${{ inputs.edamame_user }}" && "$current_user" != "${{ inputs.edamame_user }}" ]]; then
-                mismatch=true
-              fi
-              if [[ -n "${{ inputs.edamame_domain }}" && "$current_domain" != "${{ inputs.edamame_domain }}" ]]; then
-                mismatch=true
-              fi
-
-              if [[ "$mismatch" == "true" ]]; then
-                echo "Connected user/domain ($current_user / $current_domain) differ from requested (${{ inputs.edamame_user }} / ${{ inputs.edamame_domain }}). Restarting posture..."
-                $EDAMAME_POSTURE_CMD stop > /dev/null 2>&1 || true
-                if command -v systemctl >/dev/null 2>&1; then
-                  sudo systemctl stop edamame_posture.service 2>/dev/null || true
-                elif command -v rc-service >/dev/null 2>&1; then
-                  sudo rc-service edamame_posture stop 2>/dev/null || true
-                fi
-                SKIP_START=false
-              else
-                SKIP_START=true
-              fi
-            fi
-
-            if [[ "$connected" == "true" ]]; then
-              if [[ "$SKIP_START" == "true" ]]; then
-                echo "EDAMAME Posture is already running with the requested credentials. Skipping start process."
-              else
-                echo "Connected posture will be restarted with the requested credentials."
-              fi
-            else
-              echo "EDAMAME Posture service is installed but isn't connected, it will be automatically started in the background."
-            fi
-          fi
-
-          # Only continue with the start process if we're not skipping it
-          if [[ "$SKIP_START" != "true" ]]; then
-            # Add a unique suffix to the edamame_id to avoid conflicts using matrix jobs
-            # ms since epoch
-            IDSUFFIX=$(node -e "console.log(Date.now())")
-
-            START_ARGS=(
-              start
-              --user "${{ inputs.edamame_user }}"
-              --domain "${{ inputs.edamame_domain }}"
-              --pin "${{ inputs.edamame_pin }}"
-              --device-id "${{ inputs.edamame_id }}_$IDSUFFIX"
-            )
-
-            if [[ "${{ inputs.network_scan }}" == "true" ]]; then
-              START_ARGS+=(--network-scan)
-            fi
-
-          if [[ "${{ inputs.packet_capture }}" == "true" || ( "${{ inputs.packet_capture }}" == "auto" && "${{ inputs.network_scan }}" == "true" ) ]]; then
-            START_ARGS+=(--packet-capture)
-          fi
-
-            if [[ "${{ inputs.whitelist }}" != "" ]]; then
-              START_ARGS+=(--whitelist "${{ inputs.whitelist }}")
-            fi
-
-            if [[ "${{ inputs.check_whitelist }}" == "true" || "${{ inputs.whitelist }}" != "" ]]; then
-              if [[ "${{ inputs.whitelist }}" == "" ]]; then
-                # We only have a check_whitelist=true but no whitelist name
-                # In this case, we don't pass the fail-on-whitelist flag to the daemon at start
-                # The daemon will be updated later with the custom whitelist
-                echo "Checking whitelist requested but no whitelist name provided. Will wait for custom whitelist to be loaded."
-              else
-                START_ARGS+=(--fail-on-whitelist)
-              fi
-            fi
-
-            if [[ "${{ inputs.check_blacklist }}" == "true" ]]; then
-              START_ARGS+=(--fail-on-blacklist)
-            fi
-
-            if [[ "${{ inputs.check_anomalous }}" == "true" ]]; then
-              START_ARGS+=(--fail-on-anomalous)
-            fi
-
-            if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
-              START_ARGS+=(--cancel-on-violation)
-            fi
-
-            if [[ "${{ inputs.include_local_traffic }}" == "true" ]]; then
-              START_ARGS+=(--include-local-traffic)
-            fi
-
-            if [[ "${{ inputs.agentic_mode }}" != "disabled" && "${{ inputs.agentic_mode }}" != "" ]]; then
-              START_ARGS+=(--agentic-mode "${{ inputs.agentic_mode }}")
-            fi
-
-            # Only add agentic-provider flag if explicitly set and not "none"
-            # Default is "none" which means no agentic provider
-            AGENTIC_PROVIDER="${{ inputs.agentic_provider }}"
-            if [[ -n "$AGENTIC_PROVIDER" && "$AGENTIC_PROVIDER" != "none" && "$AGENTIC_PROVIDER" != "false" ]]; then
-              START_ARGS+=(--agentic-provider "$AGENTIC_PROVIDER")
-            fi
-
-            if [[ "${{ inputs.agentic_interval }}" != "" && "${{ inputs.agentic_interval }}" != "3600" ]]; then
-              START_ARGS+=(--agentic-interval "${{ inputs.agentic_interval }}")
-            fi
-
-            # Create cancellation script if cancel_on_violation is enabled
-            # This allows the daemon to cancel the pipeline WITHOUT having direct access to tokens
-            # The script runs in the original environment context and has access to CI variables
-            if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
-              echo "[WARNING] cancel_on_violation enabled - creating pipeline cancellation script"
-              
-              # Determine script path
-              if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
-                CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
-              else
-                # Use /tmp instead of $HOME because daemon runs with sudo and has different $HOME
-                CANCEL_SCRIPT_PATH="/tmp/cancel_pipeline.sh"
-              fi
-              
-              echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
-              
-              # Capture CI environment variables now (before sudo)
-              # The script will have these values embedded, not rely on runtime environment
-              CAPTURED_GITHUB_ACTIONS="${GITHUB_ACTIONS:-}"
-              CAPTURED_GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
-              CAPTURED_GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
-              CAPTURED_GITHUB_TOKEN="${{ inputs.token }}"
-              CAPTURED_GITLAB_CI="${GITLAB_CI:-}"
-              CAPTURED_CI_PROJECT_ID="${CI_PROJECT_ID:-}"
-              CAPTURED_CI_PIPELINE_ID="${CI_PIPELINE_ID:-}"
-              CAPTURED_GITLAB_TOKEN="${GITLAB_TOKEN:-}"
-              CAPTURED_CI_JOB_TOKEN="${CI_JOB_TOKEN:-}"
-              
-              # Create cancellation script using printf to avoid YAML heredoc issues
-              printf '#!/bin/bash\n# EDAMAME Pipeline Cancellation Script\nset -e\nREASON="${1:-Policy violation detected}"\necho "=== EDAMAME Pipeline Cancellation ==="\necho "Reason: $REASON"\nGITHUB_ACTIONS="%s"\nGITHUB_RUN_ID="%s"\nGITHUB_REPOSITORY="%s"\nGITHUB_TOKEN="%s"\nGITLAB_CI="%s"\nCI_PROJECT_ID="%s"\nCI_PIPELINE_ID="%s"\nGITLAB_TOKEN="%s"\nCI_JOB_TOKEN="%s"\nif [[ -n "$GITHUB_ACTIONS" ]]; then\n  export GH_TOKEN="$GITHUB_TOKEN"\n  gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" && echo "[OK] Cancelled" || echo "[ERROR] Failed"\nelif [[ -n "$GITLAB_CI" ]]; then\n  TOKEN="${GITLAB_TOKEN:-$CI_JOB_TOKEN}"\n  curl -s -X POST -H "PRIVATE-TOKEN: $TOKEN" "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/cancel"\nelse\n  echo "[ERROR] No CI environment detected"\n  exit 1\nfi\n' \
-                "$CAPTURED_GITHUB_ACTIONS" "$CAPTURED_GITHUB_RUN_ID" "$CAPTURED_GITHUB_REPOSITORY" "$CAPTURED_GITHUB_TOKEN" \
-                "$CAPTURED_GITLAB_CI" "$CAPTURED_CI_PROJECT_ID" "$CAPTURED_CI_PIPELINE_ID" "$CAPTURED_GITLAB_TOKEN" "$CAPTURED_CI_JOB_TOKEN" \
-                > "$CANCEL_SCRIPT_PATH"
-
-              chmod 700 "$CANCEL_SCRIPT_PATH"
-              
-              # Export the script path for the daemon to find
-              export EDAMAME_CANCEL_PIPELINE_SCRIPT="$CANCEL_SCRIPT_PATH"
-              
-              echo "[OK] Cancellation script created and configured"
-              echo "   Script path: $CANCEL_SCRIPT_PATH"
-              echo "   The daemon will execute this script when violations are detected"
-              echo "   The script has access to CI tokens from the original environment"
-            fi
-
-            echo "Starting EDAMAME Posture..."
-            $EDAMAME_POSTURE_CMD "${START_ARGS[@]}"
-            
-            echo "Waiting for connection..."
-            $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
-          fi
-        elif [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+        # Note: Daemon/service is now started by install.sh with all parameters
+        # This step only waits for connection when credentials are provided
+        
+        echo "Waiting for EDAMAME Posture to connect..."
+        if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" ]]; then
+          $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+        else
+          echo "No connection parameters provided, skipping connection wait"
+        fi
+      shell: bash
+    
+    - name: Start EDAMAME Posture in disconnected mode if requested
+      if: ${{ inputs.disconnected_mode == 'true' && inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
+      run: |
+        cd
+        if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
           echo "Starting EDAMAME Posture in disconnected mode..."
           
           # Stop any existing posture process before starting in disconnected mode
@@ -829,7 +720,7 @@ runs:
           
           # On Linux, also ensure systemd service is stopped (in case it was started manually)
           if [[ "$RUNNER_OS" == "Linux" ]] && command -v systemctl >/dev/null 2>&1; then
-            sudo systemctl stop edamame_posture.service 2>/dev/null || true
+          sudo systemctl stop edamame_posture.service 2>/dev/null || true
           fi
           
           # Give it a moment to fully stop
@@ -838,7 +729,7 @@ runs:
           START_ARGS=(background-start-disconnected)
 
           if [[ "${{ inputs.network_scan }}" == "true" ]]; then
-            START_ARGS+=(--network-scan)
+          START_ARGS+=(--network-scan)
           fi
 
           if [[ "${{ inputs.packet_capture }}" == "true" || ( "${{ inputs.packet_capture }}" == "auto" && "${{ inputs.network_scan }}" == "true" ) ]]; then
