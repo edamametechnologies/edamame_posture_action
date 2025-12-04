@@ -399,21 +399,40 @@ runs:
         STATE_FILE="$INSTALL_STATE_FILE"
         INSTALL_ARGS=(--state-file "$STATE_FILE")
         
-        # Add connection parameters if provided
-        if [[ -n "${{ inputs.edamame_user }}" ]]; then
-          INSTALL_ARGS+=(--user "${{ inputs.edamame_user }}")
-        fi
-        if [[ -n "${{ inputs.edamame_domain }}" ]]; then
-          INSTALL_ARGS+=(--domain "${{ inputs.edamame_domain }}")
-        fi
-        if [[ -n "${{ inputs.edamame_pin }}" ]]; then
-          INSTALL_ARGS+=(--pin "${{ inputs.edamame_pin }}")
+        # Only pass connection parameters on initial setup, not on subsequent operations
+        # This prevents unnecessary daemon restarts when action is called for policy checks, etc.
+        IS_INITIAL_SETUP="true"
+        if [[ "${{ inputs.stop }}" == "true" || \
+              "${{ inputs.dump_sessions_log }}" == "true" || \
+              -n "${{ inputs.edamame_policy }}" || \
+              -n "${{ inputs.edamame_minimum_score }}" || \
+              "${{ inputs.create_custom_whitelists }}" == "true" || \
+              "${{ inputs.set_custom_whitelists }}" == "true" || \
+              "${{ inputs.augment_custom_whitelists }}" == "true" || \
+              "${{ inputs.disconnected_mode }}" == "true" ]]; then
+          IS_INITIAL_SETUP="false"
+          echo "Detected non-setup operation - skipping credential pass to installer"
+          echo "This prevents unnecessary daemon restarts that would lose captured sessions"
         fi
         
-        # Add device ID with timestamp suffix for uniqueness
-        if [[ -n "${{ inputs.edamame_id }}" ]]; then
-          IDSUFFIX=$(node -e "console.log(Date.now())")
-          INSTALL_ARGS+=(--device-id "${{ inputs.edamame_id }}_${IDSUFFIX}")
+        # Add connection parameters only if this is initial setup
+        if [[ "$IS_INITIAL_SETUP" == "true" ]]; then
+          echo "Initial setup detected - passing credentials to installer"
+          if [[ -n "${{ inputs.edamame_user }}" ]]; then
+            INSTALL_ARGS+=(--user "${{ inputs.edamame_user }}")
+          fi
+          if [[ -n "${{ inputs.edamame_domain }}" ]]; then
+            INSTALL_ARGS+=(--domain "${{ inputs.edamame_domain }}")
+          fi
+          if [[ -n "${{ inputs.edamame_pin }}" ]]; then
+            INSTALL_ARGS+=(--pin "${{ inputs.edamame_pin }}")
+          fi
+          
+          # Add device ID with timestamp suffix for uniqueness
+          if [[ -n "${{ inputs.edamame_id }}" ]]; then
+            IDSUFFIX=$(node -e "console.log(Date.now())")
+            INSTALL_ARGS+=(--device-id "${{ inputs.edamame_id }}_${IDSUFFIX}")
+          fi
         fi
         
         # Add network monitoring flags
