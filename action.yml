@@ -339,14 +339,6 @@ runs:
             apt_cmd_with_retry sudo -E apt-get install -y bc
           fi
 
-          # Note: libpcap runtime installation and soname compatibility is now handled by install.sh
-          # when installing via APT, so we don't need to duplicate that logic here.
-
-          # Check/install build-essential
-          if ! dpkg -s build-essential &> /dev/null; then
-            echo "Installing build-essential..."
-            apt_cmd_with_retry sudo -E apt-get install -y build-essential
-          fi
 
           # Check/install node + npm
           if ! command -v node &> /dev/null; then
