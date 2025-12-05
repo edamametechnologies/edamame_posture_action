@@ -4,6 +4,44 @@
 This GitHub Actions workflow sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli), a security posture management tool.  
 It supports Windows, Linux, and macOS runners, checking for and installing any missing dependencies such as wget, curl, jq, Node.js, etc.
 
+## Quickstart (copy/paste)
+
+```yaml
+name: edamame-posture
+
+on: [push]
+
+jobs:
+  posture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup EDAMAME Posture
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}      # required for connected mode
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}
+          network_scan: true
+          packet_capture: true
+          auto_remediate: true
+
+      - name: Dump EDAMAME sessions
+        uses: edamametechnologies/edamame_posture_action@v0
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: true
+```
+
+## Key inputs (most commonly used)
+
+- `edamame_user`, `edamame_domain`, `edamame_pin`, `edamame_id`: Connected-mode credentials (recommended for artifact access and auto-whitelist).
+- `network_scan` / `packet_capture`: Enable monitoring and capture (set both to `true` for full visibility).
+- `auto_remediate`: Apply safe fixes before your build.
+- `whitelist`: Default list to enforce (e.g., `github`, auto-suffixed per OS).
+- `auto_whitelist`: Automate learning → augmentation → enforcement lifecycle.
+- `dump_sessions_log` + `exit_on_*`: Fail the workflow on violations at teardown.
+
 ## Installation Behavior
 
 This action uses an intelligent installation strategy that prefers package managers over direct binary downloads.
@@ -152,7 +190,7 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
    
    Optimized to skip `apt-get update` / `apk update` when all tools are already present (faster subsequent action calls).
 
-2. **Install or Update EDAMAME Posture**  
+1. **Install or Update EDAMAME Posture**  
    - **Detection**: Checks if EDAMAME Posture is already installed
    - **Package Manager Priority**: 
      - macOS: Attempts `brew install edamame-posture` (or `brew upgrade` if installed)
@@ -164,96 +202,91 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
    - **Debug Mode**: Bypasses package managers and downloads debug binaries directly
    - **Outputs**: Sets `install_method`, `binary_already_present`, and `installed_via_package_manager` for use in subsequent steps
 
-3. **Show initial posture**  
+1. **Show initial posture**  
    - Calls `score` to display the current posture prior to any remediation.
 
-4. **Auto remediate posture issues**  
+1. **Auto remediate posture issues**  
    - If `auto_remediate` is true, invokes `remediate`.  
    - Respects `skip_remediations` if specified.
 
-5. **Report email**  
+1. **Report email**  
    - If `report_email` is set, requests a compliance report for that email address by fetching a signature and using `request-report`.
 
-6. **Check local policy compliance**  
-   - If `edamame_minimum_score` and optionnaly `edamame_mandatory_threats` are set, verifies device compliance.
+1. **Check local policy compliance**  
+   - If `edamame_minimum_score` and optionally `edamame_mandatory_threats` are set, verifies device compliance.
    - Uses `check-policy` to check against the specified minimum score and mandatory threats.
    - Validates mandatory prefixes if provided.
    - Exits with an error if the device fails to comply.
 
-7. **Check domain policy compliance**  
+1. **Check domain policy compliance**  
    - If both `edamame_domain` and `edamame_policy` are set, verifies device compliance.
    - Uses `check-policy-for-domain` to evaluate compliance with the specified domain policy.
    - Exits with an error if the device fails to comply.
 
-8. **Wait for a while**  
+1. **Wait for a while**  
    - If `wait` is true, sleeps for 180 seconds. Useful if you need more lead time for certain environments.
 
-9. **Start EDAMAME Posture process**  
+1. **Start EDAMAME Posture process**  
    - If `edamame_user`, `edamame_domain`, `edamame_pin`, and `edamame_id` are all set, attempts to start in the background.  
    - Adds a unique suffix to `edamame_id` when running on ephemeral (matrix or short-lived) runners.
 
-10. **Start EDAMAME Posture daemon**  
+1. **Start EDAMAME Posture daemon**  
    - Starts the background daemon in connected or disconnected mode (skipped if `dump_sessions_log` or `stop` is true)
    - Creates cancellation script if `cancel_on_violation` is enabled
    - Waits for connection to EDAMAME backend (if in connected mode)
 
-11. **Download auto-whitelist artifacts**  
+1. **Download auto-whitelist artifacts**  
    - Downloads previous whitelist from GitHub artifacts (if `auto_whitelist` is true)
    - Files saved to $HOME for daemon to load
 
-12. **Apply custom whitelists to daemon**  
+1. **Apply custom whitelists to daemon**  
    - Loads whitelist into daemon memory from auto_whitelist.json or custom file
    - Daemon uses this for real-time network traffic enforcement
    - Runs immediately after startup to ensure subsequent steps are monitored
 
-13. **Wait for API access**  
+1. **Wait for API access**  
    - If `wait_for_api` is true, periodically tests API access using `gh api` until granted or timeout
    - Runs AFTER daemon has started and connected (daemon can whitelist runner IP via EDAMAME backend)
    - Required for organizations with IP allow lists enabled
 
-14. **Wait for https access**  
+1. **Wait for https access**  
    - If `wait_for_https` is true, repeatedly checks repo HTTPS access until granted or timeout
    - Runs AFTER daemon has started and connected
 
-15. **Checkout the repo through the git CLI**  
+1. **Checkout the repo through the git CLI**  
    - If `checkout` is true, tries up to 10 times to fetch and check out the specified branch
 
-16. **Create or augment auto-whitelist**  
+1. **Create or augment auto-whitelist**  
    - If `dump_sessions_log` is true and auto-whitelist enabled, augments whitelist with captured traffic
    - Compares with baseline to detect stability
 
-17. **Dump sessions log**  
+1. **Dump sessions log**  
    - If `dump_sessions_log` is true, retrieves network sessions from daemon
    - Enforces violations if whitelist is stable
 
-18. **Upload artifacts**  
+1. **Upload artifacts**  
    - Uploads auto-whitelist files to GitHub artifacts for next run
 
-19. **Display posture logs**  
+1. **Display posture logs**  
    - If `display_logs` is true, prints the EDAMAME daemon logs
 
-20. **Stop EDAMAME Posture**  
-   - If `stop` is true, stops the background daemon process
-   - Verifies daemon has stopped with retry loop (up to 10 seconds)
-   - Force-kills process if graceful stop fails
-   - Ensures clean shutdown before workflow completion or before starting disconnected mode
-
-15. **Create custom whitelist**  
+1. **Create custom whitelist**  
    - If `create_custom_whitelists` is true, generates a whitelist from the current network sessions.
    - If `custom_whitelists_path` is provided, saves the whitelist to this file.
    - Otherwise, outputs the whitelist JSON to the action log.
    - Process and username metadata observed in sessions are intentionally omitted so that generated entries stay stable across runs.
    - Limited functionality on Windows due to licensing constraints.
 
-16. **Apply custom whitelist**  
+1. **Apply custom whitelist**  
    - If `custom_whitelists_path` is provided and `create_custom_whitelists` is not true, loads and applies the whitelist.
    - Reads the whitelist JSON from the specified file and applies it using `set-custom-whitelists`.
    - Exits with an error if the specified file is not found.
 
-17. **Stop EDAMAME Posture process**  
-   - If `stop` is true, stops the EDAMAME Posture background process.
-   - Uses the `stop` command to gracefully terminate the posture service.
-   - Useful for cleaning up resources at the end of a workflow or before starting a new posture service instance.
+1. **Stop EDAMAME Posture**  
+   - If `stop` is true, stops the background daemon process
+   - Verifies daemon has stopped with retry loop (up to 10 seconds)
+   - Force-kills process if graceful stop fails
+   - Ensures clean shutdown before workflow completion or before starting disconnected mode
 
 ## Automation Options
 
@@ -505,8 +538,8 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
        edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
        edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
        edamame_id: ${{ github.run_id }}
-      network_scan: true   # Discover LAN-connected peers
-      packet_capture: true # Capture network traffic (optional: defaults to auto)
+       network_scan: true   # Discover LAN-connected peers
+       packet_capture: true # Capture network traffic (optional: defaults to auto)
        # Other configuration parameters
    ```
 
@@ -535,7 +568,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
        edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
        edamame_id: ${{ github.run_id }}
        network_scan: true
-      packet_capture: true
+       packet_capture: true
        custom_whitelists_path: ./whitelists.json  # Path to your predefined whitelist
        set_custom_whitelists: true  # Required to apply the custom whitelist
        
@@ -561,7 +594,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
      with:
        disconnected_mode: true
        network_scan: true
-      packet_capture: true
+       packet_capture: true
        whitelist: github_ubuntu
        
    # ... your workflow steps ...
