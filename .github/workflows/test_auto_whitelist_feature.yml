@@ -124,11 +124,98 @@ jobs:
       # The action automatically detects auto-whitelist mode from first invocation
       # and uses saved configuration - NO parameters need to be repeated here!
       # ============================================================
+      - name: Save old whitelist for comparison
+        run: |
+          cd
+          if [[ -f "auto_whitelist.json" ]]; then
+            echo "Saving old whitelist for comparison..."
+            cp auto_whitelist.json auto_whitelist_old.json
+            
+            # Count endpoints in old whitelist
+            if command -v jq &> /dev/null; then
+              OLD_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist_old.json 2>/dev/null || echo "0")
+              echo "Old whitelist has $OLD_COUNT endpoints"
+            fi
+          else
+            echo "No existing whitelist (first iteration)"
+          fi
+
       - name: Dump EDAMAME Posture sessions
         uses: ./
         with:
           dump_sessions_log: true
           display_logs: true
+
+      - name: Show augmented whitelist changes
+        if: always()
+        run: |
+          cd
+          echo "=========================================="
+          echo "Auto-Whitelist Changes - Iteration ${{ inputs.iteration }}"
+          echo "=========================================="
+          
+          if [[ -f "auto_whitelist.json" ]]; then
+            # Show iteration info
+            if [[ -f "auto_whitelist_iteration.txt" ]]; then
+              ITERATION=$(cat auto_whitelist_iteration.txt)
+              echo "Iteration: $ITERATION"
+            fi
+            
+            if command -v jq &> /dev/null; then
+              NEW_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
+              echo "New whitelist has $NEW_COUNT endpoints"
+              
+              # Compare with old if it exists
+              if [[ -f "auto_whitelist_old.json" ]]; then
+                OLD_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist_old.json 2>/dev/null || echo "0")
+                DELTA=$((NEW_COUNT - OLD_COUNT))
+                echo "Change: $DELTA endpoints (${OLD_COUNT} → ${NEW_COUNT})"
+                
+                # Show what endpoints were added
+                if [[ $DELTA -gt 0 ]]; then
+                  echo ""
+                  echo "New endpoints added in this iteration:"
+                  # Extract new endpoints (those in new but not in old)
+                  jq -r --slurpfile old auto_whitelist_old.json '
+                    .whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]? as $new_ep |
+                    ($old[0].whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]?) as $old_ep |
+                    select($new_ep == $old_ep | not) |
+                    $new_ep | "  - \(.host // .ip):\(.port // "N/A") (\(.protocol // "unknown"))"
+                  ' auto_whitelist.json 2>/dev/null | sort -u | head -20
+                  
+                  if [[ $DELTA -gt 20 ]]; then
+                    echo "  ... and $((DELTA - 20)) more endpoints"
+                  fi
+                elif [[ $DELTA -lt 0 ]]; then
+                  echo ""
+                  echo "⚠️ WARNING: Endpoint count DECREASED by $((0 - DELTA))"
+                  echo "This may indicate augmentation is replacing instead of merging"
+                else
+                  echo ""
+                  echo "✅ No new endpoints (whitelist stable)"
+                fi
+              else
+                echo "First iteration: created baseline with $NEW_COUNT endpoints"
+                
+                # Show first few endpoints
+                if [[ $NEW_COUNT -gt 0 ]]; then
+                  echo ""
+                  echo "Initial endpoints (first 10):"
+                  jq -r '.whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]? | "  - \(.host // .ip):\(.port // "N/A") (\(.protocol // "unknown"))"' auto_whitelist.json 2>/dev/null | head -10
+                  if [[ $NEW_COUNT -gt 10 ]]; then
+                    echo "  ... and $((NEW_COUNT - 10)) more endpoints"
+                  fi
+                fi
+              fi
+            else
+              echo "jq not available, cannot show detailed changes"
+            fi
+          else
+            echo "No whitelist artifact found after dump"
+          fi
+          
+          echo "=========================================="
+        shell: bash
 
       - name: Stop EDAMAME Posture
         uses: ./
