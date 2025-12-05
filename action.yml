@@ -291,9 +291,23 @@ runs:
             # Wait again after installing sudo
             wait_for_apt_locks
           fi          
-          # Update package lists
-          echo "Updating package lists..."
-          apt_cmd_with_retry sudo -E apt-get update -y
+          # Update package lists only if tools need to be installed
+          # Skip on non-setup operations to avoid unnecessary lock contention
+          NEED_PACKAGE_INSTALL="false"
+          command -v git &> /dev/null || NEED_PACKAGE_INSTALL="true"
+          command -v wget &> /dev/null || NEED_PACKAGE_INSTALL="true"
+          command -v gh &> /dev/null || NEED_PACKAGE_INSTALL="true"
+          command -v curl &> /dev/null || NEED_PACKAGE_INSTALL="true"
+          command -v jq &> /dev/null || NEED_PACKAGE_INSTALL="true"
+          command -v bc &> /dev/null || NEED_PACKAGE_INSTALL="true"
+          command -v node &> /dev/null || NEED_PACKAGE_INSTALL="true"
+          
+          if [[ "$NEED_PACKAGE_INSTALL" == "true" ]]; then
+            echo "Updating package lists (tools missing)..."
+            apt_cmd_with_retry sudo -E apt-get update -y
+          else
+            echo "All required tools present, skipping apt update"
+          fi
 
           # Check/install git
           if ! command -v git &> /dev/null; then
