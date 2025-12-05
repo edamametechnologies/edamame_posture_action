@@ -248,6 +248,7 @@ runs:
             command -v wget &> /dev/null || NEED_PACKAGE_INSTALL="true"
             command -v jq &> /dev/null || NEED_PACKAGE_INSTALL="true"
             command -v node &> /dev/null || NEED_PACKAGE_INSTALL="true"
+            command -v gh &> /dev/null || NEED_PACKAGE_INSTALL="true"
             
             if [[ "$NEED_PACKAGE_INSTALL" == "true" ]]; then
               echo "Installing missing tools via apk..."
@@ -262,7 +263,7 @@ runs:
               command -v wget &> /dev/null || APK_PACKAGES="$APK_PACKAGES wget"
               command -v jq &> /dev/null || APK_PACKAGES="$APK_PACKAGES jq"
               command -v node &> /dev/null || APK_PACKAGES="$APK_PACKAGES nodejs npm"
-              # gh CLI not commonly available in Alpine repos, skip for now
+              command -v gh &> /dev/null || APK_PACKAGES="$APK_PACKAGES github-cli"
               
               if [[ -n "$APK_PACKAGES" ]]; then
                 echo "Installing:$APK_PACKAGES"
