@@ -584,6 +584,11 @@ jobs:
             sudo
         shell: alpine.sh --root {0}
 
+      
+        # We don't use the EDAMAME Posture Action here, because we want to fully test the action.yml file
+      - name: Checkout
+        uses: actions/checkout@v4
+        
       # Test start
       - name: Test start
         id: test-start
@@ -593,7 +598,8 @@ jobs:
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
           edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
           edamame_id: ${{ github.run_id }}-alpine-${{ matrix.arch }}-${{ matrix.target }}
-          checkout: true
+          # Don't checkout the repo, we already did that in the previous step
+          checkout: false
           # Set to true to test the whitelist creation
           # Disabled on Windows as GitHub managed Windows runners configuration makes this too slow
           network_scan: true
