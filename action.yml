@@ -237,7 +237,43 @@ runs:
             choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y | grep -v "Progress:"
           fi
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
-          # Define function to wait for apt/dpkg locks
+          # Check if this is Alpine Linux
+          if command -v apk &> /dev/null || [ -f /etc/alpine-release ]; then
+            echo "Detected Alpine Linux, using apk for dependencies..."
+            
+            # Install required packages with apk
+            NEED_PACKAGE_INSTALL="false"
+            command -v git &> /dev/null || NEED_PACKAGE_INSTALL="true"
+            command -v curl &> /dev/null || NEED_PACKAGE_INSTALL="true"
+            command -v wget &> /dev/null || NEED_PACKAGE_INSTALL="true"
+            command -v jq &> /dev/null || NEED_PACKAGE_INSTALL="true"
+            command -v node &> /dev/null || NEED_PACKAGE_INSTALL="true"
+            
+            if [[ "$NEED_PACKAGE_INSTALL" == "true" ]]; then
+              echo "Installing missing tools via apk..."
+              
+              # Update apk cache if needed
+              apk update 2>/dev/null || sudo apk update 2>/dev/null || true
+              
+              # Install packages (apk handles missing packages gracefully)
+              APK_PACKAGES=""
+              command -v git &> /dev/null || APK_PACKAGES="$APK_PACKAGES git"
+              command -v curl &> /dev/null || APK_PACKAGES="$APK_PACKAGES curl"
+              command -v wget &> /dev/null || APK_PACKAGES="$APK_PACKAGES wget"
+              command -v jq &> /dev/null || APK_PACKAGES="$APK_PACKAGES jq"
+              command -v node &> /dev/null || APK_PACKAGES="$APK_PACKAGES nodejs npm"
+              # gh CLI not commonly available in Alpine repos, skip for now
+              
+              if [[ -n "$APK_PACKAGES" ]]; then
+                echo "Installing:$APK_PACKAGES"
+                apk add --no-cache $APK_PACKAGES 2>/dev/null || sudo apk add --no-cache $APK_PACKAGES
+              fi
+            else
+              echo "All required tools present on Alpine, skipping apk install"
+            fi
+          else
+            # Debian/Ubuntu-based Linux
+            # Define function to wait for apt/dpkg locks
           wait_for_apt_locks() {
             echo "Checking for apt/dpkg locks..."
             TIMEOUT=300
@@ -359,6 +395,7 @@ runs:
             echo "Installing node + npm..."
             apt_cmd_with_retry sudo -E apt-get install -y nodejs npm
           fi
+          fi  # Close Alpine detection if block
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
           # Check/install gh
           if ! command -v gh &> /dev/null; then
