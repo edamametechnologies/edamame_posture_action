@@ -44,20 +44,24 @@ jobs:
           cancel_on_violation: true
           display_logs: true
 
-      - name: Debug - Check cancellation script
+      - name: Debug - Check cancellation script and CI/CD detection
         run: |
-          echo "=== Checking cancellation script location ==="
-          echo "Checking /root/cancel_pipeline.sh:"
-          sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /root/cancel_pipeline.sh"
+          echo "=== CI Environment Variables ==="
+          echo "CI=$CI"
+          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
+          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID"
           echo ""
-          echo "Checking /tmp/cancel_pipeline.sh:"
-          ls -la /tmp/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /tmp/cancel_pipeline.sh"
+          echo "=== Checking cancellation script location ==="
+          sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /root/cancel_pipeline.sh"
           echo ""
           echo "=== Script contents (if exists) ==="
           sudo cat /root/cancel_pipeline.sh 2>/dev/null || echo "Cannot read /root/cancel_pipeline.sh"
           echo ""
           echo "=== Daemon status ==="
           $EDAMAME_POSTURE_CMD status || echo "Daemon not responding"
+          echo ""
+          echo "=== Checking if daemon sees CI/CD environment ==="
+          $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "CI/CD|cancel|environment" | head -20 || echo "No CI/CD related logs yet"
 
       - name: Generate Violation (Unauthorized Connection)
         run: |
@@ -95,9 +99,11 @@ jobs:
           echo "=== Cancellation Script Log ==="
           cat /tmp/cancel_pipeline.log 2>/dev/null || echo "No cancellation log found at /tmp/cancel_pipeline.log"
           echo ""
+          echo "=== Daemon logs (looking for CI/CD and cancel) ==="
+          $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "CI/CD|cancel|violation|halt" | head -30 || echo "Cannot get logs"
+          echo ""
           echo "=== Checking script location ==="
           sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "Script not found at /root/cancel_pipeline.sh"
-          ls -la /tmp/cancel_pipeline.sh 2>&1 || echo "Script not found at /tmp/cancel_pipeline.sh"
           exit 1
 
   # Test cancellation in disconnected mode
@@ -121,23 +127,30 @@ jobs:
           cancel_on_violation: true
           display_logs: true
 
-      - name: Debug - Check cancellation script
+      - name: Debug - Check cancellation script and CI/CD detection
         run: |
-          echo "=== Checking cancellation script location ==="
-          echo "Checking /root/cancel_pipeline.sh:"
-          sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /root/cancel_pipeline.sh"
+          echo "=== CI Environment Variables ==="
+          echo "CI=$CI"
+          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
+          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID"
           echo ""
-          echo "Checking /tmp/cancel_pipeline.sh:"
-          ls -la /tmp/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /tmp/cancel_pipeline.sh"
+          echo "=== Checking cancellation script location ==="
+          sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /root/cancel_pipeline.sh"
           echo ""
           echo "=== Script contents (if exists) ==="
           sudo cat /root/cancel_pipeline.sh 2>/dev/null || echo "Cannot read /root/cancel_pipeline.sh"
           echo ""
           echo "=== Daemon status ==="
           $EDAMAME_POSTURE_CMD status || echo "Daemon not responding"
+          echo ""
+          echo "=== Checking if daemon sees CI/CD environment ==="
+          $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "CI/CD|cancel|environment" | head -20 || echo "No CI/CD related logs yet"
 
       - name: Generate Violation (Unauthorized Connection)
         run: |
+          echo "Waiting 60 seconds for daemon to stabilize..."
+          sleep 60
+
           echo "Generating unauthorized network connection to trigger cancellation..."
           echo "This should cause the workflow to be cancelled by EDAMAME Posture"
           
@@ -168,8 +181,10 @@ jobs:
           echo "=== Cancellation Script Log ==="
           cat /tmp/cancel_pipeline.log 2>/dev/null || echo "No cancellation log found at /tmp/cancel_pipeline.log"
           echo ""
+          echo "=== Daemon logs (looking for CI/CD and cancel) ==="
+          $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "CI/CD|cancel|violation|halt" | head -30 || echo "Cannot get logs"
+          echo ""
           echo "=== Checking script location ==="
           sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "Script not found at /root/cancel_pipeline.sh"
-          ls -la /tmp/cancel_pipeline.sh 2>&1 || echo "Script not found at /tmp/cancel_pipeline.sh"
           exit 1
 

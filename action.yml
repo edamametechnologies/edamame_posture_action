@@ -502,6 +502,53 @@ runs:
         fi
         if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
           INSTALL_ARGS+=(--cancel-on-violation)
+          
+          # Create cancellation script BEFORE install.sh runs
+          # This ensures the script exists when install.sh starts the daemon (connected mode)
+          # The same script is used for both connected and disconnected modes
+          echo "[INFO] cancel_on_violation enabled - creating pipeline cancellation script"
+          
+          # Determine script path
+          # The daemon runs with sudo (HOME=/root), so we need to create the script there
+          if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
+            CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
+          else
+            CANCEL_SCRIPT_PATH="/root/cancel_pipeline.sh"
+          fi
+          
+          echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
+          
+          # Capture CI environment variables now (before sudo)
+          CAPTURED_GITHUB_ACTIONS="${GITHUB_ACTIONS:-}"
+          CAPTURED_GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
+          CAPTURED_GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+          CAPTURED_GITHUB_TOKEN="${{ inputs.token }}"
+          CAPTURED_GITLAB_CI="${GITLAB_CI:-}"
+          CAPTURED_CI_PROJECT_ID="${CI_PROJECT_ID:-}"
+          CAPTURED_CI_PIPELINE_ID="${CI_PIPELINE_ID:-}"
+          CAPTURED_GITLAB_TOKEN="${GITLAB_TOKEN:-}"
+          CAPTURED_CI_JOB_TOKEN="${CI_JOB_TOKEN:-}"
+          
+          # Determine privilege escalation command (handle Alpine without sudo)
+          if [[ $(id -u) -eq 0 ]]; then
+            PRIV_CMD=""
+          elif command -v sudo >/dev/null 2>&1; then
+            PRIV_CMD="sudo"
+          elif command -v doas >/dev/null 2>&1; then
+            PRIV_CMD="doas"
+          else
+            PRIV_CMD=""
+            echo "[WARNING] No sudo/doas available and not running as root"
+          fi
+          
+          # Create cancellation script using printf
+          printf '#!/bin/bash\n# EDAMAME Pipeline Cancellation Script\nLOGFILE="/tmp/cancel_pipeline.log"\nexec > >(tee -a "$LOGFILE") 2>&1\necho ""\necho "========================================"\necho "EDAMAME Pipeline Cancellation Script"\necho "Timestamp: $(date -Iseconds)"\necho "========================================"\nREASON="${1:-Policy violation detected}"\necho "Reason: $REASON"\nGITHUB_ACTIONS="%s"\nGITHUB_RUN_ID="%s"\nGITHUB_REPOSITORY="%s"\nGITHUB_TOKEN="%s"\nGITLAB_CI="%s"\nCI_PROJECT_ID="%s"\nCI_PIPELINE_ID="%s"\nGITLAB_TOKEN="%s"\nCI_JOB_TOKEN="%s"\necho "GITHUB_ACTIONS=$GITHUB_ACTIONS"\necho "GITHUB_RUN_ID=$GITHUB_RUN_ID"\necho "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"\necho "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"\nif [[ -n "$GITHUB_ACTIONS" ]]; then\n  echo "Detected GitHub Actions environment"\n  export GH_TOKEN="$GITHUB_TOKEN"\n  echo "Executing: gh run cancel $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY"\n  if gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" 2>&1; then\n    echo "[OK] Pipeline cancellation command succeeded"\n  else\n    echo "[ERROR] Pipeline cancellation command failed with exit code: $?"\n  fi\nelif [[ -n "$GITLAB_CI" ]]; then\n  echo "Detected GitLab CI environment"\n  TOKEN="${GITLAB_TOKEN:-$CI_JOB_TOKEN}"\n  curl -s -X POST -H "PRIVATE-TOKEN: $TOKEN" "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/cancel"\nelse\n  echo "[ERROR] No CI environment detected"\n  exit 1\nfi\necho "Script completed at: $(date -Iseconds)"\necho "========================================"\n' \
+            "$CAPTURED_GITHUB_ACTIONS" "$CAPTURED_GITHUB_RUN_ID" "$CAPTURED_GITHUB_REPOSITORY" "$CAPTURED_GITHUB_TOKEN" \
+            "$CAPTURED_GITLAB_CI" "$CAPTURED_CI_PROJECT_ID" "$CAPTURED_CI_PIPELINE_ID" "$CAPTURED_GITLAB_TOKEN" "$CAPTURED_CI_JOB_TOKEN" \
+            | $PRIV_CMD tee "$CANCEL_SCRIPT_PATH" > /dev/null
+          
+          $PRIV_CMD chmod 700 "$CANCEL_SCRIPT_PATH"
+          echo "[OK] Cancellation script created at $CANCEL_SCRIPT_PATH"
         fi
         if [[ "${{ inputs.include_local_traffic }}" == "true" ]]; then
           INSTALL_ARGS+=(--include-local-traffic)
@@ -631,7 +678,23 @@ runs:
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           EDAMAME_POSTURE_CMD="$BINARY_PATH"
         else
-          EDAMAME_POSTURE_CMD="sudo $BINARY_PATH"
+          # Determine how to run with elevated privileges while preserving environment
+          # -E flag preserves environment variables for CI/CD detection
+          # The daemon checks for GITHUB_ACTIONS, CI, GITLAB_CI, etc.
+          if [[ $(id -u) -eq 0 ]]; then
+            # Already root, no sudo needed
+            EDAMAME_POSTURE_CMD="$BINARY_PATH"
+          elif command -v sudo >/dev/null 2>&1; then
+            # sudo available, use -E to preserve environment
+            EDAMAME_POSTURE_CMD="sudo -E $BINARY_PATH"
+          elif command -v doas >/dev/null 2>&1; then
+            # doas available (Alpine, OpenBSD) - preserves env by default
+            EDAMAME_POSTURE_CMD="doas $BINARY_PATH"
+          else
+            # No privilege escalation available, try direct execution
+            echo "[WARNING] No sudo/doas available and not running as root"
+            EDAMAME_POSTURE_CMD="$BINARY_PATH"
+          fi
         fi
         echo "Using binary at: $BINARY_PATH"
         echo "EDAMAME_BINARY_PATH=$BINARY_PATH" >> $GITHUB_ENV
@@ -820,63 +883,27 @@ runs:
             START_ARGS+=(--agentic-mode "${{ inputs.agentic_mode }}")
           fi
 
-          # Create cancellation script if cancel_on_violation is enabled
-          # This allows the daemon to cancel the pipeline WITHOUT having direct access to tokens
-          # The script runs in the original environment context and has access to CI variables
-          echo "DEBUG: cancel_on_violation value = '${{ inputs.cancel_on_violation }}'"
+          # Verify cancellation script exists (was created earlier in the install step)
           if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
-            echo "[WARNING] cancel_on_violation enabled - creating pipeline cancellation script"
-            
-            # Determine script path
-            # The daemon runs with sudo (HOME=/root), so we need to create the script there
-            # The daemon defaults to $HOME/cancel_pipeline.sh which is /root/cancel_pipeline.sh under sudo
-            if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
-              CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
-            else
+            CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
+            if [[ -z "$CANCEL_SCRIPT_PATH" ]]; then
               CANCEL_SCRIPT_PATH="/root/cancel_pipeline.sh"
             fi
-            
-            echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
-            
-            # Capture CI environment variables now (before sudo)
-            # The script will have these values embedded, not rely on runtime environment
-            CAPTURED_GITHUB_ACTIONS="${GITHUB_ACTIONS:-}"
-            CAPTURED_GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
-            CAPTURED_GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
-            CAPTURED_GITHUB_TOKEN="${{ inputs.token }}"
-            CAPTURED_GITLAB_CI="${GITLAB_CI:-}"
-            CAPTURED_CI_PROJECT_ID="${CI_PROJECT_ID:-}"
-            CAPTURED_CI_PIPELINE_ID="${CI_PIPELINE_ID:-}"
-            CAPTURED_GITLAB_TOKEN="${GITLAB_TOKEN:-}"
-            CAPTURED_CI_JOB_TOKEN="${CI_JOB_TOKEN:-}"
-            
-            # Create cancellation script using printf to avoid YAML heredoc issues
-            # Use sudo tee to write to /root since the action runs as non-root user
-            # The script logs all output to /tmp/cancel_pipeline.log for debugging
-            printf '#!/bin/bash\n# EDAMAME Pipeline Cancellation Script\nLOGFILE="/tmp/cancel_pipeline.log"\nexec > >(tee -a "$LOGFILE") 2>&1\necho ""\necho "========================================"\necho "EDAMAME Pipeline Cancellation Script"\necho "Timestamp: $(date -Iseconds)"\necho "========================================"\nREASON="${1:-Policy violation detected}"\necho "Reason: $REASON"\nGITHUB_ACTIONS="%s"\nGITHUB_RUN_ID="%s"\nGITHUB_REPOSITORY="%s"\nGITHUB_TOKEN="%s"\nGITLAB_CI="%s"\nCI_PROJECT_ID="%s"\nCI_PIPELINE_ID="%s"\nGITLAB_TOKEN="%s"\nCI_JOB_TOKEN="%s"\necho "GITHUB_ACTIONS=$GITHUB_ACTIONS"\necho "GITHUB_RUN_ID=$GITHUB_RUN_ID"\necho "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"\necho "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"\nif [[ -n "$GITHUB_ACTIONS" ]]; then\n  echo "Detected GitHub Actions environment"\n  export GH_TOKEN="$GITHUB_TOKEN"\n  echo "Executing: gh run cancel $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY"\n  if gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" 2>&1; then\n    echo "[OK] Pipeline cancellation command succeeded"\n  else\n    echo "[ERROR] Pipeline cancellation command failed with exit code: $?"\n  fi\nelif [[ -n "$GITLAB_CI" ]]; then\n  echo "Detected GitLab CI environment"\n  TOKEN="${GITLAB_TOKEN:-$CI_JOB_TOKEN}"\n  curl -s -X POST -H "PRIVATE-TOKEN: $TOKEN" "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/cancel"\nelse\n  echo "[ERROR] No CI environment detected"\n  exit 1\nfi\necho "Script completed at: $(date -Iseconds)"\necho "========================================"\n' \
-              "$CAPTURED_GITHUB_ACTIONS" "$CAPTURED_GITHUB_RUN_ID" "$CAPTURED_GITHUB_REPOSITORY" "$CAPTURED_GITHUB_TOKEN" \
-              "$CAPTURED_GITLAB_CI" "$CAPTURED_CI_PROJECT_ID" "$CAPTURED_CI_PIPELINE_ID" "$CAPTURED_GITLAB_TOKEN" "$CAPTURED_CI_JOB_TOKEN" \
-              | sudo tee "$CANCEL_SCRIPT_PATH" > /dev/null
-            
-            WRITE_STATUS=$?
-            echo "DEBUG: sudo tee exit code: $WRITE_STATUS"
-
-            sudo chmod 700 "$CANCEL_SCRIPT_PATH"
-            
-            echo "[OK] Cancellation script created and configured"
-            echo "   Script path: $CANCEL_SCRIPT_PATH"
-            echo "   The daemon will execute this script when violations are detected"
-            echo "   The script has access to CI tokens from the original environment"
-            
-            # Verify the script was created
-            if sudo test -f "$CANCEL_SCRIPT_PATH"; then
-              echo "DEBUG: Script verified at $CANCEL_SCRIPT_PATH"
-              sudo ls -la "$CANCEL_SCRIPT_PATH"
+            # Handle Alpine (no sudo) - determine privilege command
+            if [[ $(id -u) -eq 0 ]]; then
+              SCRIPT_EXISTS=$(test -f "$CANCEL_SCRIPT_PATH" && echo "yes" || echo "no")
+            elif command -v sudo >/dev/null 2>&1; then
+              SCRIPT_EXISTS=$(sudo test -f "$CANCEL_SCRIPT_PATH" && echo "yes" || echo "no")
+            elif command -v doas >/dev/null 2>&1; then
+              SCRIPT_EXISTS=$(doas test -f "$CANCEL_SCRIPT_PATH" && echo "yes" || echo "no")
             else
-              echo "ERROR: Script NOT created at $CANCEL_SCRIPT_PATH!"
+              SCRIPT_EXISTS=$(test -f "$CANCEL_SCRIPT_PATH" && echo "yes" || echo "no")
             fi
-          else
-            echo "DEBUG: cancel_on_violation is NOT 'true', skipping script creation"
+            if [[ "$SCRIPT_EXISTS" == "yes" ]]; then
+              echo "[OK] Cancellation script verified at $CANCEL_SCRIPT_PATH"
+            else
+              echo "[WARNING] Cancellation script NOT found at $CANCEL_SCRIPT_PATH"
+            fi
           fi
 
           $EDAMAME_POSTURE_CMD "${START_ARGS[@]}"
