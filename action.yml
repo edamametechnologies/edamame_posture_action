@@ -823,6 +823,7 @@ runs:
           # Create cancellation script if cancel_on_violation is enabled
           # This allows the daemon to cancel the pipeline WITHOUT having direct access to tokens
           # The script runs in the original environment context and has access to CI variables
+          echo "DEBUG: cancel_on_violation value = '${{ inputs.cancel_on_violation }}'"
           if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
             echo "[WARNING] cancel_on_violation enabled - creating pipeline cancellation script"
             
@@ -856,6 +857,9 @@ runs:
               "$CAPTURED_GITHUB_ACTIONS" "$CAPTURED_GITHUB_RUN_ID" "$CAPTURED_GITHUB_REPOSITORY" "$CAPTURED_GITHUB_TOKEN" \
               "$CAPTURED_GITLAB_CI" "$CAPTURED_CI_PROJECT_ID" "$CAPTURED_CI_PIPELINE_ID" "$CAPTURED_GITLAB_TOKEN" "$CAPTURED_CI_JOB_TOKEN" \
               | sudo tee "$CANCEL_SCRIPT_PATH" > /dev/null
+            
+            WRITE_STATUS=$?
+            echo "DEBUG: sudo tee exit code: $WRITE_STATUS"
 
             sudo chmod 700 "$CANCEL_SCRIPT_PATH"
             
@@ -863,6 +867,16 @@ runs:
             echo "   Script path: $CANCEL_SCRIPT_PATH"
             echo "   The daemon will execute this script when violations are detected"
             echo "   The script has access to CI tokens from the original environment"
+            
+            # Verify the script was created
+            if sudo test -f "$CANCEL_SCRIPT_PATH"; then
+              echo "DEBUG: Script verified at $CANCEL_SCRIPT_PATH"
+              sudo ls -la "$CANCEL_SCRIPT_PATH"
+            else
+              echo "ERROR: Script NOT created at $CANCEL_SCRIPT_PATH!"
+            fi
+          else
+            echo "DEBUG: cancel_on_violation is NOT 'true', skipping script creation"
           fi
 
           $EDAMAME_POSTURE_CMD "${START_ARGS[@]}"
