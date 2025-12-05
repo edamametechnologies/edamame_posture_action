@@ -558,37 +558,28 @@ jobs:
             runs-on: ubuntu-latest
             arch: x86_64
             target: x86_64-unknown-linux-musl
+            container_image: alpine:3.20
           - os: ubuntu
             runs-on: ubuntu-24.04-arm
             arch: aarch64
             target: aarch64-unknown-linux-musl
+            container_image: alpine:3.20
     runs-on: ${{ matrix.runs-on }}
+    container:
+      image: ${{ matrix.container_image }}
+      options: --cap-add=NET_ADMIN --cap-add=NET_RAW
 
     steps:
 
-      # Setup Alpine Linux
-      - name: Setup Alpine Linux
-        uses: jirutka/setup-alpine@v1
-        with:
-          arch: ${{ matrix.arch }}
-          apk-tools-url: ${{ startsWith(matrix.arch, 'x86') && 'https://gitlab.alpinelinux.org/api/v4/projects/5/packages/generic/v2.14.7/x86_64/apk.static#!sha256!bdd044e0fd6cc388c5e571e1093efa5f35f7767cc5aa338b0a2576a429009a62' || 'https://gitlab.alpinelinux.org/api/v4/projects/5/packages/generic/v2.14.7/aarch64/apk.static#!sha256!27a975638ddc95a411c9f17c63383e335da9edf6bb7de2281d950c291a11f878' }}
-
-      # Install dependencies with apk
-      - name: Install dependencies with apk
+      # Manual checkout because actions/checkout requires node which is not available in minimal Alpine container
+      - name: Manual checkout for Alpine container
         run: |
-          apk add --no-cache \
-            build-base \
-            git \
-            curl \
-            bash \
-            sudo
-        shell: alpine.sh --root {0}
+          apk update
+          apk add --no-cache build-base git curl bash sudo
+          git config --global --add safe.directory '*'
+          git clone https://github.com/${{ github.repository }}.git .
+          git checkout ${{ github.ref_name }}
 
-      
-        # We don't use the EDAMAME Posture Action here, because we want to fully test the action.yml file
-      - name: Checkout
-        uses: actions/checkout@v4
-        
       # Test start
       - name: Test start
         id: test-start
@@ -792,7 +783,6 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
       - name: Dump the logs
-        shell: alpine.sh --root {0}
         if: always()
         run: |
           echo "--- Dumping Alpine Logs (${{ matrix.arch }}-${{ matrix.target }}) --- "
@@ -813,7 +803,6 @@ jobs:
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success'
-        shell: alpine.sh {0}
         run: |
           echo "## Test Results Summary (Alpine - ${{ matrix.arch }}-${{ matrix.target }})"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
