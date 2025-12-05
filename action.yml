@@ -3837,6 +3837,38 @@ runs:
           cd
           echo "Stopping EDAMAME Posture process..."
           $EDAMAME_POSTURE_CMD stop
+          
+          # Wait for daemon to fully stop
+          echo "Verifying daemon has stopped..."
+          MAX_ATTEMPTS=10
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            if ! $EDAMAME_POSTURE_CMD status >/dev/null 2>&1; then
+              echo "Daemon successfully stopped (attempt $ATTEMPT)"
+              break
+            fi
+            
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "Warning: Daemon still running after $ATTEMPT attempts, forcing kill..."
+              # Force kill on final attempt
+              if [[ "$RUNNER_OS" == "Windows" ]]; then
+                taskkill //F //IM edamame_posture.exe 2>/dev/null || true
+              else
+                pkill -9 edamame_posture 2>/dev/null || true
+                if [[ "$RUNNER_OS" == "Linux" ]]; then
+                  sudo systemctl stop edamame_posture.service 2>/dev/null || true
+                  sudo rc-service edamame_posture stop 2>/dev/null || true
+                fi
+              fi
+              sleep 1
+              break
+            fi
+            
+            echo "Daemon still running, waiting... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+            ATTEMPT=$((ATTEMPT + 1))
+            sleep 1
+          done
+          
           echo "EDAMAME Posture process stopped."
         fi
       shell: bash
