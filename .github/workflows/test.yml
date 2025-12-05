@@ -295,7 +295,6 @@ jobs:
             runs-on: ubuntu-latest
             container_image: ubuntu:18.04
             container_name: ubuntu-18.04
-          # Alpine container coverage (musl targets)
           - os: ubuntu
             runs-on: ubuntu-latest
             container_image: alpine:3.15
@@ -500,7 +499,10 @@ jobs:
 
       - name: Slack alerts
         # Won't work on 18.04 because of glibc version
+        # Won't work on ARM64 Alpine because of JavaScript support
         if: |
+          !contains(matrix.container_name, '18.04') &&
+          !contains(matrix.container_name, 'aarch64-musl') &&
           (steps.test-start.outcome != 'success' || 
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' ||
@@ -512,7 +514,7 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-stop.outcome != 'success') && !contains(matrix.container_name, '18.04')
+          steps.test-stop.outcome != 'success')
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
