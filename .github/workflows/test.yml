@@ -584,13 +584,6 @@ jobs:
             sudo
         shell: alpine.sh --root {0}
 
-      # Manual checkout for Alpine
-      - name: Manual checkout for Alpine
-        run: |
-          git clone https://github.com/${{ github.repository }}.git .
-          git checkout ${{ github.ref_name }}
-        shell: alpine.sh {0}
-
       # Test start
       - name: Test start
         id: test-start
@@ -600,8 +593,7 @@ jobs:
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
           edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
           edamame_id: ${{ github.run_id }}-alpine-${{ matrix.arch }}-${{ matrix.target }}
-          # Don't checkout the repo, we already did that in the previous step
-          checkout: false
+          checkout: true
           # Set to true to test the whitelist creation
           # Disabled on Windows as GitHub managed Windows runners configuration makes this too slow
           network_scan: true
