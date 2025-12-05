@@ -44,9 +44,24 @@ jobs:
           cancel_on_violation: true
           display_logs: true
 
+      - name: Debug - Check cancellation script
+        run: |
+          echo "=== Checking cancellation script location ==="
+          echo "Checking /root/cancel_pipeline.sh:"
+          sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /root/cancel_pipeline.sh"
+          echo ""
+          echo "Checking /tmp/cancel_pipeline.sh:"
+          ls -la /tmp/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /tmp/cancel_pipeline.sh"
+          echo ""
+          echo "=== Script contents (if exists) ==="
+          sudo cat /root/cancel_pipeline.sh 2>/dev/null || echo "Cannot read /root/cancel_pipeline.sh"
+          echo ""
+          echo "=== Daemon status ==="
+          $EDAMAME_POSTURE_CMD status || echo "Daemon not responding"
+
       - name: Generate Violation (Unauthorized Connection)
         run: |
-          echo "Waiting 60 seconds..."
+          echo "Waiting 60 seconds for daemon to stabilize..."
           sleep 60
 
           echo "Generating unauthorized network connection to trigger cancellation..."
@@ -61,8 +76,10 @@ jobs:
           # to ensure it has time to detect and execute the cancellation
           echo "Waiting for daemon to detect violation and cancel pipeline..."
           for i in {1..10}; do
-            # Dump sessions log (use unquoted to allow word splitting for sudo)
-            $EDAMAME_POSTURE_CMD get-sessions || echo "Non conforming sessions detected"
+            # Dump sessions log
+            $EDAMAME_POSTURE_CMD get-sessions || echo "Daemon not responding (may have exited after cancellation attempt)"
+            echo "--- Checking daemon logs ---"
+            $EDAMAME_POSTURE_CMD logs 2>&1 | tail -50 || echo "Cannot get logs"
             sleep 20
           done
 
@@ -74,6 +91,13 @@ jobs:
         run: |
           echo "[ERROR] ERROR: This step should not run if cancellation worked correctly"
           echo "The workflow should have been cancelled by EDAMAME Posture"
+          echo ""
+          echo "=== Cancellation Script Log ==="
+          cat /tmp/cancel_pipeline.log 2>/dev/null || echo "No cancellation log found at /tmp/cancel_pipeline.log"
+          echo ""
+          echo "=== Checking script location ==="
+          sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "Script not found at /root/cancel_pipeline.sh"
+          ls -la /tmp/cancel_pipeline.sh 2>&1 || echo "Script not found at /tmp/cancel_pipeline.sh"
           exit 1
 
   # Test cancellation in disconnected mode
@@ -97,6 +121,21 @@ jobs:
           cancel_on_violation: true
           display_logs: true
 
+      - name: Debug - Check cancellation script
+        run: |
+          echo "=== Checking cancellation script location ==="
+          echo "Checking /root/cancel_pipeline.sh:"
+          sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /root/cancel_pipeline.sh"
+          echo ""
+          echo "Checking /tmp/cancel_pipeline.sh:"
+          ls -la /tmp/cancel_pipeline.sh 2>&1 || echo "NOT FOUND at /tmp/cancel_pipeline.sh"
+          echo ""
+          echo "=== Script contents (if exists) ==="
+          sudo cat /root/cancel_pipeline.sh 2>/dev/null || echo "Cannot read /root/cancel_pipeline.sh"
+          echo ""
+          echo "=== Daemon status ==="
+          $EDAMAME_POSTURE_CMD status || echo "Daemon not responding"
+
       - name: Generate Violation (Unauthorized Connection)
         run: |
           echo "Generating unauthorized network connection to trigger cancellation..."
@@ -110,8 +149,10 @@ jobs:
           # to ensure it has time to detect and execute the cancellation
           echo "Waiting for daemon to detect violation and cancel pipeline..."
           for i in {1..10}; do
-            # Dump sessions log (use unquoted to allow word splitting for sudo)
-            $EDAMAME_POSTURE_CMD get-sessions || echo "Non conforming sessions detected"
+            # Dump sessions log
+            $EDAMAME_POSTURE_CMD get-sessions || echo "Daemon not responding (may have exited after cancellation attempt)"
+            echo "--- Checking daemon logs ---"
+            $EDAMAME_POSTURE_CMD logs 2>&1 | tail -50 || echo "Cannot get logs"
             sleep 20
           done
 
@@ -123,5 +164,12 @@ jobs:
         run: |
           echo "[ERROR] ERROR: This step should not run if cancellation worked correctly"
           echo "The workflow should have been cancelled by EDAMAME Posture"
+          echo ""
+          echo "=== Cancellation Script Log ==="
+          cat /tmp/cancel_pipeline.log 2>/dev/null || echo "No cancellation log found at /tmp/cancel_pipeline.log"
+          echo ""
+          echo "=== Checking script location ==="
+          sudo ls -la /root/cancel_pipeline.sh 2>&1 || echo "Script not found at /root/cancel_pipeline.sh"
+          ls -la /tmp/cancel_pipeline.sh 2>&1 || echo "Script not found at /tmp/cancel_pipeline.sh"
           exit 1
 
