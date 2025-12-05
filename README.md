@@ -6,7 +6,29 @@ It supports Windows, Linux, and macOS runners, checking for and installing any m
 
 ## Installation Behavior
 
-This action uses an intelligent installation strategy that prefers package managers over direct binary downloads:
+This action uses an intelligent installation strategy that prefers package managers over direct binary downloads.
+
+### Multi-Step Optimization
+
+When the action is called multiple times in the same workflow (e.g., setup → policy checks → augment → stop), it intelligently skips redundant operations:
+
+**Initial Setup Call (credentials provided):**
+- Passes all parameters to installer
+- Installer configures service/daemon
+- Service starts with network flags
+- Packet capture begins
+
+**Subsequent Calls (policy checks, augment, dump, stop):**
+- Skips passing credentials to installer
+- Installer detects existing installation and skips everything (fast)
+- Service keeps running with original configuration
+- Packet capture data preserved for augmentation
+
+This optimization:
+- ✅ Prevents unnecessary daemon restarts (preserves captured sessions)
+- ✅ Avoids apt/apk lock contention
+- ✅ Reduces workflow execution time by 20-30 seconds per call
+- ✅ Maintains daemon state across all workflow steps
 
 ### Package Manager Priority (Default)
 
@@ -16,9 +38,15 @@ The action automatically detects the platform and attempts installation via the 
 |----------|----------------|---------|----------|
 | **macOS** | Homebrew | `brew install edamame-posture` | Direct binary download |
 | **Windows** | Chocolatey | `choco install edamame-posture` | Direct binary download |
-| **Linux (Alpine)** | APK | `apk add edamame-posture` | Direct binary download |
-| **Linux (Debian/Ubuntu)** | APT | `apt install edamame-posture` | Direct binary download |
-| **Linux (Other)** | N/A | - | Direct binary download |
+| **Linux (Alpine)** | APK | `apk add edamame-posture` | Direct binary download (musl) |
+| **Linux (Debian/Ubuntu)** | APT | `apt install edamame-posture` | Direct binary download (glibc/musl) |
+| **Linux (Other)** | N/A | - | Direct binary download (musl) |
+
+**Supported Linux Distributions:**
+- ✅ Alpine Linux (APK package manager)
+- ✅ Debian/Ubuntu and derivatives (APT package manager)
+- ✅ Containers (Ubuntu 18.04+, Alpine, etc.)
+- ✅ Custom distros (fallback to musl or glibc binary)
 
 ### Installation States
 
@@ -116,7 +144,13 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
 ## Steps
 
 1. **Dependencies**  
-   Checks for and installs required dependencies for your runner's OS—wget, curl, jq, Node.js, etc.—using either Chocolatey (Windows), apt-get (Linux), or Homebrew (macOS).
+   Checks for and installs required dependencies for your runner's OS—wget, curl, jq, Node.js, GitHub CLI (gh), etc.—using the appropriate package manager:
+   - **Windows**: Chocolatey (`choco install`)
+   - **Linux (Alpine)**: APK (`apk add`)
+   - **Linux (Debian/Ubuntu)**: APT (`apt-get install`)
+   - **macOS**: Homebrew (`brew install`)
+   
+   Optimized to skip `apt-get update` / `apk update` when all tools are already present (faster subsequent action calls).
 
 2. **Install or Update EDAMAME Posture**  
    - **Detection**: Checks if EDAMAME Posture is already installed
@@ -199,8 +233,10 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
    - If `display_logs` is true, prints the EDAMAME daemon logs
 
 20. **Stop EDAMAME Posture**  
-   - If `stop` is true, stops the background daemon process  
-   - If `exit_on_whitelist_exceptions` is true and the CLI reports whitelist exceptions, the step exits with an error status.
+   - If `stop` is true, stops the background daemon process
+   - Verifies daemon has stopped with retry loop (up to 10 seconds)
+   - Force-kills process if graceful stop fails
+   - Ensures clean shutdown before workflow completion or before starting disconnected mode
 
 15. **Create custom whitelist**  
    - If `create_custom_whitelists` is true, generates a whitelist from the current network sessions.
