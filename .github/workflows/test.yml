@@ -295,6 +295,15 @@ jobs:
             runs-on: ubuntu-latest
             container_image: ubuntu:18.04
             container_name: ubuntu-18.04
+          # Alpine container coverage (musl targets)
+          - os: ubuntu
+            runs-on: ubuntu-latest
+            container_image: alpine:3.20
+            container_name: alpine-3.20-x86_64-musl
+          - os: ubuntu
+            runs-on: ubuntu-24.04-arm
+            container_image: alpine:3.20
+            container_name: alpine-3.20-aarch64-musl
     runs-on: ${{ matrix.runs-on }}
     container:
       image: ${{ matrix.container_image }}
@@ -304,13 +313,23 @@ jobs:
     steps:
       # We don't use the EDAMAME Posture Action here, because we want to fully test the action.yml file
       # Manual checkout because actions/checkout@v4 requires node20 which is not supported on older Ubuntu containers
-      - name: Manual checkout for containers
+      - name: Manual checkout for Ubuntu containers
+        if: ${{ !contains(matrix.container_image, 'alpine') }}
         run: |
           apt-get update -y
           apt-get install -y git
           # Without that git pull in edamame_posture_action fails as well as other actions
           git config --global --add safe.directory '*'
           # Clone repository
+          git clone https://github.com/${{ github.repository }}.git .
+          git checkout ${{ github.ref_name }}
+
+      - name: Manual checkout for Alpine containers
+        if: ${{ contains(matrix.container_image, 'alpine') }}
+        run: |
+          apk update
+          apk add --no-cache build-base git curl bash sudo
+          git config --global --add safe.directory '*'
           git clone https://github.com/${{ github.repository }}.git .
           git checkout ${{ github.ref_name }}
 
@@ -547,277 +566,3 @@ jobs:
           echo ""
           echo "Forcing job to fail because some tests did not succeed."
           exit 1
-
-  test-alpine:
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu
-            runs-on: ubuntu-latest
-            arch: x86_64
-            target: x86_64-unknown-linux-musl
-            container_image: alpine:3.20
-          - os: ubuntu
-            runs-on: ubuntu-24.04-arm
-            arch: aarch64
-            target: aarch64-unknown-linux-musl
-            container_image: alpine:3.20
-    runs-on: ${{ matrix.runs-on }}
-    container:
-      image: ${{ matrix.container_image }}
-      options: --cap-add=NET_ADMIN --cap-add=NET_RAW
-
-    steps:
-
-      # Manual checkout because actions/checkout requires node which is not available in minimal Alpine container
-      - name: Manual checkout for Alpine container
-        run: |
-          apk update
-          apk add --no-cache build-base git curl bash sudo
-          git config --global --add safe.directory '*'
-          git clone https://github.com/${{ github.repository }}.git .
-          git checkout ${{ github.ref_name }}
-
-      # Test start
-      - name: Test start
-        id: test-start
-        uses: ./ # Use the local action definition (action.yaml)
-        with:
-          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
-          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
-          edamame_id: ${{ github.run_id }}-alpine-${{ matrix.arch }}-${{ matrix.target }}
-          # Don't checkout the repo, we already did that in the previous step
-          checkout: false
-          # Set to true to test the whitelist creation
-          # Disabled on Windows as GitHub managed Windows runners configuration makes this too slow
-          network_scan: true
-        continue-on-error: true
-
-      # Test check-policy (local)
-      - name: Test check-policy (local)
-        id: test-check-policy-local
-        uses: ./
-        with:
-          edamame_minimum_score: 1.0
-          edamame_mandatory_threats: "encrypted disk disabled"
-          edamame_mandatory_prefixes: ""
-        continue-on-error: true
-
-      # Test check-policy-for-domain
-      - name: Test check-policy-for-domain
-        id: test-check-policy-for-domain
-        uses: ./
-        with:
-          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-          edamame_policy: 'Github & Gitlab'
-        continue-on-error: true
-
-      # Test check-policy (local) with error
-      - name: Test check-policy (local) with error
-        id: test-check-policy-local-error
-        uses: ./
-        with:
-          edamame_minimum_score: 5.0
-          edamame_mandatory_threats: "no EPP"
-          edamame_mandatory_prefixes: ""
-        continue-on-error: true
-      
-      # Test check-policy-for-domain with error
-      - name: Test check-policy-for-domain with error
-        id: test-check-policy-for-domain-error
-        uses: ./
-        with:
-          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-          edamame_policy: "Invalid policy"
-        continue-on-error: true
-
-      # Test dump sessions
-      - name: Test dump sessions
-        id: test-dump-sessions
-        uses: ./
-        with:
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
-        continue-on-error: true
-
-      # Test create custom whitelists
-      - name: Test create custom whitelists
-        id: test-create-custom-whitelist
-        uses: ./
-        with:
-          create_custom_whitelists: true
-          custom_whitelists_path: custom_whitelists.json
-        continue-on-error: true
-        
-      # Test set custom whitelist
-      - name: Test set custom whitelist
-        id: test-set-custom-whitelist
-        if: steps.test-create-custom-whitelist.outcome == 'success'
-        uses: ./
-        with:
-          set_custom_whitelists: true
-          custom_whitelists_path: custom_whitelists.json
-        continue-on-error: true
-
-      # Force session update and verify whitelist is active before augmentation
-      - name: Verify whitelist active and force session update
-        id: test-verify-whitelist-before-augment
-        if: steps.test-set-custom-whitelist.outcome == 'success'
-        uses: ./
-        with:
-          dump_sessions_log: true
-          exit_on_whitelist_exceptions: false
-        continue-on-error: true
-
-      # Generate traffic to ensure whitelist creation has data
-      - name: Generate traffic for whitelist
-        run: |
-          echo "Generating traffic..."
-          curl -s https://www.google.com > /dev/null || true
-          curl -s https://github.com > /dev/null || true
-          # Give daemon time to process packets
-          sleep 10
-        shell: bash
-
-      # Test augment custom whitelist
-      - name: Test augment custom whitelist
-        id: test-augment-whitelist
-        if: steps.test-set-custom-whitelist.outcome == 'success'
-        uses: ./
-        with:
-          augment_custom_whitelists: true
-          custom_whitelists_path: custom_whitelists.json
-        continue-on-error: true
-
-      # Test stop
-      - name: Test stop
-        id: test-stop
-        uses: ./
-        with:
-          stop: true
-        continue-on-error: true
-
-      # Test disconnected mode
-      - name: Test disconnected mode
-        id: test-disconnected-mode
-        uses: ./
-        with:
-          disconnected_mode: true
-          network_scan: true
-          whitelist: github_${{ runner.os }}
-          edamame_minimum_score: 1.0
-          edamame_mandatory_threats: "encrypted disk disabled"
-        continue-on-error: true
-
-      # Test get sessions with disconnected mode
-      - name: Test sessions with disconnected mode
-        id: test-sessions-disconnected
-        if: steps.test-disconnected-mode.outcome == 'success'
-        uses: ./
-        with:
-          exit_on_whitelist_exceptions: false
-          dump_sessions_log: true
-        continue-on-error: true
-
-      # Stop posture before auto-whitelist test
-      - name: Stop posture before auto-whitelist test
-        id: test-stop-before-auto-whitelist
-        uses: ./
-        with:
-          stop: true
-        continue-on-error: true
-
-      # Test auto-whitelist feature
-      - name: Test auto-whitelist feature
-        id: test-auto-whitelist
-        uses: ./
-        with:
-          disconnected_mode: true
-          network_scan: true
-          packet_capture: true
-          auto_whitelist: true
-          auto_whitelist_artifact_name: test-auto-whitelist-artifact-${{ github.run_id }}-alpine-${{ matrix.arch }}-${{ matrix.target }}
-          auto_whitelist_stability_threshold: "0"
-          auto_whitelist_stability_consecutive_runs: "3"
-          auto_whitelist_max_iterations: "10"
-          dump_sessions_log: true
-        continue-on-error: true
-        
-      - name: Slack alerts
-        if: |
-          steps.test-start.outcome != 'success' || 
-          steps.test-check-policy-local.outcome != 'success' || 
-          steps.test-check-policy-for-domain.outcome != 'success' ||
-          steps.test-check-policy-local-error.outcome == 'success' ||
-          steps.test-check-policy-for-domain-error.outcome == 'success' ||
-          steps.test-dump-sessions.outcome != 'success' ||
-          steps.test-create-custom-whitelist.outcome != 'success' ||
-          steps.test-set-custom-whitelist.outcome != 'success' ||
-          steps.test-augment-whitelist.outcome != 'success' ||
-          steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-stop.outcome != 'success'
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          channel-id: 'C072J0U9TH7'
-          slack-message: |
-            *Alpine Test Results for ${{ github.repository }} (${{ matrix.arch }}-${{ matrix.target }})*:
-            - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
-            - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            Branch: ${{ github.ref }}
-            More details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
-      - name: Dump the logs
-        if: always()
-        run: |
-          echo "--- Dumping Alpine Logs (${{ matrix.arch }}-${{ matrix.target }}) --- "
-          find . -name "edamame_*.2*-*-*" -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found in default directory"
-          echo "--- Alpine Log Dump Complete ---"
-
-      - name: Fail job if tests failed
-        if: |
-          steps.test-start.outcome != 'success' || 
-          steps.test-check-policy-local.outcome != 'success' || 
-          steps.test-check-policy-for-domain.outcome != 'success' ||
-          steps.test-check-policy-local-error.outcome == 'success' ||
-          steps.test-check-policy-for-domain-error.outcome == 'success' ||
-          steps.test-dump-sessions.outcome != 'success' ||
-          steps.test-create-custom-whitelist.outcome != 'success' ||
-          steps.test-set-custom-whitelist.outcome != 'success' ||
-          steps.test-augment-whitelist.outcome != 'success' ||
-          steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-stop.outcome != 'success'
-        run: |
-          echo "## Test Results Summary (Alpine - ${{ matrix.arch }}-${{ matrix.target }})"
-          echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo ""
-          echo "Forcing alpine job to fail because some tests did not succeed."
-          exit 1
-
