@@ -90,8 +90,8 @@ jobs:
             curl -s --max-time 10 https://cdn.jsdelivr.net/npm/ > /dev/null || true
           fi
           
-          echo "Waiting for traffic capture..."
-          sleep 30
+          echo "Waiting for L7 resolution to complete ..."
+          sleep 60
 
       # ============================================================
       # STEP 3: Teardown - Dump sessions (like release_macos_standalone.yml:253-256)
@@ -180,7 +180,7 @@ jobs:
                     .whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]? as $new_ep |
                     ($old[0].whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]?) as $old_ep |
                     select($new_ep == $old_ep | not) |
-                    $new_ep | "  - \(.host // .ip):\(.port // "N/A") (\(.protocol // "unknown"))"
+                    $new_ep | "  - " + @json
                   ' auto_whitelist.json 2>/dev/null | sort -u | head -20
                   
                   if [[ $DELTA -gt 20 ]]; then
