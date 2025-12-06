@@ -513,7 +513,9 @@ runs:
           if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
             CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
           else
-            CANCEL_SCRIPT_PATH="/root/cancel_pipeline.sh"
+            # Use $HOME which matches the daemon's default lookup path
+            # Since we use sudo -E, the daemon inherits the same HOME as the action
+            CANCEL_SCRIPT_PATH="$HOME/cancel_pipeline.sh"
           fi
           
           echo "Creating cancellation script at: $CANCEL_SCRIPT_PATH"
@@ -529,25 +531,14 @@ runs:
           CAPTURED_GITLAB_TOKEN="${GITLAB_TOKEN:-}"
           CAPTURED_CI_JOB_TOKEN="${CI_JOB_TOKEN:-}"
           
-          # Determine privilege escalation command (handle Alpine without sudo)
-          if [[ $(id -u) -eq 0 ]]; then
-            PRIV_CMD=""
-          elif command -v sudo >/dev/null 2>&1; then
-            PRIV_CMD="sudo"
-          elif command -v doas >/dev/null 2>&1; then
-            PRIV_CMD="doas"
-          else
-            PRIV_CMD=""
-            echo "[WARNING] No sudo/doas available and not running as root"
-          fi
-          
           # Create cancellation script using printf
+          # Write to $HOME which is accessible by current user (no sudo needed)
           printf '#!/bin/bash\n# EDAMAME Pipeline Cancellation Script\nLOGFILE="/tmp/cancel_pipeline.log"\nexec > >(tee -a "$LOGFILE") 2>&1\necho ""\necho "========================================"\necho "EDAMAME Pipeline Cancellation Script"\necho "Timestamp: $(date -Iseconds)"\necho "========================================"\nREASON="${1:-Policy violation detected}"\necho "Reason: $REASON"\nGITHUB_ACTIONS="%s"\nGITHUB_RUN_ID="%s"\nGITHUB_REPOSITORY="%s"\nGITHUB_TOKEN="%s"\nGITLAB_CI="%s"\nCI_PROJECT_ID="%s"\nCI_PIPELINE_ID="%s"\nGITLAB_TOKEN="%s"\nCI_JOB_TOKEN="%s"\necho "GITHUB_ACTIONS=$GITHUB_ACTIONS"\necho "GITHUB_RUN_ID=$GITHUB_RUN_ID"\necho "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"\necho "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"\nif [[ -n "$GITHUB_ACTIONS" ]]; then\n  echo "Detected GitHub Actions environment"\n  export GH_TOKEN="$GITHUB_TOKEN"\n  echo "Executing: gh run cancel $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY"\n  if gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" 2>&1; then\n    echo "[OK] Pipeline cancellation command succeeded"\n  else\n    echo "[ERROR] Pipeline cancellation command failed with exit code: $?"\n  fi\nelif [[ -n "$GITLAB_CI" ]]; then\n  echo "Detected GitLab CI environment"\n  TOKEN="${GITLAB_TOKEN:-$CI_JOB_TOKEN}"\n  curl -s -X POST -H "PRIVATE-TOKEN: $TOKEN" "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/cancel"\nelse\n  echo "[ERROR] No CI environment detected"\n  exit 1\nfi\necho "Script completed at: $(date -Iseconds)"\necho "========================================"\n' \
             "$CAPTURED_GITHUB_ACTIONS" "$CAPTURED_GITHUB_RUN_ID" "$CAPTURED_GITHUB_REPOSITORY" "$CAPTURED_GITHUB_TOKEN" \
             "$CAPTURED_GITLAB_CI" "$CAPTURED_CI_PROJECT_ID" "$CAPTURED_CI_PIPELINE_ID" "$CAPTURED_GITLAB_TOKEN" "$CAPTURED_CI_JOB_TOKEN" \
-            | $PRIV_CMD tee "$CANCEL_SCRIPT_PATH" > /dev/null
+            > "$CANCEL_SCRIPT_PATH"
           
-          $PRIV_CMD chmod 700 "$CANCEL_SCRIPT_PATH"
+          chmod 700 "$CANCEL_SCRIPT_PATH"
           echo "[OK] Cancellation script created at $CANCEL_SCRIPT_PATH"
         fi
         if [[ "${{ inputs.include_local_traffic }}" == "true" ]]; then
@@ -887,19 +878,10 @@ runs:
           if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
             CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
             if [[ -z "$CANCEL_SCRIPT_PATH" ]]; then
-              CANCEL_SCRIPT_PATH="/root/cancel_pipeline.sh"
+              # Same $HOME as used during creation (sudo -E preserves HOME)
+              CANCEL_SCRIPT_PATH="$HOME/cancel_pipeline.sh"
             fi
-            # Handle Alpine (no sudo) - determine privilege command
-            if [[ $(id -u) -eq 0 ]]; then
-              SCRIPT_EXISTS=$(test -f "$CANCEL_SCRIPT_PATH" && echo "yes" || echo "no")
-            elif command -v sudo >/dev/null 2>&1; then
-              SCRIPT_EXISTS=$(sudo test -f "$CANCEL_SCRIPT_PATH" && echo "yes" || echo "no")
-            elif command -v doas >/dev/null 2>&1; then
-              SCRIPT_EXISTS=$(doas test -f "$CANCEL_SCRIPT_PATH" && echo "yes" || echo "no")
-            else
-              SCRIPT_EXISTS=$(test -f "$CANCEL_SCRIPT_PATH" && echo "yes" || echo "no")
-            fi
-            if [[ "$SCRIPT_EXISTS" == "yes" ]]; then
+            if [[ -f "$CANCEL_SCRIPT_PATH" ]]; then
               echo "[OK] Cancellation script verified at $CANCEL_SCRIPT_PATH"
             else
               echo "[WARNING] Cancellation script NOT found at $CANCEL_SCRIPT_PATH"
