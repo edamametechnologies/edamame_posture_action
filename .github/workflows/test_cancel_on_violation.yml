@@ -98,15 +98,17 @@ jobs:
           sleep 2
           sync 2>/dev/null || true
           
-          echo "=== Cancellation Script Log ==="
-          if [[ -f /tmp/cancel_pipeline.log ]]; then
-            cat /tmp/cancel_pipeline.log
+          # Log file includes run ID for non-ephemeral runners
+          LOGFILE="$HOME/cancel_pipeline_${{ github.run_id }}.log"
+          echo "=== Cancellation Script Log (at $LOGFILE) ==="
+          if [[ -f "$LOGFILE" ]]; then
+            cat "$LOGFILE"
             echo ""
             # Check if cancellation was successful (check for either success message or that gh command was executed)
-            if grep -q "\[OK\] Pipeline cancellation command" /tmp/cancel_pipeline.log; then
+            if grep -q "\[OK\] Pipeline cancellation command" "$LOGFILE"; then
               echo "[SUCCESS] Cancellation was triggered and executed!"
               exit 0
-            elif grep -q "Executing: gh run cancel" /tmp/cancel_pipeline.log; then
+            elif grep -q "Executing: gh run cancel" "$LOGFILE"; then
               echo "[SUCCESS] Cancellation command was executed (log may be incomplete due to runner shutdown)"
               exit 0
             else
@@ -114,7 +116,7 @@ jobs:
               exit 1
             fi
           else
-            echo "[ERROR] No cancellation log found at /tmp/cancel_pipeline.log"
+            echo "[ERROR] No cancellation log found at $LOGFILE"
             echo "Cancellation script may not have been executed"
             # If the job was cancelled, the script likely ran but log wasn't synced
             if [[ "${{ job.status }}" == "cancelled" ]]; then
@@ -198,15 +200,17 @@ jobs:
           sleep 2
           sync 2>/dev/null || true
           
-          echo "=== Cancellation Script Log ==="
-          if [[ -f /tmp/cancel_pipeline.log ]]; then
-            cat /tmp/cancel_pipeline.log
+          # Log file includes run ID for non-ephemeral runners
+          LOGFILE="$HOME/cancel_pipeline_${{ github.run_id }}.log"
+          echo "=== Cancellation Script Log (at $LOGFILE) ==="
+          if [[ -f "$LOGFILE" ]]; then
+            cat "$LOGFILE"
             echo ""
             # Check if cancellation was successful (check for either success message or that gh command was executed)
-            if grep -q "\[OK\] Pipeline cancellation command" /tmp/cancel_pipeline.log; then
+            if grep -q "\[OK\] Pipeline cancellation command" "$LOGFILE"; then
               echo "[SUCCESS] Cancellation was triggered and executed!"
               exit 0
-            elif grep -q "Executing: gh run cancel" /tmp/cancel_pipeline.log; then
+            elif grep -q "Executing: gh run cancel" "$LOGFILE"; then
               echo "[SUCCESS] Cancellation command was executed (log may be incomplete due to runner shutdown)"
               exit 0
             else
@@ -214,7 +218,7 @@ jobs:
               exit 1
             fi
           else
-            echo "[ERROR] No cancellation log found at /tmp/cancel_pipeline.log"
+            echo "[ERROR] No cancellation log found at $LOGFILE"
             echo "Cancellation script may not have been executed"
             # If the job was cancelled, the script likely ran but log wasn't synced
             if [[ "${{ job.status }}" == "cancelled" ]]; then
