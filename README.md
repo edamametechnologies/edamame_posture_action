@@ -81,10 +81,10 @@ The action automatically detects the platform and attempts installation via the 
 | **Linux (Other)** | N/A | - | Direct binary download (musl) |
 
 **Supported Linux Distributions:**
-- ✅ Alpine Linux (APK package manager)
-- ✅ Debian/Ubuntu and derivatives (APT package manager)
-- ✅ Containers (Ubuntu 18.04+, Alpine, etc.)
-- ✅ Custom distros (fallback to musl or glibc binary)
+- Alpine Linux (APK package manager)
+- Debian/Ubuntu and derivatives (APT package manager)
+- Containers (Ubuntu 18.04+, Alpine, etc.)
+- Custom distros (fallback to musl or glibc binary)
 
 ### Installation States
 
@@ -108,11 +108,17 @@ The action handles different installation states intelligently:
 
 ### Command Path Resolution
 
-The action sets `EDAMAME_POSTURE_CMD` based on the installation method:
+The action sets `EDAMAME_POSTURE_CMD` based on the installation method and environment:
 
-- **Package Manager Install**: `sudo edamame_posture` (Linux/macOS) or `edamame_posture` (Windows)
-- **Direct Binary Install**: `sudo ./edamame_posture` (Linux/macOS) or `./edamame_posture.exe` (Windows)
+- **Package Manager Install**: `sudo -E edamame_posture` (Linux/macOS) or `edamame_posture` (Windows)
+- **Direct Binary Install**: `sudo -E ./edamame_posture` (Linux/macOS) or `./edamame_posture.exe` (Windows)
 - **Pre-existing Install**: Detected automatically from system PATH
+
+**Privilege Escalation**:
+- Uses `sudo -E` to preserve environment variables (required for CI/CD detection)
+- Falls back to `doas` on Alpine Linux (where `sudo` is not available by default)
+- Runs directly if already root (e.g., in containers)
+- Windows: No privilege escalation needed
 
 ### Self-Hosted vs. GitHub-Hosted Runners
 
@@ -144,7 +150,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method:
 - `check_blacklist`: When `true`, fail if blacklisted sessions are observed during capture (default: true)  
 - `check_anomalous`: When `true`, fail if anomalous sessions are detected during capture (default: true)  
 - `cancel_on_violation`: When `true`, attempt to cancel the current CI pipeline if violations are detected during capture (default: false)  
-- `cancel_pipeline_script`: Path to custom cancellation script (default: auto-generated `/tmp/cancel_pipeline.sh`). Script receives violation reason as first argument. See Pipeline Cancellation section for details.
+- `cancel_pipeline_script`: Path to custom cancellation script (default: `$HOME/cancel_pipeline.sh`). Script receives violation reason as first argument. See Pipeline Cancellation section for details.
 - `disconnected_mode`: Start EDAMAME Posture in disconnected mode without requiring domain authentication (default: false)
 - `dump_sessions_log`: Dump sessions log (default: false)  
 - `checkout`: Checkout the repo through the git CLI (default: false)  
@@ -226,14 +232,30 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
 1. **Wait for a while**  
    - If `wait` is true, sleeps for 180 seconds. Useful if you need more lead time for certain environments.
 
-1. **Start EDAMAME Posture process**  
-   - If `edamame_user`, `edamame_domain`, `edamame_pin`, and `edamame_id` are all set, attempts to start in the background.  
-   - Adds a unique suffix to `edamame_id` when running on ephemeral (matrix or short-lived) runners.
-
 1. **Start EDAMAME Posture daemon**  
-   - Starts the background daemon in connected or disconnected mode (skipped if `dump_sessions_log` or `stop` is true)
-   - Creates cancellation script if `cancel_on_violation` is enabled
-   - Waits for connection to EDAMAME backend (if in connected mode)
+   The daemon starts automatically based on the provided configuration:
+   
+   **Connected Mode** (credentials provided):
+   - Requires: `edamame_user`, `edamame_domain`, `edamame_pin`, and `edamame_id`
+   - Starts with `start --user X --domain Y --pin Z` command
+   - Connects to EDAMAME backend for centralized management
+   - Adds a unique timestamp suffix to `edamame_id` for ephemeral runners
+   
+   **Disconnected Mode** (no credentials, but network monitoring enabled):
+   - Triggered when any of: `network_scan`, `packet_capture`, `whitelist`, or `cancel_on_violation` is set
+   - Starts with `background-start-disconnected` command
+   - Runs locally without backend connection
+   - Full network monitoring capabilities available
+   
+   **Skipped when**:
+   - `dump_sessions_log: true` (teardown operation)
+   - `stop: true` (stopping the daemon)
+   - No credentials AND no network monitoring flags set
+   
+   **Additional behavior**:
+   - Creates cancellation script at `$HOME/cancel_pipeline.sh` if `cancel_on_violation` is enabled
+   - Uses `sudo -E` (or `doas` on Alpine) to preserve CI environment variables for proper CI/CD detection
+   - Waits for connection to EDAMAME backend (connected mode only)
 
 1. **Download auto-whitelist artifacts**  
    - Downloads previous whitelist from GitHub artifacts (if `auto_whitelist` is true)
@@ -421,15 +443,21 @@ This GitHub Action provides multiple automation capabilities that can be combine
 - Cancellation typically occurs within 10-15 seconds of violation
 
 **Security Model**:
-- Action creates `/tmp/cancel_pipeline.sh` (when no custom path is provided) with captured CI environment variables so the sudoed daemon can execute it reliably
-- Script contains embedded `GITHUB_TOKEN` value (not environment reference)
-- Daemon executes script when violations detected
+- Action creates `$HOME/cancel_pipeline.sh` (when no custom path is provided) with captured CI environment variables
+- Uses `sudo -E` to preserve `$HOME` so daemon and action share the same path (e.g., `/home/runner` on GitHub Actions, `/Users/runner` on macOS, `C:\Users\runneradmin` on Windows)
+- Script contains embedded `GITHUB_TOKEN` value (not environment reference) so the daemon doesn't need token access
+- Daemon executes script when violations detected using `bash $HOME/cancel_pipeline.sh`
 - Daemon never has direct access to authentication tokens
 - Works securely even when daemon runs with sudo/elevated privileges
 
+**CI/CD Environment Detection**:
+- The daemon must detect it's running in a CI/CD environment for `cancel_on_violation` to work
+- Uses `sudo -E` (Linux/macOS) or `doas` (Alpine) to preserve environment variables like `GITHUB_ACTIONS`, `CI`, etc.
+- If running as root (e.g., in containers), no privilege escalation is needed
+
 **Inputs**:
 - `cancel_on_violation`: Enable automatic cancellation (default: false)
-- `cancel_pipeline_script`: Custom script path (default: /tmp/cancel_pipeline.sh)
+- `cancel_pipeline_script`: Custom script path (default: $HOME/cancel_pipeline.sh)
 
 **Best for**:
 - High-security environments where violations must stop immediately
