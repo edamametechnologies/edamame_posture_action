@@ -451,7 +451,6 @@ runs:
               -n "${{ inputs.edamame_policy }}" || \
               -n "${{ inputs.edamame_minimum_score }}" || \
               "${{ inputs.create_custom_whitelists }}" == "true" || \
-              "${{ inputs.set_custom_whitelists }}" == "true" || \
               "${{ inputs.augment_custom_whitelists }}" == "true" || \
               "${{ inputs.disconnected_mode }}" == "true" ]]; then
           IS_INITIAL_SETUP="false"
