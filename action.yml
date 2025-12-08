@@ -451,8 +451,7 @@ runs:
               -n "${{ inputs.edamame_policy }}" || \
               -n "${{ inputs.edamame_minimum_score }}" || \
               "${{ inputs.create_custom_whitelists }}" == "true" || \
-              "${{ inputs.augment_custom_whitelists }}" == "true" || \
-              "${{ inputs.disconnected_mode }}" == "true" ]]; then
+              "${{ inputs.augment_custom_whitelists }}" == "true" ]]; then
           IS_INITIAL_SETUP="false"
           echo "Detected non-setup operation - skipping credential pass to installer"
           echo "This prevents unnecessary daemon restarts that would lose captured sessions"
