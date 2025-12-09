@@ -63,6 +63,52 @@ jobs:
           network_scan: true
         continue-on-error: true
 
+      # Test eBPF support verification (Linux only)
+      - name: Verify eBPF support
+        id: test-ebpf-support
+        if: matrix.os == 'ubuntu'
+        shell: bash
+        run: |
+          echo "=== Checking eBPF Support ==="
+          
+          # Find the edamame_posture binary
+          if [ -f "./edamame_posture" ]; then
+            BINARY="./edamame_posture"
+          elif [ -f "/usr/local/bin/edamame_posture" ]; then
+            BINARY="/usr/local/bin/edamame_posture"
+          else
+            echo "❌ edamame_posture binary not found"
+            exit 1
+          fi
+          
+          # Get device info and extract eBPF support status
+          echo "Running: $BINARY get-device-info"
+          DEVICE_INFO=$($BINARY get-device-info 2>&1) || true
+          echo "$DEVICE_INFO"
+          
+          # Extract eBPF support line
+          EBPF_STATUS=$(echo "$DEVICE_INFO" | grep -i "ebpf" | head -1 || echo "")
+          echo ""
+          echo "eBPF Status: $EBPF_STATUS"
+          
+          # Check if eBPF is operational
+          if echo "$EBPF_STATUS" | grep -qi "enabled\|operational\|kprobe attached"; then
+            echo "✅ eBPF is fully operational"
+            exit 0
+          elif echo "$EBPF_STATUS" | grep -qi "disabled\|not available\|not embedded"; then
+            echo "❌ eBPF is NOT operational: $EBPF_STATUS"
+            exit 1
+          else
+            echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
+            # If we can't determine, check if it's at least embedded
+            if echo "$DEVICE_INFO" | grep -qi "ebpf"; then
+              echo "eBPF mentioned in device info, considering as partial success"
+              exit 0
+            fi
+            exit 1
+          fi
+        continue-on-error: true
+
       # Test check-policy (local)
       - name: Test check-policy (local)
         id: test-check-policy-local
@@ -216,6 +262,7 @@ jobs:
       - name: Slack alerts
         if: |
           steps.test-start.outcome != 'success' || 
+          (matrix.os == 'ubuntu' && steps.test-ebpf-support.outcome == 'failure') ||
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' || 
           steps.test-check-policy-local-error.outcome == 'success' || 
@@ -233,6 +280,7 @@ jobs:
           slack-message: |
             *Test Results for ${{ github.repository }} (${{ runner.os }}-${{ matrix.arch }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - eBPF Support: ${{ (matrix.os != 'ubuntu' && '⏭️ Skipped') || (steps.test-ebpf-support.outcome == 'success' && '✅ Success' || '❌ Failed') }}
             - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
@@ -251,6 +299,7 @@ jobs:
       - name: Fail job if tests failed
         if: |
           steps.test-start.outcome != 'success' || 
+          (matrix.os == 'ubuntu' && steps.test-ebpf-support.outcome == 'failure') ||
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' || 
           steps.test-check-policy-local-error.outcome == 'success' || 
@@ -265,6 +314,7 @@ jobs:
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- eBPF Support: ${{ (matrix.os != 'ubuntu' && '⏭️ Skipped') || (steps.test-ebpf-support.outcome == 'success' && '✅ Success' || '❌ Failed') }}"
           echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
@@ -345,6 +395,65 @@ jobs:
           checkout: false
           # Set to true to test the whitelist creation
           network_scan: true
+        continue-on-error: true
+
+      # Test eBPF support verification (skip Ubuntu 18.04 which doesn't support eBPF well)
+      - name: Verify eBPF support
+        id: test-ebpf-support
+        shell: bash
+        run: |
+          echo "=== Checking eBPF Support ==="
+          echo "Container: ${{ matrix.container_name }}"
+          
+          # Find the edamame_posture binary
+          if [ -f "./edamame_posture" ]; then
+            BINARY="./edamame_posture"
+          elif [ -f "/usr/local/bin/edamame_posture" ]; then
+            BINARY="/usr/local/bin/edamame_posture"
+          else
+            echo "❌ edamame_posture binary not found"
+            exit 1
+          fi
+          
+          # Get device info and extract eBPF support status
+          echo "Running: $BINARY get-device-info"
+          DEVICE_INFO=$($BINARY get-device-info 2>&1) || true
+          echo "$DEVICE_INFO"
+          
+          # Extract eBPF support line
+          EBPF_STATUS=$(echo "$DEVICE_INFO" | grep -i "ebpf" | head -1 || echo "")
+          echo ""
+          echo "eBPF Status: $EBPF_STATUS"
+          
+          # Check if this is Ubuntu 18.04 (eBPF not supported)
+          if [[ "${{ matrix.container_name }}" == *"18.04"* ]]; then
+            echo "⚠️  Ubuntu 18.04 detected - eBPF support not expected"
+            echo "   Skipping eBPF verification for this platform"
+            exit 0
+          fi
+          
+          # Check if eBPF is operational (required for all other platforms)
+          if echo "$EBPF_STATUS" | grep -qi "enabled\|operational\|kprobe attached"; then
+            echo "✅ eBPF is fully operational"
+            exit 0
+          elif echo "$EBPF_STATUS" | grep -qi "disabled.*kernel\|restricted\|unprivileged"; then
+            # eBPF was embedded but kernel restrictions prevent loading
+            # This is acceptable in containers where we can't control kernel settings
+            echo "⚠️  eBPF embedded but kernel restrictions prevent loading (expected in containers)"
+            exit 0
+          elif echo "$EBPF_STATUS" | grep -qi "disabled\|not available\|not embedded"; then
+            echo "❌ eBPF is NOT operational: $EBPF_STATUS"
+            echo "   eBPF should be compiled into the binary on supported platforms"
+            exit 1
+          else
+            echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
+            # If we can't determine, check if it's at least mentioned
+            if echo "$DEVICE_INFO" | grep -qi "ebpf"; then
+              echo "eBPF mentioned in device info, considering as partial success"
+              exit 0
+            fi
+            exit 1
+          fi
         continue-on-error: true
 
       # Test check-policy (local)
@@ -500,10 +609,12 @@ jobs:
       - name: Slack alerts
         # Won't work on 18.04 because of glibc version
         # Won't work on ARM64 Alpine because of JavaScript support
+        # eBPF test failure is ignored on Ubuntu 18.04 (doesn't support eBPF well)
         if: |
           !contains(matrix.container_name, '18.04') &&
           !contains(matrix.container_name, 'aarch64-musl') &&
           (steps.test-start.outcome != 'success' || 
+          (steps.test-ebpf-support.outcome == 'failure' && !contains(matrix.container_name, '18.04')) ||
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' ||
           steps.test-check-policy-local-error.outcome == 'success' ||
@@ -521,6 +632,7 @@ jobs:
           slack-message: |
             *Container Test Results for ${{ github.repository }} (${{ matrix.container_name }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - eBPF Support: ${{ contains(matrix.container_name, '18.04') && '⚠️ Ignored (18.04)' || (steps.test-ebpf-support.outcome == 'success' && '✅ Success' || '❌ Failed') }}
             - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
@@ -538,8 +650,10 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
       - name: Fail job if tests failed
+        # eBPF test failure is ignored on Ubuntu 18.04 (doesn't support eBPF well)
         if: |
           steps.test-start.outcome != 'success' || 
+          (steps.test-ebpf-support.outcome == 'failure' && !contains(matrix.container_name, '18.04')) ||
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' ||
           steps.test-check-policy-local-error.outcome == 'success' ||
@@ -554,6 +668,7 @@ jobs:
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- eBPF Support: ${{ contains(matrix.container_name, '18.04') && '⚠️ Ignored (18.04)' || (steps.test-ebpf-support.outcome == 'success' && '✅ Success' || '❌ Failed') }}"
           echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
