@@ -64,6 +64,11 @@ jobs:
         continue-on-error: true
 
       # Test eBPF support verification (Linux only)
+      # Verifies that eBPF is fully operational by checking get-device-info output
+      # Expected strings from flodbadd/src/l7_ebpf.rs:
+      #   Success: "Enabled: kernel X.Y with tcp_set_state kprobe attached"
+      #   Build failure: "Disabled: eBPF object not embedded (clang/llvm not available at build time)"
+      #   Runtime failure: "Disabled: ..." (various reasons like kernel restrictions)
       - name: Verify eBPF support
         id: test-ebpf-support
         if: matrix.os == 'ubuntu'
@@ -86,27 +91,46 @@ jobs:
           DEVICE_INFO=$($BINARY get-device-info 2>&1) || true
           echo "$DEVICE_INFO"
           
-          # Extract eBPF support line
+          # Extract eBPF support line (look for the ebpf_support field)
           EBPF_STATUS=$(echo "$DEVICE_INFO" | grep -i "ebpf" | head -1 || echo "")
           echo ""
           echo "eBPF Status: $EBPF_STATUS"
           
-          # Check if eBPF is operational
-          if echo "$EBPF_STATUS" | grep -qi "enabled\|operational\|kprobe attached"; then
-            echo "✅ eBPF is fully operational"
+          # Check for full success: "Enabled: ... kprobe attached"
+          if echo "$EBPF_STATUS" | grep -q "Enabled:.*kprobe attached"; then
+            echo "✅ eBPF is fully operational (kprobes attached)"
             exit 0
-          elif echo "$EBPF_STATUS" | grep -qi "disabled\|not available\|not embedded"; then
-            echo "❌ eBPF is NOT operational: $EBPF_STATUS"
-            exit 1
-          else
-            echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
-            # If we can't determine, check if it's at least embedded
-            if echo "$DEVICE_INFO" | grep -qi "ebpf"; then
-              echo "eBPF mentioned in device info, considering as partial success"
-              exit 0
-            fi
+          fi
+          
+          # Check for build failure: eBPF object not embedded
+          if echo "$EBPF_STATUS" | grep -q "not embedded"; then
+            echo "❌ eBPF was NOT compiled into the binary"
+            echo "   This is a BUILD failure - clang/llvm was not available"
             exit 1
           fi
+          
+          # Check for runtime kernel restrictions (acceptable on native Linux)
+          # These mean eBPF was embedded but can't load due to kernel settings
+          if echo "$EBPF_STATUS" | grep -qE "unprivileged_bpf_disabled|container may lack|doesn't support kprobes|SYS_ADMIN|CAP_BPF"; then
+            echo "⚠️  eBPF embedded but kernel restrictions prevent loading"
+            echo "   This may happen on native Linux with strict kernel settings"
+            exit 1
+          fi
+          
+          # Any other "Disabled:" is a failure we should investigate
+          if echo "$EBPF_STATUS" | grep -q "Disabled:"; then
+            echo "❌ eBPF is disabled: $EBPF_STATUS"
+            exit 1
+          fi
+          
+          # Not supported on non-Linux
+          if echo "$EBPF_STATUS" | grep -q "Not supported"; then
+            echo "⏭️  eBPF not supported on this platform"
+            exit 0
+          fi
+          
+          echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
+          exit 1
         continue-on-error: true
 
       # Test check-policy (local)
@@ -398,12 +422,24 @@ jobs:
         continue-on-error: true
 
       # Test eBPF support verification (skip Ubuntu 18.04 which doesn't support eBPF well)
+      # Verifies that eBPF is fully operational by checking get-device-info output
+      # Expected strings from flodbadd/src/l7_ebpf.rs:
+      #   Success: "Enabled: kernel X.Y with tcp_set_state kprobe attached"
+      #   Build failure: "Disabled: eBPF object not embedded (clang/llvm not available at build time)"
+      #   Runtime failure: "Disabled: ..." (various reasons like kernel restrictions)
       - name: Verify eBPF support
         id: test-ebpf-support
         shell: bash
         run: |
           echo "=== Checking eBPF Support ==="
           echo "Container: ${{ matrix.container_name }}"
+          
+          # Check if this is Ubuntu 18.04 (eBPF not supported)
+          if [[ "${{ matrix.container_name }}" == *"18.04"* ]]; then
+            echo "⚠️  Ubuntu 18.04 detected - eBPF support not expected"
+            echo "   Skipping eBPF verification for this platform"
+            exit 0
+          fi
           
           # Find the edamame_posture binary
           if [ -f "./edamame_posture" ]; then
@@ -420,39 +456,46 @@ jobs:
           DEVICE_INFO=$($BINARY get-device-info 2>&1) || true
           echo "$DEVICE_INFO"
           
-          # Extract eBPF support line
+          # Extract eBPF support line (look for the ebpf_support field)
           EBPF_STATUS=$(echo "$DEVICE_INFO" | grep -i "ebpf" | head -1 || echo "")
           echo ""
           echo "eBPF Status: $EBPF_STATUS"
           
-          # Check if this is Ubuntu 18.04 (eBPF not supported)
-          if [[ "${{ matrix.container_name }}" == *"18.04"* ]]; then
-            echo "⚠️  Ubuntu 18.04 detected - eBPF support not expected"
-            echo "   Skipping eBPF verification for this platform"
+          # Check for full success: "Enabled: ... kprobe attached"
+          if echo "$EBPF_STATUS" | grep -q "Enabled:.*kprobe attached"; then
+            echo "✅ eBPF is fully operational (kprobes attached)"
             exit 0
           fi
           
-          # Check if eBPF is operational (required for all other platforms)
-          if echo "$EBPF_STATUS" | grep -qi "enabled\|operational\|kprobe attached"; then
-            echo "✅ eBPF is fully operational"
-            exit 0
-          elif echo "$EBPF_STATUS" | grep -qi "disabled.*kernel\|restricted\|unprivileged"; then
-            # eBPF was embedded but kernel restrictions prevent loading
-            # This is acceptable in containers where we can't control kernel settings
-            echo "⚠️  eBPF embedded but kernel restrictions prevent loading (expected in containers)"
-            exit 0
-          elif echo "$EBPF_STATUS" | grep -qi "disabled\|not available\|not embedded"; then
-            echo "❌ eBPF is NOT operational: $EBPF_STATUS"
-            echo "   eBPF should be compiled into the binary on supported platforms"
+          # Check for build failure: eBPF object not embedded
+          if echo "$EBPF_STATUS" | grep -q "not embedded"; then
+            echo "❌ eBPF was NOT compiled into the binary"
+            echo "   This is a BUILD failure - clang/llvm was not available"
             exit 1
-          else
-            echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
-            # If we can't determine, check if it's at least mentioned
-            if echo "$DEVICE_INFO" | grep -qi "ebpf"; then
-              echo "eBPF mentioned in device info, considering as partial success"
-              exit 0
-            fi
+          fi
+          
+          # Check for runtime kernel restrictions (acceptable in containers)
+          # These mean eBPF was embedded but can't load due to kernel settings
+          if echo "$EBPF_STATUS" | grep -qE "unprivileged_bpf_disabled|container may lack|doesn't support kprobes|SYS_ADMIN|CAP_BPF"; then
+            echo "⚠️  eBPF embedded but kernel restrictions prevent loading"
+            echo "   This is expected in containers without proper capabilities"
+            exit 0
+          fi
+          
+          # Any other "Disabled:" is a failure we should investigate
+          if echo "$EBPF_STATUS" | grep -q "Disabled:"; then
+            echo "❌ eBPF is disabled: $EBPF_STATUS"
             exit 1
+          fi
+          
+          # Not supported on non-Linux
+          if echo "$EBPF_STATUS" | grep -q "Not supported"; then
+            echo "⏭️  eBPF not supported on this platform"
+            exit 0
+          fi
+          
+          echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
+          exit 1
           fi
         continue-on-error: true
 
