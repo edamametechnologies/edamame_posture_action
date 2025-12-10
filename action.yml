@@ -117,6 +117,10 @@ inputs:
     description: "Create custom whitelists from captured network sessions and save it to the specified path"
     required: false
     default: "false"
+  include_process_in_whitelist:
+    description: "Include process names in whitelist entries for stricter matching. When enabled, connections from different processes to the same endpoint are treated separately."
+    required: false
+    default: "false"
   custom_whitelists_path:
     description: "Path to save or load custom whitelists JSON (used with create_custom_whitelists or to provide a whitelist file to apply)"
     required: false
@@ -3315,9 +3319,17 @@ runs:
         if [[ "${{ inputs.create_custom_whitelists }}" == "true" ]]; then
           cd
           echo "Creating custom whitelists from active network sessions..."
+          
+          # Build the command with optional --include-process flag
+          CREATE_CMD="$EDAMAME_POSTURE_CMD create-custom-whitelists"
+          if [[ "${{ inputs.include_process_in_whitelist }}" == "true" ]]; then
+            CREATE_CMD="$CREATE_CMD --include-process"
+            echo "Including process names in whitelist for stricter matching"
+          fi
+          
           if [[ -n "${{ inputs.custom_whitelists_path }}" ]]; then
             # Save to the specified file
-            $EDAMAME_POSTURE_CMD create-custom-whitelists > "${{ inputs.custom_whitelists_path }}"
+            $CREATE_CMD > "${{ inputs.custom_whitelists_path }}"
             
             # Check if the created whitelist has endpoints
             if command -v jq &> /dev/null; then
@@ -3337,7 +3349,7 @@ runs:
             echo "Custom whitelists saved to: ${{ inputs.custom_whitelists_path }}"
           else
             # Just display the whitelist JSON
-            $EDAMAME_POSTURE_CMD create-custom-whitelists
+            $CREATE_CMD
           fi
         fi
       shell: bash
