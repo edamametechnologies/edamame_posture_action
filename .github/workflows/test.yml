@@ -64,73 +64,51 @@ jobs:
         continue-on-error: true
 
       # Test eBPF support verification (Linux only)
-      # Verifies that eBPF is fully operational by checking get-device-info output
-      # Expected strings from flodbadd/src/l7_ebpf.rs:
-      #   Success: "Enabled: kernel X.Y with tcp_set_state kprobe attached"
-      #   Build failure: "Disabled: eBPF object not embedded (clang/llvm not available at build time)"
-      #   Runtime failure: "Disabled: ..." (various reasons like kernel restrictions)
+      # Uses the action's get_device_info feature to check eBPF status
+      # Expected outputs:
+      #   enabled: eBPF fully operational with kprobes attached
+      #   disabled_build: eBPF not embedded (clang/llvm not available at build time)
+      #   disabled_runtime: eBPF embedded but kernel restrictions prevent loading
+      #   not_supported: Not on Linux platform
       - name: Verify eBPF support
         id: test-ebpf-support
         if: matrix.os == 'ubuntu'
+        uses: ./
+        with:
+          get_device_info: true
+        continue-on-error: true
+
+      - name: Check eBPF status result
+        id: test-ebpf-check
+        if: matrix.os == 'ubuntu'
         shell: bash
         run: |
-          echo "=== Checking eBPF Support ==="
+          echo "eBPF Status: ${{ steps.test-ebpf-support.outputs.ebpf_status }}"
+          echo "eBPF Message: ${{ steps.test-ebpf-support.outputs.ebpf_message }}"
           
-          # Find the edamame_posture binary
-          if [ -f "./edamame_posture" ]; then
-            BINARY="./edamame_posture"
-          elif [ -f "/usr/local/bin/edamame_posture" ]; then
-            BINARY="/usr/local/bin/edamame_posture"
-          else
-            echo "❌ edamame_posture binary not found"
-            exit 1
-          fi
-          
-          # Get device info and extract eBPF support status
-          echo "Running: $BINARY get-device-info"
-          DEVICE_INFO=$($BINARY get-device-info 2>&1) || true
-          echo "$DEVICE_INFO"
-          
-          # Extract eBPF support line (look for the ebpf_support field)
-          EBPF_STATUS=$(echo "$DEVICE_INFO" | grep -i "ebpf" | head -1 || echo "")
-          echo ""
-          echo "eBPF Status: $EBPF_STATUS"
-          
-          # Check for full success: "Enabled: ... kprobe attached"
-          if echo "$EBPF_STATUS" | grep -q "Enabled:.*kprobe attached"; then
-            echo "✅ eBPF is fully operational (kprobes attached)"
-            exit 0
-          fi
-          
-          # Check for build failure: eBPF object not embedded
-          if echo "$EBPF_STATUS" | grep -q "not embedded"; then
-            echo "❌ eBPF was NOT compiled into the binary"
-            echo "   This is a BUILD failure - clang/llvm was not available"
-            exit 1
-          fi
-          
-          # Check for runtime kernel restrictions (acceptable on native Linux)
-          # These mean eBPF was embedded but can't load due to kernel settings
-          if echo "$EBPF_STATUS" | grep -qE "unprivileged_bpf_disabled|container may lack|doesn't support kprobes|SYS_ADMIN|CAP_BPF"; then
-            echo "⚠️  eBPF embedded but kernel restrictions prevent loading"
-            echo "   This may happen on native Linux with strict kernel settings"
-            exit 1
-          fi
-          
-          # Any other "Disabled:" is a failure we should investigate
-          if echo "$EBPF_STATUS" | grep -q "Disabled:"; then
-            echo "❌ eBPF is disabled: $EBPF_STATUS"
-            exit 1
-          fi
-          
-          # Not supported on non-Linux
-          if echo "$EBPF_STATUS" | grep -q "Not supported"; then
-            echo "⏭️  eBPF not supported on this platform"
-            exit 0
-          fi
-          
-          echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
-          exit 1
+          case "${{ steps.test-ebpf-support.outputs.ebpf_status }}" in
+            "enabled")
+              echo "✅ eBPF is fully operational"
+              exit 0
+              ;;
+            "disabled_build")
+              echo "❌ eBPF was NOT compiled into the binary (BUILD failure)"
+              exit 1
+              ;;
+            "disabled_runtime")
+              echo "⚠️  eBPF embedded but runtime restrictions prevent loading"
+              # On native Linux, runtime failures are acceptable (kernel config)
+              exit 0
+              ;;
+            "not_supported")
+              echo "⏭️  eBPF not supported on this platform"
+              exit 0
+              ;;
+            *)
+              echo "⚠️  Unknown eBPF status"
+              exit 1
+              ;;
+          esac
         continue-on-error: true
 
       # Test check-policy (local)
@@ -286,7 +264,7 @@ jobs:
       - name: Slack alerts
         if: |
           steps.test-start.outcome != 'success' || 
-          (matrix.os == 'ubuntu' && steps.test-ebpf-support.outcome == 'failure') ||
+          (matrix.os == 'ubuntu' && steps.test-ebpf-check.outcome == 'failure') ||
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' || 
           steps.test-check-policy-local-error.outcome == 'success' || 
@@ -304,7 +282,7 @@ jobs:
           slack-message: |
             *Test Results for ${{ github.repository }} (${{ runner.os }}-${{ matrix.arch }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - eBPF Support: ${{ (matrix.os != 'ubuntu' && '⏭️ Skipped') || (steps.test-ebpf-support.outcome == 'success' && '✅ Success' || '❌ Failed') }}
+            - eBPF Support: ${{ (matrix.os != 'ubuntu' && '⏭️ Skipped') || (steps.test-ebpf-check.outcome == 'success' && '✅ Success' || '❌ Failed') }}
             - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
@@ -323,7 +301,7 @@ jobs:
       - name: Fail job if tests failed
         if: |
           steps.test-start.outcome != 'success' || 
-          (matrix.os == 'ubuntu' && steps.test-ebpf-support.outcome == 'failure') ||
+          (matrix.os == 'ubuntu' && steps.test-ebpf-check.outcome == 'failure') ||
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' || 
           steps.test-check-policy-local-error.outcome == 'success' || 
@@ -338,7 +316,7 @@ jobs:
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- eBPF Support: ${{ (matrix.os != 'ubuntu' && '⏭️ Skipped') || (steps.test-ebpf-support.outcome == 'success' && '✅ Success' || '❌ Failed') }}"
+          echo "- eBPF Support: ${{ (matrix.os != 'ubuntu' && '⏭️ Skipped') || (steps.test-ebpf-check.outcome == 'success' && '✅ Success' || '❌ Failed') }}"
           echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
@@ -422,81 +400,56 @@ jobs:
         continue-on-error: true
 
       # Test eBPF support verification (skip Ubuntu 18.04 which doesn't support eBPF well)
-      # Verifies that eBPF is fully operational by checking get-device-info output
-      # Expected strings from flodbadd/src/l7_ebpf.rs:
-      #   Success: "Enabled: kernel X.Y with tcp_set_state kprobe attached"
-      #   Build failure: "Disabled: eBPF object not embedded (clang/llvm not available at build time)"
-      #   Runtime failure: "Disabled: ..." (various reasons like kernel restrictions)
+      # Uses the action's get_device_info feature to check eBPF status
+      # Expected outputs:
+      #   enabled: eBPF fully operational with kprobes attached
+      #   disabled_build: eBPF not embedded (clang/llvm not available at build time)
+      #   disabled_runtime: eBPF embedded but kernel restrictions prevent loading
+      #   not_supported: Not on Linux platform
       - name: Verify eBPF support
         id: test-ebpf-support
+        uses: ./
+        with:
+          get_device_info: true
+        continue-on-error: true
+
+      - name: Check eBPF status result
+        id: test-ebpf-check
         shell: bash
         run: |
-          echo "=== Checking eBPF Support ==="
           echo "Container: ${{ matrix.container_name }}"
+          echo "eBPF Status: ${{ steps.test-ebpf-support.outputs.ebpf_status }}"
+          echo "eBPF Message: ${{ steps.test-ebpf-support.outputs.ebpf_message }}"
           
-          # Check if this is Ubuntu 18.04 (eBPF not supported)
+          # Skip eBPF check on Ubuntu 18.04
           if [[ "${{ matrix.container_name }}" == *"18.04"* ]]; then
             echo "⚠️  Ubuntu 18.04 detected - eBPF support not expected"
-            echo "   Skipping eBPF verification for this platform"
             exit 0
           fi
           
-          # Find the edamame_posture binary
-          if [ -f "./edamame_posture" ]; then
-            BINARY="./edamame_posture"
-          elif [ -f "/usr/local/bin/edamame_posture" ]; then
-            BINARY="/usr/local/bin/edamame_posture"
-          else
-            echo "❌ edamame_posture binary not found"
-            exit 1
-          fi
-          
-          # Get device info and extract eBPF support status
-          echo "Running: $BINARY get-device-info"
-          DEVICE_INFO=$($BINARY get-device-info 2>&1) || true
-          echo "$DEVICE_INFO"
-          
-          # Extract eBPF support line (look for the ebpf_support field)
-          EBPF_STATUS=$(echo "$DEVICE_INFO" | grep -i "ebpf" | head -1 || echo "")
-          echo ""
-          echo "eBPF Status: $EBPF_STATUS"
-          
-          # Check for full success: "Enabled: ... kprobe attached"
-          if echo "$EBPF_STATUS" | grep -q "Enabled:.*kprobe attached"; then
-            echo "✅ eBPF is fully operational (kprobes attached)"
-            exit 0
-          fi
-          
-          # Check for build failure: eBPF object not embedded
-          if echo "$EBPF_STATUS" | grep -q "not embedded"; then
-            echo "❌ eBPF was NOT compiled into the binary"
-            echo "   This is a BUILD failure - clang/llvm was not available"
-            exit 1
-          fi
-          
-          # Check for runtime kernel restrictions (acceptable in containers)
-          # These mean eBPF was embedded but can't load due to kernel settings
-          if echo "$EBPF_STATUS" | grep -qE "unprivileged_bpf_disabled|container may lack|doesn't support kprobes|SYS_ADMIN|CAP_BPF"; then
-            echo "⚠️  eBPF embedded but kernel restrictions prevent loading"
-            echo "   This is expected in containers without proper capabilities"
-            exit 0
-          fi
-          
-          # Any other "Disabled:" is a failure we should investigate
-          if echo "$EBPF_STATUS" | grep -q "Disabled:"; then
-            echo "❌ eBPF is disabled: $EBPF_STATUS"
-            exit 1
-          fi
-          
-          # Not supported on non-Linux
-          if echo "$EBPF_STATUS" | grep -q "Not supported"; then
-            echo "⏭️  eBPF not supported on this platform"
-            exit 0
-          fi
-          
-          echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
-          exit 1
-          fi
+          case "${{ steps.test-ebpf-support.outputs.ebpf_status }}" in
+            "enabled")
+              echo "✅ eBPF is fully operational"
+              exit 0
+              ;;
+            "disabled_build")
+              echo "❌ eBPF was NOT compiled into the binary (BUILD failure)"
+              exit 1
+              ;;
+            "disabled_runtime")
+              echo "⚠️  eBPF embedded but runtime restrictions prevent loading"
+              # In containers, runtime failures are acceptable (kernel restrictions)
+              exit 0
+              ;;
+            "not_supported")
+              echo "⏭️  eBPF not supported on this platform"
+              exit 0
+              ;;
+            *)
+              echo "⚠️  Unknown eBPF status"
+              exit 1
+              ;;
+          esac
         continue-on-error: true
 
       # Test check-policy (local)
@@ -657,7 +610,7 @@ jobs:
           !contains(matrix.container_name, '18.04') &&
           !contains(matrix.container_name, 'aarch64-musl') &&
           (steps.test-start.outcome != 'success' || 
-          (steps.test-ebpf-support.outcome == 'failure' && !contains(matrix.container_name, '18.04')) ||
+          (steps.test-ebpf-check.outcome == 'failure' && !contains(matrix.container_name, '18.04')) ||
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' ||
           steps.test-check-policy-local-error.outcome == 'success' ||
@@ -675,7 +628,7 @@ jobs:
           slack-message: |
             *Container Test Results for ${{ github.repository }} (${{ matrix.container_name }})*:
             - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - eBPF Support: ${{ contains(matrix.container_name, '18.04') && '⚠️ Ignored (18.04)' || (steps.test-ebpf-support.outcome == 'success' && '✅ Success' || '❌ Failed') }}
+            - eBPF Support: ${{ contains(matrix.container_name, '18.04') && '⚠️ Ignored (18.04)' || (steps.test-ebpf-check.outcome == 'success' && '✅ Success' || '❌ Failed') }}
             - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
@@ -696,7 +649,7 @@ jobs:
         # eBPF test failure is ignored on Ubuntu 18.04 (doesn't support eBPF well)
         if: |
           steps.test-start.outcome != 'success' || 
-          (steps.test-ebpf-support.outcome == 'failure' && !contains(matrix.container_name, '18.04')) ||
+          (steps.test-ebpf-check.outcome == 'failure' && !contains(matrix.container_name, '18.04')) ||
           steps.test-check-policy-local.outcome != 'success' || 
           steps.test-check-policy-for-domain.outcome != 'success' ||
           steps.test-check-policy-local-error.outcome == 'success' ||
@@ -711,7 +664,7 @@ jobs:
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
-          echo "- eBPF Support: ${{ contains(matrix.container_name, '18.04') && '⚠️ Ignored (18.04)' || (steps.test-ebpf-support.outcome == 'success' && '✅ Success' || '❌ Failed') }}"
+          echo "- eBPF Support: ${{ contains(matrix.container_name, '18.04') && '⚠️ Ignored (18.04)' || (steps.test-ebpf-check.outcome == 'success' && '✅ Success' || '❌ Failed') }}"
           echo "- Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}"
