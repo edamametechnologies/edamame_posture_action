@@ -1,39 +1,51 @@
 name: Test Auto-Whitelist Runner
 
-# This workflow runs the test_auto_whitelist_feature.sh script
-# which sequentially triggers workflow runs and validates the auto-whitelist lifecycle
-#
-# This is a "workflow that launches workflows" - it orchestrates multiple
-# runs of test_auto_whitelist_feature.yml to test the full lifecycle
+# Orchestrates multiple runs of test_auto_whitelist_feature.yml
+# to validate the complete auto-whitelist lifecycle:
+#   1. Clean slate → baseline creation
+#   2. Learning → endpoint discovery
+#   3. Stability → 3 consecutive unchanged runs
+#   4. Enforcement → reject new endpoints
 
 on:
   schedule:
-    # Run daily at 02:00 UTC (after the main test workflow)
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * *'  # Daily at 02:00 UTC
   workflow_dispatch:
   push:
-    branches:
-      - 'dev'
-      - 'main'
+    branches: ['dev', 'main']
 
-# Auto cancel previous runs if they were not completed.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Permissions needed to trigger workflows and download artifacts
 permissions:
   contents: read
   actions: write
 
 jobs:
   test-auto-whitelist-runner:
-    name: Run Auto-Whitelist Test Script
+    name: Auto-Whitelist Lifecycle Test
     runs-on: ubuntu-latest
-    timeout-minutes: 180  # Allow time for multiple sequential workflow runs
+    timeout-minutes: 180
     
     steps:
-      - name: Setup EDAMAME Posture
+      - name: "📋 Test info"
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║     AUTO-WHITELIST LIFECYCLE TEST                          ║"
+          echo "╠════════════════════════════════════════════════════════════╣"
+          echo "║  Repository: ${{ github.repository }}"
+          echo "║  Branch:     ${{ github.ref_name }}"
+          echo "║  Trigger:    ${{ github.event_name }}"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "This test will:"
+          echo "  1. Delete existing artifacts (clean slate)"
+          echo "  2. Trigger multiple workflow iterations"
+          echo "  3. Track endpoint discovery and stability"
+          echo "  4. Verify lifecycle reaches enforcement state"
+
+      - name: "🚀 Setup EDAMAME Posture"
         uses: edamametechnologies/edamame_posture_action@v0
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -43,13 +55,13 @@ jobs:
           auto_remediate: false
           network_scan: false
           checkout: true
-          # Wait for the API to be ready
           wait_for_api: true
 
-      - name: Install dependencies
+      - name: "🔧 Verify gh CLI"
         run: |
-          # Verify gh CLI is available (should be pre-installed in GitHub Actions runners)
-          if ! command -v gh &> /dev/null; then
+          if command -v gh &> /dev/null; then
+            echo "✓ gh CLI available: $(gh --version | head -1)"
+          else
             echo "Installing gh CLI..."
             type -p wget >/dev/null || sudo apt-get install -y wget
             sudo mkdir -p -m 755 /etc/apt/keyrings
@@ -59,41 +71,23 @@ jobs:
             sudo apt-get install -y gh
           fi
 
-      - name: Make test script executable
-        run: |
-          chmod +x ./tests/test_auto_whitelist_feature.sh
+      - name: "🧹 Prepare test script"
+        run: chmod +x ./tests/test_auto_whitelist_feature.sh
 
-      - name: Run Auto-Whitelist Test Script
+      - name: "🔄 Run lifecycle test"
+        id: test
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "=========================================="
-          echo "Starting Auto-Whitelist Test Runner"
-          echo "=========================================="
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Branch: $GITHUB_REF_NAME"
-          echo "=========================================="
-          echo ""
-          
-          # Run the test script
-          # The script will:
-          # 1. Clean up existing artifacts
-          # 2. Sequentially trigger workflow runs
-          # 3. Wait for each run to complete
-          # 4. Download and validate artifacts
-          # 5. Check if stability is reached
-          # 6. Report final test results
-          ./tests/test_auto_whitelist_feature.sh
+        run: ./tests/test_auto_whitelist_feature.sh
 
-      - name: Upload test results
+      - name: "📦 Upload test artifacts"
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: auto-whitelist-test-results
-          path: |
-            /tmp/auto_whitelist_test_*
+          name: auto-whitelist-test-results-${{ github.run_id }}
+          path: /tmp/auto_whitelist_test_*
           retention-days: 7
           if-no-files-found: ignore
 

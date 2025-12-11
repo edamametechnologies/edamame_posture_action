@@ -1,12 +1,15 @@
 name: Test Auto-Whitelist Feature
 
-# This workflow tests the auto_whitelist feature using the real-world pattern:
-# 1. Setup step: Start EDAMAME with auto_whitelist enabled (connected mode)
-# 2. Do work: Generate traffic (daemon captures in background)
-# 3. Teardown step: Dump sessions (augments whitelist and uploads artifact)
+# This workflow tests the auto_whitelist feature lifecycle:
+# 1. Setup: Start EDAMAME with auto_whitelist enabled
+# 2. Traffic: Generate network traffic (daemon captures)
+# 3. Teardown: Dump sessions (augments whitelist, uploads artifact)
 #
-# Uses connected mode to bypass IP allow list for artifact download/upload
-# This mimics how users would use it in production workflows
+# Expected lifecycle:
+# - Iteration 1: Create baseline whitelist
+# - Iterations 2-N: Augment with new endpoints (learning)
+# - Iterations N+1 to N+3: No changes = counting stability
+# - Iteration N+4+: Whitelist STABLE, enforcement begins
 
 on:
   workflow_dispatch:
@@ -19,7 +22,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false  # Allow sequential runs
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -27,199 +30,196 @@ permissions:
 
 jobs:
   test-auto-whitelist:
-    name: Auto-Whitelist Test Iteration ${{ inputs.iteration }}
+    name: "Iteration #${{ inputs.iteration }}"
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ============================================================
-      # STEP 1: Setup EDAMAME Posture
-      # Downloads artifact, applies whitelist to daemon, starts capture
-      # MUST succeed in applying whitelist (except on true first run)
-      # Uses CONNECTED mode to bypass IP allow list for artifact download
-      # ============================================================
-      - name: Setup EDAMAME Posture with Auto-Whitelist
+      - name: "📊 Show iteration info"
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       AUTO-WHITELIST TEST - ITERATION ${{ inputs.iteration }}                   ║"
+          echo "╠════════════════════════════════════════════════════════════╣"
+          echo "║  Branch: ${{ github.ref_name }}"
+          echo "║  Run ID: ${{ github.run_id }}"
+          echo "╚════════════════════════════════════════════════════════════╝"
+
+      # PHASE 1: Setup
+      - name: "🚀 Setup EDAMAME Posture"
         uses: ./
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
           edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
           edamame_id: ${{ github.run_id }}
-          # We are using the API to download the artifact, so we need to wait for it to be ready.
           wait_for_api: true
           network_scan: true
           packet_capture: true
           auto_whitelist: true
           auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
 
-      # ============================================================
-      # STEP 2: Do work (build, test, etc.) - daemon captures traffic
-      # ============================================================
-      - name: Wait for daemon readiness
+      - name: "⏳ Wait for daemon"
         run: |
-          echo "Waiting for EDAMAME Posture daemon to be ready..."
+          echo "Waiting 30s for daemon to stabilize..."
           sleep 30
 
-      - name: Verify whitelist is active (for iterations > 1)
-        if: inputs.iteration != '1'
+      - name: "🔍 Check whitelist status"
         run: |
-          echo "Verifying whitelist is active for iteration ${{ inputs.iteration }}..."
           cd
-          WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "")
-          if [[ -z "$WHITELIST_NAME" ]]; then
-            echo "⚠️ Warning: No whitelist is currently active"
+          echo "┌─────────────────────────────────────┐"
+          echo "│ WHITELIST STATUS                    │"
+          echo "└─────────────────────────────────────┘"
+          
+          # Check active whitelist
+          WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
+          echo "Active whitelist: $WHITELIST_NAME"
+          
+          # Check iteration state
+          if [[ -f "auto_whitelist_iteration.txt" ]]; then
+            ITER=$(cat auto_whitelist_iteration.txt)
+            echo "Recorded iteration: $ITER"
+          fi
+          
+          if [[ -f "auto_whitelist_stable_count.txt" ]]; then
+            STABLE=$(cat auto_whitelist_stable_count.txt)
+            echo "Stability count: $STABLE/3"
+          fi
+          
+          if [[ -f "auto_whitelist.json" ]]; then
+            COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "?")
+            echo "Endpoints in whitelist: $COUNT"
+            
+            # Save for later comparison
+            cp auto_whitelist.json auto_whitelist_before.json
           else
-            echo "✅ Active whitelist: $WHITELIST_NAME"
+            echo "No existing whitelist (first run)"
           fi
+          echo ""
 
-      - name: Generate test traffic (simulate build/test work)
+      # PHASE 2: Generate traffic
+      - name: "🌐 Generate test traffic"
         run: |
-          echo "Generating test traffic for iteration ${{ inputs.iteration }}..."
+          echo "┌─────────────────────────────────────┐"
+          echo "│ GENERATING TRAFFIC                  │"
+          echo "└─────────────────────────────────────┘"
           
-          # Generate consistent traffic patterns
-          curl -s --max-time 10 https://api.github.com/zen > /dev/null || true
-          curl -s --max-time 10 https://github.com/robots.txt > /dev/null || true
-          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null || true
+          # Core endpoints (every iteration)
+          echo "→ api.github.com/zen"
+          curl -s --max-time 10 https://api.github.com/zen > /dev/null && echo "  ✓" || echo "  ✗"
           
-          # Add variation based on iteration to test augmentation
-          if [[ "${{ inputs.iteration }}" == "2" ]]; then
-            echo "Iteration 2: Adding new endpoints..."
-            curl -s --max-time 10 https://www.npmjs.com/ > /dev/null || true
-            curl -s --max-time 10 https://cdn.jsdelivr.net/npm/ > /dev/null || true
+          echo "→ github.com/robots.txt"
+          curl -s --max-time 10 https://github.com/robots.txt > /dev/null && echo "  ✓" || echo "  ✗"
+          
+          echo "→ registry.npmjs.org/-/ping"
+          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null && echo "  ✓" || echo "  ✗"
+          
+          # Iteration 2+: Additional endpoints to test augmentation
+          if [[ "${{ inputs.iteration }}" -ge "2" ]]; then
+            echo ""
+            echo "Additional endpoints for iteration ${{ inputs.iteration }}:"
+            echo "→ www.npmjs.com"
+            curl -s --max-time 10 https://www.npmjs.com/ > /dev/null && echo "  ✓" || echo "  ✗"
           fi
           
-          echo "Waiting for L7 resolution to complete ..."
+          echo ""
+          echo "Waiting 60s for L7 resolution..."
           sleep 60
 
-      # ============================================================
-      # STEP 3: Teardown - Dump sessions (like release_macos_standalone.yml:253-256)
-      # Automatically augments whitelist and uploads artifact
-      # 
-      # EXPECTED BEHAVIOR:
-      # - Iterations 1-N (learning/evolving): Whitelist exceptions are EXPECTED
-      #   * New endpoints are being discovered and added
-      #   * Action automatically allows exceptions (does NOT fail)
-      #   * Endpoint count should increase or stay stable (not decrease)
-      # 
-      # - Iterations N+1 to N+3 (confirming stability): 
-      #   * No new endpoints discovered (0% change)
-      #   * Action still allows exceptions (still NOT failing)
-      #   * Counting consecutive stable runs (1/3, 2/3, 3/3)
-      # 
-      # - Iteration N+4+ (stable/enforcing): Whitelist is STABLE
-      #   * Action automatically ENFORCES whitelist (WILL fail on exceptions)
-      #   * Any new endpoint = supply chain attack detected
-      #   * Workflow fails to protect against unauthorized connections
-      # 
-      # KNOWN ISSUE (Core Implementation):
-      # - Endpoint counts may fluctuate instead of monotonically increasing
-      # - This indicates augment-custom-whitelists is creating fresh whitelists
-      #   instead of merging exceptions with existing whitelist
-      # - This is a CORE bug, not an action bug
-      # - The action correctly downloads, applies, and calls augment-custom-whitelists
-      # - The daemon should be merging but appears to be replacing instead
-      # 
-      # The action automatically detects auto-whitelist mode from first invocation
-      # and uses saved configuration - NO parameters need to be repeated here!
-      # ============================================================
-      - name: Save old whitelist for comparison
-        run: |
-          cd
-          if [[ -f "auto_whitelist.json" ]]; then
-            echo "Saving old whitelist for comparison..."
-            cp auto_whitelist.json auto_whitelist_old.json
-            
-            # Count endpoints in old whitelist
-            if command -v jq &> /dev/null; then
-              OLD_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist_old.json 2>/dev/null || echo "0")
-              echo "Old whitelist has $OLD_COUNT endpoints"
-            fi
-          else
-            echo "No existing whitelist (first iteration)"
-          fi
-
-      - name: Dump EDAMAME Posture sessions
+      # PHASE 3: Dump and analyze
+      - name: "📥 Dump sessions"
         uses: ./
         with:
           dump_sessions_log: true
-          display_logs: true
 
-      - name: Show augmented whitelist changes
+      - name: "📈 Analyze whitelist changes"
         if: always()
         run: |
           cd
-          echo "=========================================="
-          echo "Auto-Whitelist Changes - Iteration ${{ inputs.iteration }}"
-          echo "=========================================="
+          echo ""
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║               WHITELIST ANALYSIS                           ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
           
-          if [[ -f "auto_whitelist.json" ]]; then
-            # Show iteration info
-            if [[ -f "auto_whitelist_iteration.txt" ]]; then
-              ITERATION=$(cat auto_whitelist_iteration.txt)
-              echo "Iteration: $ITERATION"
-            fi
-            
-            if command -v jq &> /dev/null; then
-              NEW_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
-              echo "New whitelist has $NEW_COUNT endpoints"
-              
-              # Compare with old if it exists
-              if [[ -f "auto_whitelist_old.json" ]]; then
-                OLD_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist_old.json 2>/dev/null || echo "0")
-                DELTA=$((NEW_COUNT - OLD_COUNT))
-                echo "Change: $DELTA endpoints (${OLD_COUNT} → ${NEW_COUNT})"
-                
-                # Show what endpoints were added
-                if [[ $DELTA -gt 0 ]]; then
-                  echo ""
-                  echo "New endpoints added in this iteration:"
-                  # Extract new endpoints (those in new but not in old)
-                  jq -r --slurpfile old auto_whitelist_old.json '
-                    .whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]? as $new_ep |
-                    ($old[0].whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]?) as $old_ep |
-                    select($new_ep == $old_ep | not) |
-                    $new_ep | "  - " + @json
-                  ' auto_whitelist.json 2>/dev/null | sort -u | head -20
-                  
-                  if [[ $DELTA -gt 20 ]]; then
-                    echo "  ... and $((DELTA - 20)) more endpoints"
-                  fi
-                elif [[ $DELTA -lt 0 ]]; then
-                  echo ""
-                  echo "⚠️ WARNING: Endpoint count DECREASED by $((0 - DELTA))"
-                  echo "This may indicate augmentation is replacing instead of merging"
-                else
-                  echo ""
-                  echo "✅ No new endpoints (whitelist stable)"
-                fi
-              else
-                echo "First iteration: created baseline with $NEW_COUNT endpoints"
-                
-                # Show first few endpoints
-                if [[ $NEW_COUNT -gt 0 ]]; then
-                  echo ""
-                  echo "Initial endpoints (first 10):"
-                  jq -r '.whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]? | "  - \(.host // .ip):\(.port // "N/A") (\(.protocol // "unknown"))"' auto_whitelist.json 2>/dev/null | head -10
-                  if [[ $NEW_COUNT -gt 10 ]]; then
-                    echo "  ... and $((NEW_COUNT - 10)) more endpoints"
-                  fi
-                fi
-              fi
-            else
-              echo "jq not available, cannot show detailed changes"
-            fi
-          else
-            echo "No whitelist artifact found after dump"
+          if [[ ! -f "auto_whitelist.json" ]]; then
+            echo "❌ No whitelist file found!"
+            exit 0
           fi
           
-          echo "=========================================="
-        shell: bash
+          NEW_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
+          
+          # Read state files
+          ITER_NUM="${{ inputs.iteration }}"
+          STABLE_COUNT="0"
+          [[ -f "auto_whitelist_stable_count.txt" ]] && STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
+          
+          if [[ -f "auto_whitelist_before.json" ]]; then
+            OLD_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist_before.json 2>/dev/null || echo "0")
+            DELTA=$((NEW_COUNT - OLD_COUNT))
+            
+            echo "┌─────────────────────────────────────┐"
+            echo "│ COMPARISON                          │"
+            echo "├─────────────────────────────────────┤"
+            printf "│ Before:     %4d endpoints          │\n" "$OLD_COUNT"
+            printf "│ After:      %4d endpoints          │\n" "$NEW_COUNT"
+            printf "│ Change:     %+4d                    │\n" "$DELTA"
+            echo "└─────────────────────────────────────┘"
+            echo ""
+            
+            if [[ $DELTA -gt 0 ]]; then
+              echo "📝 Status: LEARNING - $DELTA new endpoints discovered"
+            elif [[ $DELTA -lt 0 ]]; then
+              echo "⚠️  Status: ANOMALY - Endpoint count decreased!"
+            else
+              echo "✅ Status: STABLE - No new endpoints"
+            fi
+          else
+            echo "┌─────────────────────────────────────┐"
+            echo "│ FIRST RUN                           │"
+            echo "├─────────────────────────────────────┤"
+            printf "│ Baseline:   %4d endpoints          │\n" "$NEW_COUNT"
+            echo "└─────────────────────────────────────┘"
+            echo ""
+            echo "📝 Status: INITIAL - Baseline created"
+          fi
+          
+          echo ""
+          echo "┌─────────────────────────────────────┐"
+          echo "│ STABILITY PROGRESS                  │"
+          echo "├─────────────────────────────────────┤"
+          printf "│ Consecutive stable runs: %d/3       │\n" "$STABLE_COUNT"
+          echo "└─────────────────────────────────────┘"
+          
+          if [[ "$STABLE_COUNT" -ge "3" ]]; then
+            echo ""
+            echo "🎉 WHITELIST IS STABLE!"
+            echo "   Enforcement mode will now be active."
+          fi
+          
+          # Show sample endpoints (compact format)
+          echo ""
+          echo "Sample endpoints (up to 5):"
+          jq -r '.whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]? | "  • \(.domain // .ip // "?"):\(.port // "?") [\(.process // "any")]"' auto_whitelist.json 2>/dev/null | head -5
+          
+          if [[ $NEW_COUNT -gt 5 ]]; then
+            echo "  ... and $((NEW_COUNT - 5)) more"
+          fi
 
-      - name: Stop EDAMAME Posture
+      - name: "🛑 Stop EDAMAME Posture"
+        if: always()
         uses: ./
         with:
           stop: true
         continue-on-error: true
+
+      - name: "📋 Final summary"
+        if: always()
+        run: |
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "  ITERATION ${{ inputs.iteration }} COMPLETE"
+          echo "════════════════════════════════════════════════════════════"
 
