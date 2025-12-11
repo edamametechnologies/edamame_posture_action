@@ -83,10 +83,12 @@ jobs:
         if: matrix.os == 'ubuntu'
         shell: bash
         run: |
-          echo "eBPF Status: ${{ steps.test-ebpf-support.outputs.ebpf_status }}"
-          echo "eBPF Message: ${{ steps.test-ebpf-support.outputs.ebpf_message }}"
+          EBPF_STATUS='${{ steps.test-ebpf-support.outputs.ebpf_status }}'
+          EBPF_MESSAGE='${{ steps.test-ebpf-support.outputs.ebpf_message }}'
+          echo "eBPF Status: $EBPF_STATUS"
+          echo "eBPF Message: $EBPF_MESSAGE"
           
-          case "${{ steps.test-ebpf-support.outputs.ebpf_status }}" in
+          case "$EBPF_STATUS" in
             "enabled")
               echo "✅ eBPF is fully operational"
               exit 0
@@ -417,17 +419,20 @@ jobs:
         id: test-ebpf-check
         shell: bash
         run: |
-          echo "Container: ${{ matrix.container_name }}"
-          echo "eBPF Status: ${{ steps.test-ebpf-support.outputs.ebpf_status }}"
-          echo "eBPF Message: ${{ steps.test-ebpf-support.outputs.ebpf_message }}"
+          CONTAINER_NAME='${{ matrix.container_name }}'
+          EBPF_STATUS='${{ steps.test-ebpf-support.outputs.ebpf_status }}'
+          EBPF_MESSAGE='${{ steps.test-ebpf-support.outputs.ebpf_message }}'
+          echo "Container: $CONTAINER_NAME"
+          echo "eBPF Status: $EBPF_STATUS"
+          echo "eBPF Message: $EBPF_MESSAGE"
           
           # Skip eBPF check on Ubuntu 18.04
-          if [[ "${{ matrix.container_name }}" == *"18.04"* ]]; then
+          if [[ "$CONTAINER_NAME" == *"18.04"* ]]; then
             echo "⚠️  Ubuntu 18.04 detected - eBPF support not expected"
             exit 0
           fi
           
-          case "${{ steps.test-ebpf-support.outputs.ebpf_status }}" in
+          case "$EBPF_STATUS" in
             "enabled")
               echo "✅ eBPF is fully operational"
               exit 0
