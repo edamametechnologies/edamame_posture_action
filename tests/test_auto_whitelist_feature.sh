@@ -17,54 +17,34 @@ BRANCH="${GITHUB_REF_NAME:-$(git branch --show-current 2>/dev/null || echo "main
 MAX_ITERATIONS=20
 STABILITY_REQUIRED=3
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Helper functions
+# Helper functions (GitHub Actions web UI compatible - no ANSI colors)
 # ─────────────────────────────────────────────────────────────────────────────
 log_header() {
     echo ""
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC} ${BOLD}$1${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo "========================================================================"
+    echo "  $1"
+    echo "========================================================================"
 }
 
 log_step() {
-    echo -e "${BLUE}▶${NC} $1"
+    echo "▶ $1"
 }
 
 log_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    echo "✓ $1"
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    echo "⚠️  $1"
 }
 
 log_error() {
-    echo -e "${RED}✗${NC} $1"
+    echo "❌ $1"
 }
 
 log_info() {
-    echo -e "  $1"
-}
-
-# Progress bar for waiting
-show_progress() {
-    local elapsed=$1
-    local max=$2
-    local width=40
-    local percent=$((elapsed * 100 / max))
-    local filled=$((elapsed * width / max))
-    local empty=$((width - filled))
-    printf "\r  [%-${width}s] %3d%% (%ds)" "$(printf '%*s' $filled | tr ' ' '█')$(printf '%*s' $empty)" "$percent" "$elapsed"
+    echo "  $1"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -88,14 +68,14 @@ fi
 # Header
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}╔════════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║            AUTO-WHITELIST LIFECYCLE TEST                           ║${NC}"
-echo -e "${BOLD}╠════════════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${BOLD}║${NC}  Repository:    $REPO"
-echo -e "${BOLD}║${NC}  Branch:        $BRANCH"
-echo -e "${BOLD}║${NC}  Max Runs:      $MAX_ITERATIONS"
-echo -e "${BOLD}║${NC}  Stability:     $STABILITY_REQUIRED consecutive stable runs"
-echo -e "${BOLD}╚════════════════════════════════════════════════════════════════════╝${NC}"
+echo "========================================================================"
+echo "         AUTO-WHITELIST LIFECYCLE TEST"
+echo "========================================================================"
+echo "  Repository:    $REPO"
+echo "  Branch:        $BRANCH"
+echo "  Max Runs:      $MAX_ITERATIONS"
+echo "  Stability:     $STABILITY_REQUIRED consecutive stable runs"
+echo "========================================================================"
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -131,9 +111,9 @@ STABLE_REACHED=false
 
 for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
-    echo -e "${BOLD}┌─────────────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${BOLD}│ ITERATION $i / $MAX_ITERATIONS                                              │${NC}"
-    echo -e "${BOLD}└─────────────────────────────────────────────────────────────────┘${NC}"
+    echo "------------------------------------------------------------------------"
+    echo "  ITERATION $i / $MAX_ITERATIONS"
+    echo "------------------------------------------------------------------------"
     
     # Get the latest run ID before triggering
     LATEST_RUN_BEFORE=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || echo "")
@@ -160,7 +140,6 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     while [[ -z "$RUN_ID" && $WAIT_COUNT -lt $MAX_WAIT ]]; do
         sleep 2
         WAIT_COUNT=$((WAIT_COUNT + 2))
-        show_progress $WAIT_COUNT $MAX_WAIT
         
         set +e
         CURRENT_RUN=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || echo "")
@@ -170,10 +149,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
             RUN_ID="$CURRENT_RUN"
         fi
     done
-    echo ""  # New line after progress bar
     
     if [[ -z "$RUN_ID" ]]; then
-        log_error "Failed to detect new workflow run"
+        log_error "Failed to detect new workflow run after ${MAX_WAIT}s"
         exit 1
     fi
     
@@ -189,7 +167,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     RUN_STATUSES+=("$CONCLUSION")
     
     if [[ "$CONCLUSION" == "success" ]]; then
-        log_success "Workflow completed"
+        log_success "Workflow completed successfully"
     else
         log_warning "Workflow status: $CONCLUSION"
     fi
@@ -216,11 +194,14 @@ for i in $(seq 1 $MAX_ITERATIONS); do
             fi
         fi
         
-        show_progress $ELAPSED $MAX_WAIT_TIME
+        # Simple waiting indicator every 30s
+        if [[ $((ELAPSED % 30)) -eq 0 && $ELAPSED -gt 0 ]]; then
+            echo "  Still waiting for artifact... (${ELAPSED}s elapsed)"
+        fi
+        
         sleep 10
         ELAPSED=$((ELAPSED + 10))
     done
-    echo ""  # New line after progress bar
     
     # Analyze results
     CURRENT_ENDPOINT_COUNT=0
@@ -253,27 +234,24 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     fi
     LAST_ENDPOINT_COUNT=$CURRENT_ENDPOINT_COUNT
     
-    # Display status
+    # Display status (simple format for GitHub logs)
     echo ""
-    echo "  ┌────────────────────────────────────┐"
-    printf "  │ Endpoints:  %4d" "$CURRENT_ENDPOINT_COUNT"
-    if [[ $DELTA -ne 0 ]]; then
-        printf " (%+d)" "$DELTA"
-    fi
-    echo ""
-    printf "  │ Stability:  %d/%d\n" "$STABLE_COUNT" "$STABILITY_REQUIRED"
-    echo "  └────────────────────────────────────┘"
+    echo "  Results:"
+    echo "    Endpoints:  $CURRENT_ENDPOINT_COUNT (delta: $DELTA)"
+    echo "    Stability:  $STABLE_COUNT / $STABILITY_REQUIRED"
     
     # Check if stable
     if [[ "$STABLE_COUNT" -ge "$STABILITY_REQUIRED" ]]; then
         echo ""
-        echo -e "${GREEN}${BOLD}🎉 STABILITY REACHED!${NC}"
+        echo "🎉 STABILITY REACHED!"
         STABLE_REACHED=true
         break
     fi
     
     # Delay between runs
     if [[ $i -lt $MAX_ITERATIONS ]]; then
+        echo ""
+        echo "  Waiting 10s before next iteration..."
         sleep 10
     fi
 done
@@ -295,10 +273,8 @@ for status in "${RUN_STATUSES[@]}"; do
 done
 
 echo ""
-echo "  Iterations Summary"
-echo "  ─────────────────────────────────────────────────────────────"
-printf "  %-10s %-12s %-10s %-10s\n" "Iteration" "Status" "Endpoints" "Run ID"
-echo "  ─────────────────────────────────────────────────────────────"
+echo "  Iteration  | Status  | Endpoints | Run ID"
+echo "  -----------+---------+-----------+------------------"
 
 for i in "${!RUN_IDS[@]}"; do
     ITER=$((i + 1))
@@ -307,75 +283,53 @@ for i in "${!RUN_IDS[@]}"; do
     ENDPOINTS="${ENDPOINT_HISTORY[$i]:-0}"
     
     if [[ "$STATUS" == "success" ]]; then
-        STATUS_ICON="${GREEN}✓${NC}"
+        ICON="✓"
     else
-        STATUS_ICON="${RED}✗${NC}"
+        ICON="✗"
     fi
     
-    printf "  %-10s %b %-10s %-10s %s\n" "#$ITER" "$STATUS_ICON" "$STATUS" "$ENDPOINTS" "$RUN_ID"
+    printf "  #%-9d | %s %-5s | %-9s | %s\n" "$ITER" "$ICON" "$STATUS" "$ENDPOINTS" "$RUN_ID"
 done
-echo "  ─────────────────────────────────────────────────────────────"
+echo "  -----------+---------+-----------+------------------"
 echo ""
-
-# Endpoint growth visualization
-if [[ ${#ENDPOINT_HISTORY[@]} -gt 1 ]]; then
-    echo "  Endpoint Growth"
-    echo "  ─────────────────────────────────────────────────────────────"
-    MAX_EP=0
-    for ep in "${ENDPOINT_HISTORY[@]}"; do
-        [[ $ep -gt $MAX_EP ]] && MAX_EP=$ep
-    done
-    
-    if [[ $MAX_EP -gt 0 ]]; then
-        for i in "${!ENDPOINT_HISTORY[@]}"; do
-            ITER=$((i + 1))
-            EP="${ENDPOINT_HISTORY[$i]}"
-            BAR_LEN=$((EP * 40 / MAX_EP))
-            [[ $BAR_LEN -lt 1 && $EP -gt 0 ]] && BAR_LEN=1
-            BAR=$(printf '%*s' $BAR_LEN | tr ' ' '█')
-            printf "  #%-2d %s %d\n" "$ITER" "$BAR" "$EP"
-        done
-    fi
-    echo ""
-fi
 
 # Final verdict
 echo ""
-echo -e "${BOLD}╔════════════════════════════════════════════════════════════════════╗${NC}"
+echo "========================================================================"
 
 if [[ "$STABLE_REACHED" == "true" ]]; then
-    echo -e "${BOLD}║${NC}  ${GREEN}${BOLD}✅ TEST PASSED${NC}"
-    echo -e "${BOLD}║${NC}"
-    echo -e "${BOLD}║${NC}  Auto-whitelist completed full lifecycle:"
-    echo -e "${BOLD}║${NC}    • Baseline created"
-    echo -e "${BOLD}║${NC}    • Learning phase completed"
-    echo -e "${BOLD}║${NC}    • Stability reached ($STABILITY_REQUIRED consecutive stable runs)"
-    echo -e "${BOLD}║${NC}    • Ready for enforcement"
-    echo -e "${BOLD}╚════════════════════════════════════════════════════════════════════╝${NC}"
+    echo "  ✅ TEST PASSED"
+    echo ""
+    echo "  Auto-whitelist completed full lifecycle:"
+    echo "    • Baseline created"
+    echo "    • Learning phase completed"  
+    echo "    • Stability reached ($STABILITY_REQUIRED consecutive stable runs)"
+    echo "    • Ready for enforcement"
+    echo "========================================================================"
     exit 0
 elif [[ $FAILURE_COUNT -eq 0 ]]; then
-    echo -e "${BOLD}║${NC}  ${YELLOW}${BOLD}⚠️ TEST PARTIAL${NC}"
-    echo -e "${BOLD}║${NC}"
-    echo -e "${BOLD}║${NC}  All $SUCCESS_COUNT iterations succeeded but stability not reached"
-    echo -e "${BOLD}║${NC}  after $MAX_ITERATIONS iterations."
-    echo -e "${BOLD}║${NC}"
-    echo -e "${BOLD}║${NC}  This may indicate:"
-    echo -e "${BOLD}║${NC}    • Network traffic is still evolving"
-    echo -e "${BOLD}║${NC}    • More iterations needed"
-    echo -e "${BOLD}╚════════════════════════════════════════════════════════════════════╝${NC}"
+    echo "  ⚠️  TEST PARTIAL"
+    echo ""
+    echo "  All $SUCCESS_COUNT iterations succeeded but stability not reached"
+    echo "  after $MAX_ITERATIONS iterations."
+    echo ""
+    echo "  This may indicate:"
+    echo "    • Network traffic is still evolving"
+    echo "    • More iterations needed"
+    echo "========================================================================"
     exit 0
 else
-    echo -e "${BOLD}║${NC}  ${RED}${BOLD}❌ TEST FAILED${NC}"
-    echo -e "${BOLD}║${NC}"
-    echo -e "${BOLD}║${NC}  $FAILURE_COUNT of ${#RUN_IDS[@]} iterations failed."
-    echo -e "${BOLD}║${NC}"
-    echo -e "${BOLD}║${NC}  Failed runs:"
+    echo "  ❌ TEST FAILED"
+    echo ""
+    echo "  $FAILURE_COUNT of ${#RUN_IDS[@]} iterations failed."
+    echo ""
+    echo "  Failed runs:"
     for i in "${!RUN_IDS[@]}"; do
         if [[ "${RUN_STATUSES[$i]}" != "success" ]]; then
-            echo -e "${BOLD}║${NC}    • #$((i + 1)): https://github.com/$REPO/actions/runs/${RUN_IDS[$i]}"
+            echo "    • #$((i + 1)): https://github.com/$REPO/actions/runs/${RUN_IDS[$i]}"
         fi
     done
-    echo -e "${BOLD}╚════════════════════════════════════════════════════════════════════╝${NC}"
+    echo "========================================================================"
     exit 1
 fi
 

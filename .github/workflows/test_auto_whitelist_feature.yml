@@ -40,12 +40,12 @@ jobs:
 
       - name: "📊 Show iteration info"
         run: |
-          echo "╔════════════════════════════════════════════════════════════╗"
-          echo "║       AUTO-WHITELIST TEST - ITERATION ${{ inputs.iteration }}                   ║"
-          echo "╠════════════════════════════════════════════════════════════╣"
-          echo "║  Branch: ${{ github.ref_name }}"
-          echo "║  Run ID: ${{ github.run_id }}"
-          echo "╚════════════════════════════════════════════════════════════╝"
+          echo "========================================"
+          echo "  AUTO-WHITELIST TEST - ITERATION ${{ inputs.iteration }}"
+          echo "========================================"
+          echo "  Branch: ${{ github.ref_name }}"
+          echo "  Run ID: ${{ github.run_id }}"
+          echo "========================================"
 
       # PHASE 1: Setup
       - name: "🚀 Setup EDAMAME Posture"
@@ -69,9 +69,7 @@ jobs:
       - name: "🔍 Check whitelist status"
         run: |
           cd
-          echo "┌─────────────────────────────────────┐"
-          echo "│ WHITELIST STATUS                    │"
-          echo "└─────────────────────────────────────┘"
+          echo "--- WHITELIST STATUS ---"
           
           # Check active whitelist
           WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
@@ -97,31 +95,28 @@ jobs:
           else
             echo "No existing whitelist (first run)"
           fi
-          echo ""
 
       # PHASE 2: Generate traffic
       - name: "🌐 Generate test traffic"
         run: |
-          echo "┌─────────────────────────────────────┐"
-          echo "│ GENERATING TRAFFIC                  │"
-          echo "└─────────────────────────────────────┘"
+          echo "--- GENERATING TRAFFIC ---"
           
           # Core endpoints (every iteration)
-          echo "→ api.github.com/zen"
-          curl -s --max-time 10 https://api.github.com/zen > /dev/null && echo "  ✓" || echo "  ✗"
+          echo -n "api.github.com/zen: "
+          curl -s --max-time 10 https://api.github.com/zen > /dev/null && echo "✓" || echo "✗"
           
-          echo "→ github.com/robots.txt"
-          curl -s --max-time 10 https://github.com/robots.txt > /dev/null && echo "  ✓" || echo "  ✗"
+          echo -n "github.com/robots.txt: "
+          curl -s --max-time 10 https://github.com/robots.txt > /dev/null && echo "✓" || echo "✗"
           
-          echo "→ registry.npmjs.org/-/ping"
-          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null && echo "  ✓" || echo "  ✗"
+          echo -n "registry.npmjs.org/-/ping: "
+          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null && echo "✓" || echo "✗"
           
           # Iteration 2+: Additional endpoints to test augmentation
           if [[ "${{ inputs.iteration }}" -ge "2" ]]; then
             echo ""
             echo "Additional endpoints for iteration ${{ inputs.iteration }}:"
-            echo "→ www.npmjs.com"
-            curl -s --max-time 10 https://www.npmjs.com/ > /dev/null && echo "  ✓" || echo "  ✗"
+            echo -n "www.npmjs.com: "
+            curl -s --max-time 10 https://www.npmjs.com/ > /dev/null && echo "✓" || echo "✗"
           fi
           
           echo ""
@@ -139,10 +134,9 @@ jobs:
         run: |
           cd
           echo ""
-          echo "╔════════════════════════════════════════════════════════════╗"
-          echo "║               WHITELIST ANALYSIS                           ║"
-          echo "╚════════════════════════════════════════════════════════════╝"
-          echo ""
+          echo "========================================"
+          echo "  WHITELIST ANALYSIS"
+          echo "========================================"
           
           if [[ ! -f "auto_whitelist.json" ]]; then
             echo "❌ No whitelist file found!"
@@ -152,7 +146,6 @@ jobs:
           NEW_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
           
           # Read state files
-          ITER_NUM="${{ inputs.iteration }}"
           STABLE_COUNT="0"
           [[ -f "auto_whitelist_stable_count.txt" ]] && STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
           
@@ -160,13 +153,9 @@ jobs:
             OLD_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist_before.json 2>/dev/null || echo "0")
             DELTA=$((NEW_COUNT - OLD_COUNT))
             
-            echo "┌─────────────────────────────────────┐"
-            echo "│ COMPARISON                          │"
-            echo "├─────────────────────────────────────┤"
-            printf "│ Before:     %4d endpoints          │\n" "$OLD_COUNT"
-            printf "│ After:      %4d endpoints          │\n" "$NEW_COUNT"
-            printf "│ Change:     %+4d                    │\n" "$DELTA"
-            echo "└─────────────────────────────────────┘"
+            echo "Before:  $OLD_COUNT endpoints"
+            echo "After:   $NEW_COUNT endpoints"
+            echo "Change:  $DELTA"
             echo ""
             
             if [[ $DELTA -gt 0 ]]; then
@@ -177,29 +166,20 @@ jobs:
               echo "✅ Status: STABLE - No new endpoints"
             fi
           else
-            echo "┌─────────────────────────────────────┐"
-            echo "│ FIRST RUN                           │"
-            echo "├─────────────────────────────────────┤"
-            printf "│ Baseline:   %4d endpoints          │\n" "$NEW_COUNT"
-            echo "└─────────────────────────────────────┘"
+            echo "First run - Baseline: $NEW_COUNT endpoints"
             echo ""
             echo "📝 Status: INITIAL - Baseline created"
           fi
           
           echo ""
-          echo "┌─────────────────────────────────────┐"
-          echo "│ STABILITY PROGRESS                  │"
-          echo "├─────────────────────────────────────┤"
-          printf "│ Consecutive stable runs: %d/3       │\n" "$STABLE_COUNT"
-          echo "└─────────────────────────────────────┘"
+          echo "Stability progress: $STABLE_COUNT / 3"
           
           if [[ "$STABLE_COUNT" -ge "3" ]]; then
             echo ""
-            echo "🎉 WHITELIST IS STABLE!"
-            echo "   Enforcement mode will now be active."
+            echo "🎉 WHITELIST IS STABLE - Enforcement mode active"
           fi
           
-          # Show sample endpoints (compact format)
+          # Show sample endpoints
           echo ""
           echo "Sample endpoints (up to 5):"
           jq -r '.whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]? | "  • \(.domain // .ip // "?"):\(.port // "?") [\(.process // "any")]"' auto_whitelist.json 2>/dev/null | head -5
