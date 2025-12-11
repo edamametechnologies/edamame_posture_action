@@ -602,6 +602,111 @@ runs:
           fi
         fi
         echo "Using installer reference: $INSTALL_SCRIPT_REF"
+        
+        # Download with retry logic for transient errors (502, 503, 504, 429, connection errors)
+        download_file_with_retry() {
+          local url="$1"
+          local destination="$2"
+          local max_retries=5
+          local retry_delay=2
+          local attempt=1
+          
+          while [ $attempt -le $max_retries ]; do
+            echo "  Download attempt $attempt/$max_retries..."
+            local http_code=""
+            local exit_code=0
+            
+            if command -v curl >/dev/null 2>&1; then
+              # Don't use -f so we can capture the actual HTTP code
+              # -s: silent, -S: show errors, -L: follow redirects
+              # -w: write HTTP code to stdout after content
+              # -o: write content to file
+              http_code=$(curl --proto '=https' --tlsv1.2 -sSL -w "%{http_code}" "$url" -o "$destination" 2>&1) || exit_code=$?
+            elif command -v wget >/dev/null 2>&1; then
+              # wget doesn't have easy HTTP code extraction, use --server-response
+              if wget -q --server-response "$url" -O "$destination" 2>&1 | grep -q "200 OK"; then
+                http_code="200"
+              else
+                exit_code=1
+                # Try to extract status code from wget output
+                http_code=$(wget -q --server-response "$url" -O /dev/null 2>&1 | awk '/HTTP\//{print $2}' | tail -1)
+              fi
+            else
+              echo "  [ERROR] Neither curl nor wget available"
+              return 1
+            fi
+            
+            # Check for success (HTTP 2xx)
+            case "$http_code" in
+              2*)
+                if [ -s "$destination" ]; then
+                  echo "  [OK] Download succeeded (HTTP $http_code)"
+                  return 0
+                else
+                  echo "  [WARN] HTTP $http_code but file is empty"
+                fi
+                ;;
+            esac
+            
+            # Check if it's a retryable error
+            local should_retry=false
+            case "$http_code" in
+              429)
+                echo "  [WARN] HTTP 429 (Rate limited) - retryable"
+                should_retry=true
+                ;;
+              500)
+                echo "  [WARN] HTTP 500 (Internal server error) - retryable"
+                should_retry=true
+                ;;
+              502)
+                echo "  [WARN] HTTP 502 (Bad gateway) - retryable"
+                should_retry=true
+                ;;
+              503)
+                echo "  [WARN] HTTP 503 (Service unavailable) - retryable"
+                should_retry=true
+                ;;
+              504)
+                echo "  [WARN] HTTP 504 (Gateway timeout) - retryable"
+                should_retry=true
+                ;;
+              000|"")
+                echo "  [WARN] Connection failed (no HTTP response) - retryable"
+                should_retry=true
+                ;;
+              4*)
+                echo "  [ERROR] HTTP $http_code (Client error) - not retryable"
+                ;;
+              *)
+                if [ $exit_code -ne 0 ]; then
+                  echo "  [WARN] Download failed (exit code: $exit_code, HTTP: $http_code) - retryable"
+                  should_retry=true
+                else
+                  echo "  [ERROR] HTTP $http_code - not retryable"
+                fi
+                ;;
+            esac
+            
+            if [ "$should_retry" = "true" ] && [ $attempt -lt $max_retries ]; then
+              echo "  Waiting ${retry_delay}s before retry..."
+              sleep $retry_delay
+              retry_delay=$((retry_delay * 2))  # Exponential backoff: 2s, 4s, 8s, 16s, 32s
+              attempt=$((attempt + 1))
+              rm -f "$destination"  # Clean up partial download
+            else
+              if [ "$should_retry" = "true" ]; then
+                echo "  [ERROR] Max retries ($max_retries) exceeded"
+              fi
+              rm -f "$destination"
+              return 1
+            fi
+          done
+          
+          return 1
+        }
+        
+        # Simple download without retry (for fallbacks)
         download_file() {
           local url="$1"
           local destination="$2"
@@ -613,19 +718,23 @@ runs:
             return 1
           fi
         }
+        
         RELEASE_INSTALL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
-        RAW_INSTALL_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/${INSTALL_SCRIPT_REF}/install.sh"
+        # Raw URL uses main branch (install.sh is not tagged with releases)
+        RAW_INSTALL_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/main/install.sh"
         TMP_INSTALL_SCRIPT=$(mktemp)
         DOWNLOAD_SOURCE=""
+        
         echo "Attempting to download installer from release asset: $RELEASE_INSTALL_URL"
-        if download_file "$RELEASE_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
+        if download_file_with_retry "$RELEASE_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
           DOWNLOAD_SOURCE="release"
         else
-          echo "[WARNING] Failed to download installer from release asset. Falling back to raw source."
-          if download_file "$RAW_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
+          echo "[WARNING] Failed to download installer from release asset after retries. Falling back to raw source."
+          echo "Attempting to download from: $RAW_INSTALL_URL"
+          if download_file_with_retry "$RAW_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
             DOWNLOAD_SOURCE="raw"
           else
-            echo "[ERROR] Unable to download installer from either release asset or raw source."
+            echo "[ERROR] Unable to download installer from either release asset or raw source after retries."
             rm -f "$TMP_INSTALL_SCRIPT"
             exit 1
           fi
