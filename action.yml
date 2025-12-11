@@ -752,11 +752,19 @@ runs:
         echo "$DEVICE_INFO"
         echo ""
         
-        # Extract eBPF support line (look for ebpf_support field in JSON or raw text)
-        EBPF_STATUS=$(echo "$DEVICE_INFO" | grep -i "ebpf" | head -1 || echo "")
+        # Extract eBPF support line - look for "eBPF support:" or "ebpf_support:" pattern
+        # and grab only the value part (after the colon), trimming whitespace
+        EBPF_LINE=$(echo "$DEVICE_INFO" | grep -iE "(eBPF support|ebpf_support)" | head -1 || echo "")
+        # Extract just the status part after the colon (e.g., "Enabled: kernel 6.x..." or "Disabled: ...")
+        EBPF_STATUS=$(echo "$EBPF_LINE" | sed 's/.*[Ss]upport[:"]*[[:space:]]*//' | tr -d '\n' || echo "")
         echo "=== eBPF Status ==="
         echo "$EBPF_STATUS"
         echo ""
+        
+        # Sanitize message for GitHub Actions output (remove newlines, escape special chars)
+        sanitize_for_output() {
+          echo "$1" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | head -c 500
+        }
         
         # Determine eBPF status category
         if [[ "$RUNNER_OS" != "Linux" ]]; then
@@ -765,19 +773,19 @@ runs:
           echo "⏭️  eBPF not supported on $RUNNER_OS"
         elif echo "$EBPF_STATUS" | grep -q "Enabled:.*kprobe attached"; then
           echo "ebpf_status=enabled" >> "$GITHUB_OUTPUT"
-          echo "ebpf_message=$EBPF_STATUS" >> "$GITHUB_OUTPUT"
+          echo "ebpf_message=$(sanitize_for_output "$EBPF_STATUS")" >> "$GITHUB_OUTPUT"
           echo "✅ eBPF is fully operational (kprobes attached)"
         elif echo "$EBPF_STATUS" | grep -q "not embedded"; then
           echo "ebpf_status=disabled_build" >> "$GITHUB_OUTPUT"
           echo "ebpf_message=eBPF object not embedded (build failure)" >> "$GITHUB_OUTPUT"
           echo "❌ eBPF was NOT compiled into the binary (clang/llvm was not available at build time)"
-        elif echo "$EBPF_STATUS" | grep -qE "unprivileged_bpf_disabled|container may lack|doesn't support kprobes|SYS_ADMIN|CAP_BPF"; then
+        elif echo "$EBPF_STATUS" | grep -qE "unprivileged_bpf_disabled|container may lack|doesn't support kprobes|SYS_ADMIN|CAP_BPF|failed to load|failed to create"; then
           echo "ebpf_status=disabled_runtime" >> "$GITHUB_OUTPUT"
-          echo "ebpf_message=$EBPF_STATUS" >> "$GITHUB_OUTPUT"
+          echo "ebpf_message=$(sanitize_for_output "$EBPF_STATUS")" >> "$GITHUB_OUTPUT"
           echo "⚠️  eBPF embedded but kernel restrictions prevent loading"
         elif echo "$EBPF_STATUS" | grep -q "Disabled:"; then
           echo "ebpf_status=disabled_runtime" >> "$GITHUB_OUTPUT"
-          echo "ebpf_message=$EBPF_STATUS" >> "$GITHUB_OUTPUT"
+          echo "ebpf_message=$(sanitize_for_output "$EBPF_STATUS")" >> "$GITHUB_OUTPUT"
           echo "⚠️  eBPF disabled: $EBPF_STATUS"
         elif echo "$EBPF_STATUS" | grep -q "Not supported"; then
           echo "ebpf_status=not_supported" >> "$GITHUB_OUTPUT"
