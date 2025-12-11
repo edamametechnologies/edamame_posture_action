@@ -156,20 +156,35 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     fi
     
     log_success "Run started: $RUN_ID"
+    log_info "URL: https://github.com/$REPO/actions/runs/$RUN_ID"
     RUN_IDS+=("$RUN_ID")
     
-    # Wait for workflow to complete
+    # Wait for workflow to complete (silent polling, no spam)
     log_step "Waiting for completion..."
-    gh run watch "$RUN_ID" --repo "$REPO" --exit-status 2>/dev/null || true
+    WAIT_START=$(date +%s)
+    while true; do
+        STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq .status 2>/dev/null || echo "queued")
+        if [[ "$STATUS" == "completed" ]]; then
+            break
+        fi
+        sleep 15  # Check every 15 seconds
+        
+        # Show progress every 2 minutes
+        ELAPSED=$(( $(date +%s) - WAIT_START ))
+        if [[ $((ELAPSED % 120)) -lt 15 && $ELAPSED -gt 60 ]]; then
+            echo "  Still running... (${ELAPSED}s elapsed)"
+        fi
+    done
     
     # Get conclusion
     CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq .conclusion 2>/dev/null || echo "unknown")
     RUN_STATUSES+=("$CONCLUSION")
+    ELAPSED=$(( $(date +%s) - WAIT_START ))
     
     if [[ "$CONCLUSION" == "success" ]]; then
-        log_success "Workflow completed successfully"
+        log_success "Completed in ${ELAPSED}s"
     else
-        log_warning "Workflow status: $CONCLUSION"
+        log_warning "Status: $CONCLUSION (after ${ELAPSED}s)"
     fi
     
     # Download artifact
