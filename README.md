@@ -62,12 +62,6 @@ When the action is called multiple times in the same workflow (e.g., setup → p
 - Service keeps running with original configuration
 - Packet capture data preserved for augmentation
 
-This optimization:
-- ✅ Prevents unnecessary daemon restarts (preserves captured sessions)
-- ✅ Avoids apt/apk lock contention
-- ✅ Reduces workflow execution time by 20-30 seconds per call
-- ✅ Maintains daemon state across all workflow steps
-
 ### Package Manager Priority (Default)
 
 The action automatically detects the platform and attempts installation via the appropriate package manager:
@@ -1281,9 +1275,9 @@ Auto-whitelist mode **requires connected mode** to function properly. This is be
 - ❌ Auto-whitelist lifecycle breaks
 
 **Required for:**
-- ✅ Organizations with IP allow lists enabled (most production environments)
-- ✅ Private repositories
-- ✅ Reliable artifact operations
+-Organizations with IP allow lists enabled (most production environments)
+-Private repositories
+-Reliable artifact operations
 
 **Optional (disconnected mode might work) for:**
 - Public repositories with no IP restrictions
