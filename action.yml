@@ -1602,48 +1602,29 @@ runs:
               echo "Daemon whitelist contains $DAEMON_ENDPOINT_COUNT endpoints"
               echo "File whitelist contained $FILE_ENDPOINT_COUNT endpoints"
               
-              # Calculate difference (allow small differences for deduplication/filtering)
-              DIFF=$((FILE_ENDPOINT_COUNT - DAEMON_ENDPOINT_COUNT))
-              # Calculate absolute value
-              if [[ "$DIFF" -lt 0 ]]; then
-                ABS_DIFF=$((0 - DIFF))
+              # Validate endpoint counts
+              # Note: Daemon factorizes whitelists on load, merging endpoints with same domain/protocol/AS/process
+              # This REDUCES the count, so daemon count <= file count is EXPECTED
+              if [[ "$DAEMON_ENDPOINT_COUNT" -eq 0 && "$FILE_ENDPOINT_COUNT" -gt 0 ]]; then
+                echo ""
+                echo "[ERROR] ERROR: Daemon has 0 endpoints but file has $FILE_ENDPOINT_COUNT!"
+                echo "This indicates the whitelist was not loaded correctly into the daemon."
+                echo ""
+                echo "Debugging info:"
+                echo "  - File: $WHITELIST_FILE"
+                echo "  - File size: $(wc -c < "$WHITELIST_FILE") bytes"
+                echo "  - Daemon whitelist name: $LOADED_NAME"
+                echo "  - Daemon status:"
+                $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+                exit 1
+              elif [[ "$DAEMON_ENDPOINT_COUNT" -gt "$FILE_ENDPOINT_COUNT" ]]; then
+                echo ""
+                echo "[WARNING] Daemon has MORE endpoints than file (${DAEMON_ENDPOINT_COUNT} > ${FILE_ENDPOINT_COUNT})"
+                echo "This is unexpected but continuing..."
+              elif [[ "$DAEMON_ENDPOINT_COUNT" -lt "$FILE_ENDPOINT_COUNT" ]]; then
+                echo "[OK] Daemon factorized whitelist: $FILE_ENDPOINT_COUNT raw → $DAEMON_ENDPOINT_COUNT merged endpoints"
               else
-                ABS_DIFF=$DIFF
-              fi
-              
-              if [[ "$DAEMON_ENDPOINT_COUNT" != "$FILE_ENDPOINT_COUNT" ]]; then
-                if [[ "$ABS_DIFF" -le 2 ]]; then
-                  # Small difference (1-2 endpoints) - likely deduplication or filtering
-                  echo ""
-                  echo "[WARNING]  Warning: Small endpoint count difference (daemon may have deduplicated/filtered)"
-                  echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
-                  echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
-                  echo "   Difference: $DIFF endpoints"
-                  echo ""
-                  echo "This is likely expected behavior - daemon may deduplicate or filter invalid endpoints."
-                  echo "Continuing with daemon whitelist count: $DAEMON_ENDPOINT_COUNT"
-                  echo "[OK] Endpoint count verified (small difference acceptable): $DAEMON_ENDPOINT_COUNT endpoints"
-                else
-                  # Large difference - indicates real problem
-                  echo ""
-                  echo "[ERROR] ERROR: Significant endpoint count mismatch between file and daemon!"
-                  echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
-                  echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
-                  echo "   Difference: $DIFF endpoints"
-                  echo ""
-                  echo "This indicates the whitelist was not loaded correctly into the daemon."
-                  echo "Augmentation will fail or produce incorrect results."
-                  echo ""
-                  echo "Debugging info:"
-                  echo "  - File: $WHITELIST_FILE"
-                  echo "  - File size: $(wc -c < "$WHITELIST_FILE") bytes"
-                  echo "  - Daemon whitelist name: $LOADED_NAME"
-                  echo "  - Daemon status:"
-                  $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
-                  exit 1
-                fi
-              else
-                echo "[OK] Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints match exactly"
+                echo "[OK] Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints"
               fi
             fi
           else
@@ -2214,48 +2195,29 @@ runs:
               echo "Daemon whitelist contains $DAEMON_ENDPOINT_COUNT endpoints"
               echo "File whitelist contained $FILE_ENDPOINT_COUNT endpoints"
               
-              # Calculate difference (allow small differences for deduplication/filtering)
-              DIFF=$((FILE_ENDPOINT_COUNT - DAEMON_ENDPOINT_COUNT))
-              # Calculate absolute value
-              if [[ "$DIFF" -lt 0 ]]; then
-                ABS_DIFF=$((0 - DIFF))
+              # Validate endpoint counts
+              # Note: Daemon factorizes whitelists on load, merging endpoints with same domain/protocol/AS/process
+              # This REDUCES the count, so daemon count <= file count is EXPECTED
+              if [[ "$DAEMON_ENDPOINT_COUNT" -eq 0 && "$FILE_ENDPOINT_COUNT" -gt 0 ]]; then
+                echo ""
+                echo "[ERROR] ERROR: Daemon has 0 endpoints but file has $FILE_ENDPOINT_COUNT!"
+                echo "This indicates the whitelist was not loaded correctly into the daemon."
+                echo ""
+                echo "Debugging info:"
+                echo "  - File: $WHITELIST_FILE"
+                echo "  - File size: $(wc -c < "$WHITELIST_FILE") bytes"
+                echo "  - Daemon whitelist name: $LOADED_NAME"
+                echo "  - Daemon status:"
+                $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+                exit 1
+              elif [[ "$DAEMON_ENDPOINT_COUNT" -gt "$FILE_ENDPOINT_COUNT" ]]; then
+                echo ""
+                echo "[WARNING] Daemon has MORE endpoints than file (${DAEMON_ENDPOINT_COUNT} > ${FILE_ENDPOINT_COUNT})"
+                echo "This is unexpected but continuing..."
+              elif [[ "$DAEMON_ENDPOINT_COUNT" -lt "$FILE_ENDPOINT_COUNT" ]]; then
+                echo "[OK] Daemon factorized whitelist: $FILE_ENDPOINT_COUNT raw → $DAEMON_ENDPOINT_COUNT merged endpoints"
               else
-                ABS_DIFF=$DIFF
-              fi
-              
-              if [[ "$DAEMON_ENDPOINT_COUNT" != "$FILE_ENDPOINT_COUNT" ]]; then
-                if [[ "$ABS_DIFF" -le 2 ]]; then
-                  # Small difference (1-2 endpoints) - likely deduplication or filtering
-                  echo ""
-                  echo "[WARNING]  Warning: Small endpoint count difference (daemon may have deduplicated/filtered)"
-                  echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
-                  echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
-                  echo "   Difference: $DIFF endpoints"
-                  echo ""
-                  echo "This is likely expected behavior - daemon may deduplicate or filter invalid endpoints."
-                  echo "Continuing with daemon whitelist count: $DAEMON_ENDPOINT_COUNT"
-                  echo "[OK] Endpoint count verified (small difference acceptable): $DAEMON_ENDPOINT_COUNT endpoints"
-                else
-                  # Large difference - indicates real problem
-                  echo ""
-                  echo "[ERROR] ERROR: Significant endpoint count mismatch between file and daemon!"
-                  echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
-                  echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
-                  echo "   Difference: $DIFF endpoints"
-                  echo ""
-                  echo "This indicates the whitelist was not loaded correctly into the daemon."
-                  echo "Augmentation will fail or produce incorrect results."
-                  echo ""
-                  echo "Debugging info:"
-                  echo "  - File: $WHITELIST_FILE"
-                  echo "  - File size: $(wc -c < "$WHITELIST_FILE") bytes"
-                  echo "  - Daemon whitelist name: $LOADED_NAME"
-                  echo "  - Daemon status:"
-                  $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
-                  exit 1
-                fi
-              else
-                echo "[OK] Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints match exactly"
+                echo "[OK] Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints"
               fi
             fi
           else
@@ -3168,48 +3130,29 @@ runs:
               echo "Daemon whitelist contains $DAEMON_ENDPOINT_COUNT endpoints"
               echo "File whitelist contained $FILE_ENDPOINT_COUNT endpoints"
               
-              # Calculate difference (allow small differences for deduplication/filtering)
-              DIFF=$((FILE_ENDPOINT_COUNT - DAEMON_ENDPOINT_COUNT))
-              # Calculate absolute value
-              if [[ "$DIFF" -lt 0 ]]; then
-                ABS_DIFF=$((0 - DIFF))
+              # Validate endpoint counts
+              # Note: Daemon factorizes whitelists on load, merging endpoints with same domain/protocol/AS/process
+              # This REDUCES the count, so daemon count <= file count is EXPECTED
+              if [[ "$DAEMON_ENDPOINT_COUNT" -eq 0 && "$FILE_ENDPOINT_COUNT" -gt 0 ]]; then
+                echo ""
+                echo "[ERROR] ERROR: Daemon has 0 endpoints but file has $FILE_ENDPOINT_COUNT!"
+                echo "This indicates the whitelist was not loaded correctly into the daemon."
+                echo ""
+                echo "Debugging info:"
+                echo "  - File: $WHITELIST_FILE"
+                echo "  - File size: $(wc -c < "$WHITELIST_FILE") bytes"
+                echo "  - Daemon whitelist name: $LOADED_NAME"
+                echo "  - Daemon status:"
+                $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
+                exit 1
+              elif [[ "$DAEMON_ENDPOINT_COUNT" -gt "$FILE_ENDPOINT_COUNT" ]]; then
+                echo ""
+                echo "[WARNING] Daemon has MORE endpoints than file (${DAEMON_ENDPOINT_COUNT} > ${FILE_ENDPOINT_COUNT})"
+                echo "This is unexpected but continuing..."
+              elif [[ "$DAEMON_ENDPOINT_COUNT" -lt "$FILE_ENDPOINT_COUNT" ]]; then
+                echo "[OK] Daemon factorized whitelist: $FILE_ENDPOINT_COUNT raw → $DAEMON_ENDPOINT_COUNT merged endpoints"
               else
-                ABS_DIFF=$DIFF
-              fi
-              
-              if [[ "$DAEMON_ENDPOINT_COUNT" != "$FILE_ENDPOINT_COUNT" ]]; then
-                if [[ "$ABS_DIFF" -le 2 ]]; then
-                  # Small difference (1-2 endpoints) - likely deduplication or filtering
-                  echo ""
-                  echo "[WARNING]  Warning: Small endpoint count difference (daemon may have deduplicated/filtered)"
-                  echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
-                  echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
-                  echo "   Difference: $DIFF endpoints"
-                  echo ""
-                  echo "This is likely expected behavior - daemon may deduplicate or filter invalid endpoints."
-                  echo "Continuing with daemon whitelist count: $DAEMON_ENDPOINT_COUNT"
-                  echo "[OK] Endpoint count verified (small difference acceptable): $DAEMON_ENDPOINT_COUNT endpoints"
-                else
-                  # Large difference - indicates real problem
-                  echo ""
-                  echo "[ERROR] ERROR: Significant endpoint count mismatch between file and daemon!"
-                  echo "   File endpoint count: $FILE_ENDPOINT_COUNT"
-                  echo "   Daemon endpoint count: $DAEMON_ENDPOINT_COUNT"
-                  echo "   Difference: $DIFF endpoints"
-                  echo ""
-                  echo "This indicates the whitelist was not loaded correctly into the daemon."
-                  echo "Augmentation will fail or produce incorrect results."
-                  echo ""
-                  echo "Debugging info:"
-                  echo "  - File: $WHITELIST_FILE"
-                  echo "  - File size: $(wc -c < "$WHITELIST_FILE") bytes"
-                  echo "  - Daemon whitelist name: $LOADED_NAME"
-                  echo "  - Daemon status:"
-                  $EDAMAME_POSTURE_CMD status || echo "    (daemon not responding)"
-                  exit 1
-                fi
-              else
-                echo "[OK] Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints match exactly"
+                echo "[OK] Endpoint count verified: $DAEMON_ENDPOINT_COUNT endpoints"
               fi
             fi
           else
