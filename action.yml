@@ -198,6 +198,10 @@ inputs:
     description: "Display device info including eBPF support status (Linux only)"
     required: false
     default: "false"
+  verify_ebpf:
+    description: "Verify eBPF is properly embedded in the binary. Fails if eBPF was not compiled in (build failure). Runtime restrictions (kernel settings, containers) are acceptable and won't fail. Implies get_device_info=true. (Linux only)"
+    required: false
+    default: "false"
 
 outputs:
   ebpf_status:
@@ -739,9 +743,9 @@ runs:
         $EDAMAME_POSTURE_CMD score
       shell: bash
 
-    - name: Get device info and check eBPF support
+    - name: Get device info and verify eBPF support
       id: device_info
-      if: ${{ inputs.get_device_info == 'true' }}
+      if: ${{ inputs.get_device_info == 'true' || inputs.verify_ebpf == 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -766,6 +770,9 @@ runs:
           echo "$1" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | head -c 500
         }
         
+        # Track if we should fail (only for verify_ebpf mode)
+        SHOULD_FAIL=false
+        
         # Determine eBPF status category
         if [[ "$RUNNER_OS" != "Linux" ]]; then
           echo "ebpf_status=not_supported" >> "$GITHUB_OUTPUT"
@@ -779,14 +786,15 @@ runs:
           echo "ebpf_status=disabled_build" >> "$GITHUB_OUTPUT"
           echo "ebpf_message=eBPF object not embedded (build failure)" >> "$GITHUB_OUTPUT"
           echo "❌ eBPF was NOT compiled into the binary (clang/llvm was not available at build time)"
+          SHOULD_FAIL=true
         elif echo "$EBPF_STATUS" | grep -qE "unprivileged_bpf_disabled|container may lack|doesn't support kprobes|SYS_ADMIN|CAP_BPF|failed to load|failed to create"; then
           echo "ebpf_status=disabled_runtime" >> "$GITHUB_OUTPUT"
           echo "ebpf_message=$(sanitize_for_output "$EBPF_STATUS")" >> "$GITHUB_OUTPUT"
-          echo "⚠️  eBPF embedded but kernel restrictions prevent loading"
+          echo "⚠️  eBPF embedded but kernel restrictions prevent loading (acceptable)"
         elif echo "$EBPF_STATUS" | grep -q "Disabled:"; then
           echo "ebpf_status=disabled_runtime" >> "$GITHUB_OUTPUT"
           echo "ebpf_message=$(sanitize_for_output "$EBPF_STATUS")" >> "$GITHUB_OUTPUT"
-          echo "⚠️  eBPF disabled: $EBPF_STATUS"
+          echo "⚠️  eBPF disabled: $EBPF_STATUS (acceptable - runtime restriction)"
         elif echo "$EBPF_STATUS" | grep -q "Not supported"; then
           echo "ebpf_status=not_supported" >> "$GITHUB_OUTPUT"
           echo "ebpf_message=eBPF not supported on this platform" >> "$GITHUB_OUTPUT"
@@ -795,6 +803,17 @@ runs:
           echo "ebpf_status=unknown" >> "$GITHUB_OUTPUT"
           echo "ebpf_message=Could not determine eBPF status" >> "$GITHUB_OUTPUT"
           echo "⚠️  Could not determine eBPF status from: $EBPF_STATUS"
+          # Unknown status with verify_ebpf should fail
+          if [[ "${{ inputs.verify_ebpf }}" == "true" ]]; then
+            SHOULD_FAIL=true
+          fi
+        fi
+        
+        # Fail if verify_ebpf is enabled and we detected a build failure
+        if [[ "${{ inputs.verify_ebpf }}" == "true" && "$SHOULD_FAIL" == "true" ]]; then
+          echo ""
+          echo "::error::eBPF verification failed - binary was not built with eBPF support"
+          exit 1
         fi
 
     - name: Auto remediate/harden posture issues if requested and if we are not running in a self-hosted runner (the binary is already present)

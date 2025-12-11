@@ -64,47 +64,16 @@ jobs:
         continue-on-error: true
 
       # Test eBPF support verification (Linux only)
-      # Checks get-device-info output for eBPF status:
-      #   enabled: eBPF fully operational with kprobes attached
-      #   disabled_build: eBPF not embedded (clang/llvm not available at build time) - FAIL
-      #   disabled_runtime: eBPF embedded but kernel restrictions prevent loading - OK
+      # Uses action's verify_ebpf input which:
+      #   - Shows device info including eBPF status
+      #   - Fails only if eBPF wasn't embedded (build failure)
+      #   - Accepts runtime restrictions (kernel settings, containers)
       - name: Verify eBPF support
         id: test-ebpf-check
         if: matrix.os == 'ubuntu'
-        shell: bash
-        run: |
-          echo "=== Getting Device Info ==="
-          DEVICE_INFO=$($EDAMAME_POSTURE_CMD get-device-info 2>&1) || true
-          echo "$DEVICE_INFO"
-          echo ""
-          
-          # Extract eBPF support status line
-          EBPF_LINE=$(echo "$DEVICE_INFO" | grep -iE "(eBPF support|ebpf_support)" | head -1 || echo "")
-          EBPF_STATUS=$(echo "$EBPF_LINE" | sed 's/.*[Ss]upport[:"]*[[:space:]]*//' | tr -d '\n')
-          echo "=== eBPF Status ==="
-          echo "$EBPF_STATUS"
-          echo ""
-          
-          # Check for full success
-          if echo "$EBPF_STATUS" | grep -q "Enabled:.*kprobe attached"; then
-            echo "✅ eBPF is fully operational (kprobes attached)"
-            exit 0
-          fi
-          
-          # Check for build failure - this is a real error
-          if echo "$EBPF_STATUS" | grep -q "not embedded"; then
-            echo "❌ eBPF was NOT compiled into the binary (BUILD failure)"
-            exit 1
-          fi
-          
-          # Check for runtime restrictions - acceptable on native Linux
-          if echo "$EBPF_STATUS" | grep -qE "Disabled:|failed to load|failed to create"; then
-            echo "⚠️  eBPF embedded but runtime restrictions prevent loading"
-            exit 0
-          fi
-          
-          echo "⚠️  Could not determine eBPF status"
-          exit 1
+        uses: ./
+        with:
+          verify_ebpf: true
         continue-on-error: true
 
       # Test check-policy (local)
@@ -396,55 +365,24 @@ jobs:
         continue-on-error: true
 
       # Test eBPF support verification (skip Ubuntu 18.04 which doesn't support eBPF well)
-      # Checks get-device-info output for eBPF status:
-      #   enabled: eBPF fully operational with kprobes attached
-      #   disabled_build: eBPF not embedded (clang/llvm not available at build time) - FAIL
-      #   disabled_runtime: eBPF embedded but kernel restrictions prevent loading - OK in containers
+      # Uses action's verify_ebpf input which:
+      #   - Shows device info including eBPF status
+      #   - Fails only if eBPF wasn't embedded (build failure)
+      #   - Accepts runtime restrictions (kernel settings, containers)
       - name: Verify eBPF support
         id: test-ebpf-check
-        shell: bash
-        run: |
-          echo "Container: ${{ matrix.container_name }}"
-          
-          # Skip eBPF check on Ubuntu 18.04
-          if [[ "${{ matrix.container_name }}" == *"18.04"* ]]; then
-            echo "⚠️  Ubuntu 18.04 detected - eBPF support not expected"
-            exit 0
-          fi
-          
-          echo "=== Getting Device Info ==="
-          DEVICE_INFO=$($EDAMAME_POSTURE_CMD get-device-info 2>&1) || true
-          echo "$DEVICE_INFO"
-          echo ""
-          
-          # Extract eBPF support status line
-          EBPF_LINE=$(echo "$DEVICE_INFO" | grep -iE "(eBPF support|ebpf_support)" | head -1 || echo "")
-          EBPF_STATUS=$(echo "$EBPF_LINE" | sed 's/.*[Ss]upport[:"]*[[:space:]]*//' | tr -d '\n')
-          echo "=== eBPF Status ==="
-          echo "$EBPF_STATUS"
-          echo ""
-          
-          # Check for full success
-          if echo "$EBPF_STATUS" | grep -q "Enabled:.*kprobe attached"; then
-            echo "✅ eBPF is fully operational (kprobes attached)"
-            exit 0
-          fi
-          
-          # Check for build failure - this is a real error
-          if echo "$EBPF_STATUS" | grep -q "not embedded"; then
-            echo "❌ eBPF was NOT compiled into the binary (BUILD failure)"
-            exit 1
-          fi
-          
-          # Check for runtime restrictions - acceptable in containers
-          if echo "$EBPF_STATUS" | grep -qE "Disabled:|failed to load|failed to create"; then
-            echo "⚠️  eBPF embedded but runtime restrictions prevent loading"
-            exit 0
-          fi
-          
-          echo "⚠️  Could not determine eBPF status"
-          exit 1
+        if: ${{ !contains(matrix.container_name, '18.04') }}
+        uses: ./
+        with:
+          verify_ebpf: true
         continue-on-error: true
+      
+      # Skip message for Ubuntu 18.04
+      - name: Skip eBPF check for Ubuntu 18.04
+        id: test-ebpf-skip
+        if: ${{ contains(matrix.container_name, '18.04') }}
+        run: echo "⚠️  Ubuntu 18.04 - eBPF support not expected, skipping verification"
+        shell: bash
 
       # Test check-policy (local)
       - name: Test check-policy (local)

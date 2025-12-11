@@ -161,6 +161,8 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `token`: GitHub token to checkout the repo (default: ${{ github.token }})  
 - `display_logs`: Display posture logs (default: false)  
 - `debug`: Enable debug mode - downloads debug version of binary and sets log level to debug (default: false)  
+- `get_device_info`: Display device info including eBPF support status. Linux only (default: false)
+- `verify_ebpf`: Verify eBPF is properly embedded in the binary. Fails if eBPF was not compiled in (build failure). Runtime restrictions (kernel settings, containers) are acceptable and won't fail. Implies `get_device_info=true`. Linux only (default: false)
 - `whitelist`: Whitelist to use for the network scan (default: ""). The action forwards the value exactly as provided—set this when you want EDAMAME to enforce a named whitelist.
 - `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true)
 - `exit_on_blacklisted_sessions`: Exit with error when blacklisted sessions are detected (default: false)
@@ -210,6 +212,13 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
 
 1. **Show initial posture**  
    - Calls `score` to display the current posture prior to any remediation.
+
+1. **Get device info and verify eBPF** (optional)  
+   - If `get_device_info` or `verify_ebpf` is true, displays device info including eBPF support status
+   - With `verify_ebpf: true`, fails if eBPF was not embedded at build time (build failure)
+   - Runtime restrictions (kernel settings, containers) are acceptable and won't cause failure
+   - Sets `ebpf_status` output: `enabled`, `disabled_build`, `disabled_runtime`, `not_supported`, or `unknown`
+   - Sets `ebpf_message` output with human-readable status
 
 1. **Auto remediate posture issues**  
    - If `auto_remediate` is true, invokes `remediate`.  
@@ -1424,6 +1433,16 @@ For public repos that need access to private repos (or other restricted endpoint
   uses: edamametechnologies/edamame_posture_action@v0
   with:
     auto_remediate: true
+```
+
+### Verify eBPF Support (Linux)
+```yaml
+# Verify that eBPF was properly embedded in the binary
+# Fails only on build failures, accepts runtime restrictions
+- name: Verify eBPF Support
+  uses: edamametechnologies/edamame_posture_action@v0
+  with:
+    verify_ebpf: true
 ```
 
 ### Creating a Custom Whitelist
