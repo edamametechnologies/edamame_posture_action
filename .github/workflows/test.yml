@@ -331,6 +331,7 @@ jobs:
       # Manual checkout because actions/checkout@v4 requires node20 which is not supported on older Ubuntu containers
       - name: Manual checkout for Ubuntu containers
         if: ${{ !contains(matrix.container_image, 'alpine') }}
+        shell: bash
         run: |
           wait_for_apt_locks() {
             echo "Checking for apt/dpkg locks..."
