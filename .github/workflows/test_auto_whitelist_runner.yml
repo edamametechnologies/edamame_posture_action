@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 180
     
     steps:
-      - name: "📋 Test info"
+      - name: "Test info"
         run: |
           echo "========================================"
           echo "  AUTO-WHITELIST LIFECYCLE TEST"
@@ -45,7 +45,7 @@ jobs:
           echo "  3. Track endpoint discovery and stability"
           echo "  4. Verify lifecycle reaches enforcement state"
 
-      - name: "🚀 Setup EDAMAME Posture"
+      - name: "Setup EDAMAME Posture"
         uses: edamametechnologies/edamame_posture_action@v0
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -57,7 +57,7 @@ jobs:
           checkout: true
           wait_for_api: true
 
-      - name: "🔧 Verify gh CLI"
+      - name: "Verify gh CLI"
         run: |
           if command -v gh &> /dev/null; then
             echo "✓ gh CLI available: $(gh --version | head -1)"
@@ -71,10 +71,10 @@ jobs:
             sudo apt-get install -y gh
           fi
 
-      - name: "🧹 Prepare test script"
+      - name: "Prepare test script"
         run: chmod +x ./tests/test_auto_whitelist_feature.sh
 
-      - name: "🔄 Run lifecycle test"
+      - name: "Run lifecycle test"
         id: test
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -82,7 +82,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tests/test_auto_whitelist_feature.sh
 
-      - name: "📦 Upload test artifacts"
+      - name: "Upload test artifacts"
         if: always()
         uses: actions/upload-artifact@v4
         with:
