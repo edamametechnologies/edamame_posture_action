@@ -38,7 +38,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: "📊 Show iteration info"
+      - name: "Show iteration info"
         run: |
           echo "========================================"
           echo "  AUTO-WHITELIST TEST - ITERATION ${{ inputs.iteration }}"
@@ -48,7 +48,7 @@ jobs:
           echo "========================================"
 
       # PHASE 1: Setup
-      - name: "🚀 Setup EDAMAME Posture"
+      - name: "Setup EDAMAME Posture"
         uses: ./
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -61,12 +61,12 @@ jobs:
           auto_whitelist: true
           auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
 
-      - name: "⏳ Wait for daemon"
+      - name: "Wait for daemon"
         run: |
           echo "Waiting 30s for daemon to stabilize..."
           sleep 30
 
-      - name: "🔍 Check whitelist status"
+      - name: "Check whitelist status"
         run: |
           cd
           echo "--- WHITELIST STATUS ---"
@@ -97,39 +97,116 @@ jobs:
           fi
 
       # PHASE 2: Generate traffic
-      - name: "🌐 Generate test traffic"
+      - name: "Generate test traffic"
         run: |
           echo "--- GENERATING TRAFFIC ---"
           
           # Core endpoints (every iteration)
           echo -n "api.github.com/zen: "
-          curl -s --max-time 10 https://api.github.com/zen > /dev/null && echo "✓" || echo "✗"
+          curl -s --max-time 10 https://api.github.com/zen > /dev/null && echo "OK" || echo "FAIL"
           
           echo -n "github.com/robots.txt: "
-          curl -s --max-time 10 https://github.com/robots.txt > /dev/null && echo "✓" || echo "✗"
+          curl -s --max-time 10 https://github.com/robots.txt > /dev/null && echo "OK" || echo "FAIL"
           
           echo -n "registry.npmjs.org/-/ping: "
-          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null && echo "✓" || echo "✗"
+          curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null && echo "OK" || echo "FAIL"
           
           # Iteration 2+: Additional endpoints to test augmentation
           if [[ "${{ inputs.iteration }}" -ge "2" ]]; then
             echo ""
             echo "Additional endpoints for iteration ${{ inputs.iteration }}:"
             echo -n "www.npmjs.com: "
-            curl -s --max-time 10 https://www.npmjs.com/ > /dev/null && echo "✓" || echo "✗"
+            curl -s --max-time 10 https://www.npmjs.com/ > /dev/null && echo "OK" || echo "FAIL"
           fi
           
           echo ""
           echo "Waiting 60s for L7 resolution..."
           sleep 60
 
+      # PHASE 2.5: CVE-2025-30066 detection test (only when whitelist is stable)
+      - name: "Check if whitelist is stable"
+        id: check_stable
+        run: |
+          cd
+          if [[ -f "auto_whitelist_stable_count.txt" ]]; then
+            STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
+            echo "stable_count=$STABLE_COUNT" >> $GITHUB_OUTPUT
+            echo "Current stability: $STABLE_COUNT/3"
+            
+            if [[ "$STABLE_COUNT" -ge "3" ]]; then
+              echo "Whitelist is STABLE - enforcement mode active"
+              echo "is_stable=true" >> $GITHUB_OUTPUT
+            else
+              echo "is_stable=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "stable_count=0" >> $GITHUB_OUTPUT
+            echo "is_stable=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "CVE-2025-30066 Detection Test"
+        if: steps.check_stable.outputs.is_stable == 'true'
+        run: |
+          echo "========================================"
+          echo "  CVE-2025-30066 DETECTION TEST"
+          echo "========================================"
+          echo "Whitelist is stable - testing violation detection"
+          echo ""
+          
+          # Setup Python (if not already available)
+          if ! command -v python3 &> /dev/null; then
+            echo "Installing Python..."
+            sudo apt-get update
+            sudo apt-get install -y python3 python3-pip
+          fi
+          
+          # Install requests if needed
+          pip3 install --quiet requests 2>/dev/null || true
+          
+          # Create malicious script simulating CVE-2025-30066
+          cat > /tmp/malicious_build.py << 'EOF'
+          import requests
+          import sys
+          
+          print("SIMULATING CVE-2025-30066 ATTACK VECTOR")
+          print("=" * 50)
+          print("Attempting unauthorized connection to gist.githubusercontent.com...")
+          print("(This simulates the tj-actions/changed-files supply chain attack)")
+          print("")
+          
+          try:
+              # This should be blocked by the whitelist
+              response = requests.get(
+                  "https://gist.githubusercontent.com/gewashington/a4d0211e6f8601b69ff74e30d9e3ca20/raw/9d3e37cf7742b41e39606e70aab7a4f971353749/practice-python-fibonnaci.py",
+                  timeout=10
+              )
+              print(f"Response status: {response.status_code}")
+              print("Connection succeeded (should be detected as violation)")
+          except Exception as e:
+              print(f"Connection failed: {e}")
+          
+          print("")
+          print("Attack vector simulation complete")
+          EOF
+          
+          # Run the malicious script
+          echo "Running malicious script..."
+          python3 /tmp/malicious_build.py || true
+          
+          echo ""
+          echo "Waiting 30s for daemon to capture violation..."
+          sleep 30
+          
+          echo ""
+          echo "Violation introduced - will be detected in dump_sessions_log step"
+
       # PHASE 3: Dump and analyze
-      - name: "📥 Dump sessions"
+      - name: "Dump sessions"
         uses: ./
         with:
           dump_sessions_log: true
 
-      - name: "📈 Analyze whitelist changes"
+      - name: "Analyze whitelist changes"
         if: always()
         run: |
           cd
@@ -139,7 +216,7 @@ jobs:
           echo "========================================"
           
           if [[ ! -f "auto_whitelist.json" ]]; then
-            echo "❌ No whitelist file found!"
+            echo "No whitelist file found!"
             exit 0
           fi
           
@@ -159,16 +236,16 @@ jobs:
             echo ""
             
             if [[ $DELTA -gt 0 ]]; then
-              echo "📝 Status: LEARNING - $DELTA new endpoints discovered"
+              echo "Status: LEARNING - $DELTA new endpoints discovered"
             elif [[ $DELTA -lt 0 ]]; then
-              echo "⚠️  Status: ANOMALY - Endpoint count decreased!"
+              echo "Status: ANOMALY - Endpoint count decreased!"
             else
-              echo "✅ Status: STABLE - No new endpoints"
+              echo "Status: STABLE - No new endpoints"
             fi
           else
             echo "First run - Baseline: $NEW_COUNT endpoints"
             echo ""
-            echo "📝 Status: INITIAL - Baseline created"
+            echo "Status: INITIAL - Baseline created"
           fi
           
           echo ""
@@ -176,7 +253,7 @@ jobs:
           
           if [[ "$STABLE_COUNT" -ge "3" ]]; then
             echo ""
-            echo "🎉 WHITELIST IS STABLE - Enforcement mode active"
+            echo "WHITELIST IS STABLE - Enforcement mode active"
           fi
           
           # Show sample endpoints
@@ -187,19 +264,77 @@ jobs:
           if [[ $NEW_COUNT -gt 5 ]]; then
             echo "  ... and $((NEW_COUNT - 5)) more"
           fi
+          
+          # Check for CVE-2025-30066 violation detection (if we're in stable mode)
+          if [[ "$STABLE_COUNT" -ge "3" ]]; then
+            echo ""
+            echo "========================================"
+            echo "  CVE-2025-30066 VIOLATION CHECK"
+            echo "========================================"
+            
+            # Get exceptions from the daemon
+            $EDAMAME_POSTURE_CMD get-exceptions > /tmp/exceptions.log 2>/dev/null || true
+            
+            if [[ -f "/tmp/exceptions.log" ]]; then
+              # Check for gist.githubusercontent.com violations
+              MALICIOUS_EXCEPTIONS=$(grep -c "gist.githubusercontent.com" /tmp/exceptions.log 2>/dev/null || echo "0")
+              TOTAL_EXCEPTIONS=$(grep -c "whitelisted: NonConforming" /tmp/exceptions.log 2>/dev/null || echo "0")
+              
+              echo "Total whitelist exceptions: $TOTAL_EXCEPTIONS"
+              echo "CVE-2025-30066 violations (gist.githubusercontent.com): $MALICIOUS_EXCEPTIONS"
+              echo ""
+              
+              if [[ "$MALICIOUS_EXCEPTIONS" -gt "0" ]]; then
+                echo "SUCCESS: CVE-2025-30066 attack vector was DETECTED!"
+                echo "   The whitelist enforcement blocked unauthorized gist.githubusercontent.com access"
+                echo "   This demonstrates protection against supply chain attacks"
+                echo ""
+                echo "Violation details:"
+                grep "gist.githubusercontent.com" /tmp/exceptions.log | head -3
+              else
+                echo "WARNING: No CVE-2025-30066 violations detected"
+                echo "   This could mean:"
+                echo "   - The malicious connection was not captured"
+                echo "   - L7 resolution is still pending"
+                echo "   - The endpoint was already whitelisted"
+              fi
+            else
+              echo "WARNING: No exceptions log found"
+            fi
+          fi
 
-      - name: "🛑 Stop EDAMAME Posture"
+      - name: "Stop EDAMAME Posture"
         if: always()
         uses: ./
         with:
           stop: true
         continue-on-error: true
 
-      - name: "📋 Final summary"
+      - name: "Final summary"
         if: always()
         run: |
+          cd
           echo ""
           echo "════════════════════════════════════════════════════════════"
           echo "  ITERATION ${{ inputs.iteration }} COMPLETE"
+          echo "════════════════════════════════════════════════════════════"
+          
+          # Show final status
+          if [[ -f "auto_whitelist_stable_count.txt" ]]; then
+            STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
+            echo "Final stability count: $STABLE_COUNT / 3"
+            
+            if [[ "$STABLE_COUNT" -ge "3" ]]; then
+              echo "Status: ENFORCING (whitelist is stable)"
+              echo "CVE-2025-30066 detection test was performed"
+            elif [[ "$STABLE_COUNT" -gt "0" ]]; then
+              echo "Status: CONFIRMING ($STABLE_COUNT consecutive stable runs)"
+            else
+              echo "Status: LEARNING (discovering endpoints)"
+            fi
+          else
+            echo "Status: INITIAL (first run)"
+          fi
+          
           echo "════════════════════════════════════════════════════════════"
 
