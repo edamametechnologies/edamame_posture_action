@@ -1077,7 +1077,12 @@ runs:
         
         echo "Waiting for EDAMAME Posture to connect..."
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" ]]; then
-          $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+          # On Windows, set a timeout of 1200 seconds instead of the default 900 seconds
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            $EDAMAME_POSTURE_CMD wait-for-connection 1200 || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+          else
+            $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+          fi
         else
           echo "No connection parameters provided, skipping connection wait"
         fi
