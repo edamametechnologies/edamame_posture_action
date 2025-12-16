@@ -1,7 +1,7 @@
-# edamame_posture_action
+# EDAMAME Posture GitHub Action
 
 ## Overview
-This GitHub Actions workflow sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli), a security posture management tool.  
+This GitHub Action sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli), a security posture management tool.  
 It supports Windows, Linux, and macOS runners, checking for and installing any missing dependencies such as wget, curl, jq, Node.js, etc.
 
 ## Quickstart (copy/paste)
@@ -1136,7 +1136,7 @@ Machine learning-based anomaly detection complements whitelist enforcement:
 
 For teams that want a fully automated approach to whitelist management, the **auto-whitelist feature** handles the entire learning → augmentation → enforcement lifecycle automatically across multiple workflow runs.
 
-> **⚠️ Important**: Auto-whitelist requires **connected mode** (authentication with `edamame_user`, `edamame_domain`, `edamame_pin`) to access GitHub Artifacts when your organization has IP allow lists enabled. See [Requirements](#requirements-1) below.
+> **Important**: Auto-whitelist **works best in connected mode**. It becomes **required** only when your org’s GitHub API / Artifacts access is blocked by IP allow lists (otherwise artifact download/upload can fail with `403`). See [Requirements](#requirements-1) below.
 
 ### How Auto-Whitelist Works
 
@@ -1245,9 +1245,9 @@ That's it! The action handles everything else automatically.
 
 ### Requirements
 
-**Connected Mode Required for Artifact Access**
+**Connected mode for reliable artifact access**
 
-Auto-whitelist mode **requires connected mode** to function properly. This is because:
+Auto-whitelist mode may require connected mode depending on your GitHub org settings. This is because:
 
 1. **Artifact Download/Upload**: The feature uses GitHub Artifacts to persist whitelist state between workflow runs
 2. **IP Allow Lists**: Organizations with IP restrictions block unauthenticated artifact API access
@@ -1267,7 +1267,7 @@ Auto-whitelist mode **requires connected mode** to function properly. This is be
     # ... other options
 ```
 
-**What happens without connected mode:**
+**What can happen without connected mode (IP allow list orgs):**
 - ❌ Artifact download fails with `403 Forbidden` (IP allow list blocked)
 - ❌ Whitelist not applied to daemon
 - ❌ Augmentation creates fresh whitelists instead of adding to baseline
