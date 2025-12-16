@@ -171,6 +171,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
 - `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
 - `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "15")
+- `auto_whitelist_promote_exceptions`: When true, promotes whitelist violations to legitimate entries instead of failing. Use to add new endpoints after stabilization without restarting learning (default: false)
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
 - `agentic_provider`: LLM provider for AI assistant: `claude`, `openai`, `ollama`, or none. Requires `EDAMAME_LLM_API_KEY` environment variable (default: "none")
@@ -1228,6 +1229,7 @@ That's it! The action handles everything else automatically.
 | `auto_whitelist_stability_threshold` | string | `"0"` | Percentage change threshold (0 = no new endpoints) |
 | `auto_whitelist_stability_consecutive_runs` | string | `"3"` | Consecutive stable runs required |
 | `auto_whitelist_max_iterations` | string | `"15"` | Maximum learning iterations |
+| `auto_whitelist_promote_exceptions` | boolean | `false` | Promote violations to whitelist entries |
 
 ### When to Use Auto-Whitelist
 
@@ -1329,13 +1331,36 @@ Whitelist difference: 0.00%
 
 ---
 
-**Problem**: Need to add new endpoint after stabilization
+**Problem**: Need to add new endpoint after stabilization (whitelist violation detected)
 
 **Solutions**:
-1. Temporarily switch to manual mode (remove `auto_whitelist`)
-2. Use `augment_custom_whitelists` to add the endpoint
-3. Switch back to `auto_whitelist` mode
-4. Or delete the artifact to restart learning
+
+1. **Use promotion mode (recommended)** - Add `auto_whitelist_promote_exceptions: true` to your workflow:
+   ```yaml
+   - name: Setup EDAMAME Posture
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       auto_whitelist: true
+       auto_whitelist_promote_exceptions: true  # Promotes exceptions to whitelist
+       # ... other options
+   ```
+   This will add any non-conforming sessions to the whitelist while keeping it stable. Remove the flag after the endpoint is added.
+
+2. **Manual augmentation** - Run a workflow with:
+   ```yaml
+   - name: Augment whitelist
+     uses: edamametechnologies/edamame_posture_action@v0
+     with:
+       augment_custom_whitelists: true
+       custom_whitelists_path: ~/auto_whitelist.json
+   ```
+
+3. **Delete artifact to restart learning** - Use the GitHub CLI:
+   ```bash
+   gh api repos/OWNER/REPO/actions/artifacts \
+     --jq '.artifacts[] | select(.name=="YOUR_ARTIFACT_NAME") | .id' \
+     | xargs -I {} gh api -X DELETE repos/OWNER/REPO/actions/artifacts/{}
+   ```
 
 ### Combining with Other Features
 
