@@ -1,5 +1,17 @@
 # EDAMAME Posture GitHub Action
 
+Harden GitHub Actions runners and continuously verify runtime/network behavior to catch suspicious activity fast — before it turns into source/code or secret exfiltration.
+
+### At a glance
+
+- **Runner hardening**: Baseline security checks + optional **auto-remediation** to reduce drift and obvious misconfigurations.
+- **Network anomaly detection**: Optional **network scanning** + **packet capture** to surface unexpected outbound traffic and suspicious destinations.
+- **“Token loophole” mitigation (access control)**: Add an extra enforcement layer via **EDAMAME Hub** that continuously checks **identity + device posture + context** so **stolen tokens/keys can’t be used from untrusted endpoints**.
+- **Supply-chain / backdoor signals**: Detect “unexpected network behavior” patterns that show up in real incidents (e.g., **CVE-2025-30066**-style surprises) by comparing observed traffic to your expected baseline/allowlist.
+- **Developer-friendly**: Works on **Windows, Linux, and macOS** runners with copy/paste setup.
+
+For the broader “Zero Trust at the GitHub layer” framing (identity + device + context, continuous verification per request), see: https://www.edamame.tech/zerotrust-github
+
 ## Overview
 This GitHub Action sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli), a security posture management tool.  
 It supports Windows, Linux, and macOS runners, checking for and installing any missing dependencies such as wget, curl, jq, Node.js, etc.
