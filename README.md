@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup EDAMAME Posture
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}      # required for connected mode
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -39,7 +39,7 @@ jobs:
           auto_remediate: true
 
       - name: Dump EDAMAME sessions
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: true
@@ -347,7 +347,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 
 **How to enable**:
 ```yaml
-- uses: edamametechnologies/edamame_posture_action@v0
+- uses: edamametechnologies/edamame_posture_action@v1
   with:
     auto_remediate: true
     skip_remediations: "remote_login,firewall"  # Optional: skip specific fixes
@@ -369,7 +369,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 
 **How to enable**:
 ```yaml
-- uses: edamametechnologies/edamame_posture_action@v0
+- uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
     edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -404,7 +404,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 ```yaml
 # At workflow start
 - name: Setup EDAMAME Posture
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     network_scan: true
     packet_capture: true
@@ -412,7 +412,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 
 # At workflow end
 - name: Verify Network Activity
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     dump_sessions_log: true
     exit_on_whitelist_exceptions: true   # Fail if traffic violates whitelist
@@ -436,7 +436,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 
 **How to enable**:
 ```yaml
-- uses: edamametechnologies/edamame_posture_action@v0
+- uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
     edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -495,7 +495,7 @@ jobs:
     steps:
       # 1. Setup with all automation enabled
       - name: Setup EDAMAME Posture with Full Automation
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           # Authentication
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -533,7 +533,7 @@ jobs:
       
       # 3. Final verification with exit on violations
       - name: Verify Network Activity
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: true
@@ -555,7 +555,7 @@ jobs:
 All automation features work in disconnected mode without requiring EDAMAME Hub authentication:
 
 ```yaml
-- uses: edamametechnologies/edamame_posture_action@v0
+- uses: edamametechnologies/edamame_posture_action@v1
   with:
     disconnected_mode: true        # No Hub authentication needed
     auto_remediate: true           # Still works
@@ -576,7 +576,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
 
    ```yaml
    - name: Setup EDAMAME Posture
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
        edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
        edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -594,7 +594,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
 
    ```yaml
    - name: Dump EDAMAME Posture sessions
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
        dump_sessions_log: true
    ```
@@ -605,7 +605,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
    ```yaml
    # At the beginning of the workflow
    - name: Setup EDAMAME Posture with Custom Whitelist
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
        edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
        edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -620,7 +620,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
    
    # At the end of the workflow
    - name: Dump EDAMAME Posture sessions with conformance check
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
        dump_sessions_log: true
        exit_on_whitelist_exceptions: true  # Will exit with non-zero code if whitelist exceptions are detected
@@ -634,7 +634,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
    ```yaml
    # At the beginning of the workflow
    - name: Setup EDAMAME Posture in Disconnected Mode
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
        disconnected_mode: true
        network_scan: true
@@ -645,7 +645,7 @@ For optimal security monitoring in your CI/CD workflows, follow this recommended
    
    # At the end of the workflow
    - name: Verify Network Activity
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
        dump_sessions_log: true
        exit_on_whitelist_exceptions: true  # Will exit with non-zero code if whitelist exceptions are detected
@@ -709,7 +709,7 @@ In the learning phase, you run your workflow with network capture enabled to obs
 
 ```yaml
 - name: Setup EDAMAME Posture (Learning Mode)
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     network_scan: true                      # Enable network monitoring
     packet_capture: true                    # Capture all traffic
@@ -753,7 +753,7 @@ As your workflow evolves and legitimately needs to access new endpoints, you can
     path: .
 
 - name: Start EDAMAME Posture
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     network_scan: true
     packet_capture: true
@@ -763,7 +763,7 @@ As your workflow evolves and legitimately needs to access new endpoints, you can
 # ... your build/test steps that may access new endpoints ...
 
 - name: Augment Whitelist with New Endpoints
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     augment_custom_whitelists: true         # Merge new + existing entries
     custom_whitelists_path: ./whitelists.json  # Read from and write to this file
@@ -811,7 +811,7 @@ Once your whitelist is complete and validated, switch to enforcement mode where 
     path: .
 
 - name: Setup EDAMAME Posture (Enforcement Mode)
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
     edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -827,7 +827,7 @@ Once your whitelist is complete and validated, switch to enforcement mode where 
 # ... your build/test steps ...
 
 - name: Verify Network Compliance
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     dump_sessions_log: true
     exit_on_whitelist_exceptions: true      # Fail if violations detected
@@ -888,7 +888,7 @@ jobs:
       # LEARNING MODE
       - name: Setup EDAMAME (Learning)
         if: inputs.mode == 'learning'
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           network_scan: true
           packet_capture: true
@@ -898,7 +898,7 @@ jobs:
       # AUGMENTATION MODE
       - name: Setup EDAMAME (Augmentation)
         if: inputs.mode == 'augmentation'
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           network_scan: true
           packet_capture: true
@@ -909,7 +909,7 @@ jobs:
 
       - name: Augment Whitelist
         if: inputs.mode == 'augmentation'
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           augment_custom_whitelists: true
           custom_whitelists_path: ./whitelists.json
@@ -917,7 +917,7 @@ jobs:
       # ENFORCEMENT MODE
       - name: Setup EDAMAME (Enforcement)
         if: inputs.mode == 'enforcement'
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -940,7 +940,7 @@ jobs:
       # Final verification (enforcement mode)
       - name: Verify Compliance
         if: inputs.mode == 'enforcement'
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           dump_sessions_log: true
           exit_on_whitelist_exceptions: true
@@ -962,7 +962,7 @@ Maintain separate whitelists for different environments:
 
 ```yaml
 - name: Setup EDAMAME with Environment-Specific Whitelist
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     custom_whitelists_path: ./whitelists-${{ github.ref_name }}.json
     set_custom_whitelists: true
@@ -1014,7 +1014,7 @@ Create separate whitelists for each runner OS:
 
 ```yaml
 - name: Setup EDAMAME with Platform Whitelist
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     custom_whitelists_path: ./whitelists-${{ runner.os }}.json
     set_custom_whitelists: true
@@ -1090,7 +1090,7 @@ You can use custom whitelists alongside default whitelists:
 
 ```yaml
 - name: Setup with Hybrid Whitelist
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     whitelist: github_ubuntu              # Default whitelist as base
     custom_whitelists_path: ./custom.json # Additional custom rules
@@ -1105,7 +1105,7 @@ Custom whitelists work in conjunction with EDAMAME's built-in blacklist:
 
 ```yaml
 - name: Setup with Whitelist and Blacklist
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     custom_whitelists_path: ./whitelists.json
     set_custom_whitelists: true
@@ -1121,7 +1121,7 @@ Machine learning-based anomaly detection complements whitelist enforcement:
 
 ```yaml
 - name: Setup with Multi-Layer Detection
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     custom_whitelists_path: ./whitelists.json
     set_custom_whitelists: true
@@ -1171,7 +1171,7 @@ jobs:
     steps:
       # Step 1: Setup Phase
       - name: Setup EDAMAME Posture
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -1196,7 +1196,7 @@ jobs:
 
       # Step 3: Teardown Phase
       - name: Dump EDAMAME Posture Sessions
-        uses: edamametechnologies/edamame_posture_action@v0
+        uses: edamametechnologies/edamame_posture_action@v1
         with:
           dump_sessions_log: true
 ```
@@ -1271,7 +1271,7 @@ Auto-whitelist mode may require connected mode depending on your GitHub org sett
 
 ```yaml
 - name: Setup EDAMAME Posture
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
     edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -1350,7 +1350,7 @@ Whitelist difference: 0.00%
 1. **Use promotion mode (recommended)** - Add `auto_whitelist_promote_exceptions: true` to your workflow:
    ```yaml
    - name: Setup EDAMAME Posture
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
        auto_whitelist: true
        auto_whitelist_promote_exceptions: true  # Promotes exceptions to whitelist
@@ -1361,7 +1361,7 @@ Whitelist difference: 0.00%
 2. **Manual augmentation** - Run a workflow with:
    ```yaml
    - name: Augment whitelist
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
        augment_custom_whitelists: true
        custom_whitelists_path: ~/auto_whitelist.json
@@ -1380,7 +1380,7 @@ Auto-whitelist works seamlessly with other EDAMAME features:
 
 ```yaml
 - name: Setup EDAMAME Posture
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
     edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -1461,7 +1461,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Basic Security Check
 ```yaml
 - name: EDAMAME Posture Check
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     auto_remediate: true
 ```
@@ -1471,7 +1471,7 @@ For public repos that need access to private repos (or other restricted endpoint
 # Verify that eBPF was properly embedded in the binary
 # Fails only on build failures, accepts runtime restrictions
 - name: Verify eBPF Support
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     verify_ebpf: true
 ```
@@ -1479,7 +1479,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Creating a Custom Whitelist
 ```yaml
 - name: EDAMAME Posture with Custom Whitelist Creation
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     network_scan: true                      # Enable network scanning
     packet_capture: true                    # Capture network traffic
@@ -1490,7 +1490,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Applying a Custom Whitelist
 ```yaml
 - name: EDAMAME Posture with Custom Whitelist
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     network_scan: true                      # Enable network scanning
     packet_capture: true                    # Capture network traffic
@@ -1502,7 +1502,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Full CI/CD Integration with Custom Whitelist
 ```yaml
 - name: EDAMAME Posture Setup with Continuous Monitoring
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ secrets.EDAMAME_USER }}
     edamame_domain: ${{ secrets.EDAMAME_DOMAIN }}
@@ -1519,7 +1519,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Using Disconnected Mode with Local Policy Checking
 ```yaml
 - name: EDAMAME Posture in Disconnected Mode
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     disconnected_mode: true                  # Run without domain authentication
     network_scan: true                       # Monitor network traffic
@@ -1532,7 +1532,7 @@ For public repos that need access to private repos (or other restricted endpoint
 ### Using AI Assistant for Automated Security Todo Processing
 ```yaml
 - name: EDAMAME Posture with AI Assistant
-  uses: edamametechnologies/edamame_posture_action@v0
+  uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
     edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
@@ -1578,7 +1578,7 @@ In situations where your pipeline progressively accesses new domains or endpoint
 1. **First run – generate baseline**
    ```yaml
    - name: Setup EDAMAME Posture (Learning Mode)
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
       network_scan: true                  # Discover LAN peers
       packet_capture: true                # Capture traffic
@@ -1591,7 +1591,7 @@ In situations where your pipeline progressively accesses new domains or endpoint
    As new endpoints appear in later executions you can merge them into the existing file instead of replacing it:
    ```yaml
    - name: Start EDAMAME Posture
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
       network_scan: true
       packet_capture: true
@@ -1601,7 +1601,7 @@ In situations where your pipeline progressively accesses new domains or endpoint
    # ... your build/test steps ...
 
    - name: Augment Whitelist
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
       augment_custom_whitelists: true       # Merge new + existing entries
       custom_whitelists_path: whitelists.json
@@ -1616,7 +1616,7 @@ In situations where your pipeline progressively accesses new domains or endpoint
    Once your whitelist is mature, switch to **enforcement** by simply applying it and failing on exceptions:
    ```yaml
    - name: EDAMAME Posture – Enforce Whitelist
-     uses: edamametechnologies/edamame_posture_action@v0
+     uses: edamametechnologies/edamame_posture_action@v1
      with:
       network_scan: true
       packet_capture: true
