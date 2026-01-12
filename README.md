@@ -186,7 +186,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `auto_whitelist_promote_exceptions`: When true, promotes whitelist violations to legitimate entries instead of failing. Use to add new endpoints after stabilization without restarting learning (default: false)
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
-- `agentic_provider`: LLM provider for AI assistant: `claude`, `openai`, `ollama`, or none. Requires `EDAMAME_LLM_API_KEY` environment variable (default: "none")
+- `agentic_provider`: LLM provider for AI assistant: `edamame` (recommended, uses `EDAMAME_API_KEY` env), `claude`/`openai` (uses `EDAMAME_LLM_API_KEY` env), `ollama` (uses `EDAMAME_LLM_BASE_URL` env), or `none` (default: "none")
 - `agentic_interval`: Interval in seconds for automated AI assistant todo processing (default: 3600)
 - `stop`: Stop the background process  (default: false)
 
@@ -1529,9 +1529,26 @@ For public repos that need access to private repos (or other restricted endpoint
     edamame_mandatory_threats: "encrypted disk disabled,critical vulnerability"
 ```
 
-### Using AI Assistant for Automated Security Todo Processing
+### Using AI Assistant with EDAMAME Cloud LLM (Recommended for CI/CD)
 ```yaml
-- name: EDAMAME Posture with AI Assistant
+- name: EDAMAME Posture with EDAMAME Cloud LLM
+  uses: edamametechnologies/edamame_posture_action@v1
+  with:
+    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+    edamame_id: ${{ github.run_id }}
+    network_scan: true
+    agentic_mode: analyze                     # AI provides recommendations without executing
+    agentic_provider: edamame                 # Use EDAMAME Cloud LLM
+    agentic_interval: 3600                    # Check for new todos every hour
+  env:
+    EDAMAME_API_KEY: ${{ secrets.EDAMAME_API_KEY }}  # Get at https://portal.edamame.tech/api-keys
+```
+
+### Using AI Assistant with BYOLLM (Bring Your Own LLM)
+```yaml
+- name: EDAMAME Posture with AI Assistant (BYOLLM)
   uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -1543,7 +1560,7 @@ For public repos that need access to private repos (or other restricted endpoint
     agentic_provider: claude                  # Use Claude as the LLM provider
     agentic_interval: 3600                    # Check for new todos every hour
   env:
-    EDAMAME_LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # Required for AI features
+    EDAMAME_LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # Required for claude/openai
 ```
 
 **AI Assistant Modes:**
@@ -1551,7 +1568,13 @@ For public repos that need access to private repos (or other restricted endpoint
 - `analyze`: AI analyzes security todos and provides recommendations without executing actions
 - `auto`: AI automatically executes low-risk security actions and escalates high-risk items
 
-**Note:** AI assistant features require setting `EDAMAME_LLM_API_KEY` environment variable with your LLM provider's API key. Additional environment variables for Slack notifications:
+**LLM Providers (`agentic_provider`):**
+- **`edamame`** (recommended): EDAMAME Cloud LLM - set `EDAMAME_API_KEY` env var
+- **`claude`**: Anthropic Claude - set `EDAMAME_LLM_API_KEY` env var
+- **`openai`**: OpenAI GPT - set `EDAMAME_LLM_API_KEY` env var
+- **`ollama`**: Local Ollama - set `EDAMAME_LLM_BASE_URL` env var
+
+**Additional environment variables for Slack notifications:
 - `EDAMAME_AGENTIC_SLACK_BOT_TOKEN`: Slack bot token for notifications
 - `EDAMAME_AGENTIC_SLACK_ACTIONS_CHANNEL`: Channel for action notifications
 - `EDAMAME_AGENTIC_SLACK_ESCALATIONS_CHANNEL`: Channel for escalations
@@ -1653,7 +1676,7 @@ This section shows how GitHub Action inputs map to CLI flags.
 | `cancel_on_violation` | `--cancel-on-violation` | flag | false | Cancel CI on violations |
 | `include_local_traffic` | `--include-local-traffic` | flag | false | Include local traffic |
 | `agentic_mode` | `--agentic-mode` | string | "disabled" | AI assistant mode |
-| `agentic_provider` | `--agentic-provider` | string | "" | LLM provider |
+| `agentic_provider` | `--agentic-provider` | string | "none" | LLM provider: edamame, claude, openai, ollama |
 | `agentic_interval` | `--agentic-interval` | number | 3600 | Processing interval (seconds) |
 
 ### background-start-disconnected Command
@@ -1670,8 +1693,9 @@ This section shows how GitHub Action inputs map to CLI flags.
 | `cancel_on_violation` | `--cancel-on-violation` | flag | false | Cancel CI on violations |
 | `include_local_traffic` | `--include-local-traffic` | flag | false | Include local traffic |
 | `agentic_mode` | `--agentic-mode` | string | "disabled" | AI assistant mode |
+| `agentic_provider` | `--agentic-provider` | string | "none" | LLM provider: edamame, claude, openai, ollama |
 
-**Note:** `agentic_provider` and `agentic_interval` are not supported in disconnected mode.
+**Note:** `agentic_interval` is not supported in disconnected mode.
 
 ### get-sessions Command
 
@@ -1703,9 +1727,10 @@ These environment variables can be set in the workflow to configure advanced fea
 
 | Variable | Purpose | Required For |
 |----------|---------|--------------|
-| `EDAMAME_LLM_API_KEY` | LLM API key | Agentic features |
+| `EDAMAME_API_KEY` | EDAMAME Cloud LLM API key | `agentic_provider: edamame` |
+| `EDAMAME_LLM_API_KEY` | BYOLLM API key (Claude/OpenAI) | `agentic_provider: claude/openai` |
+| `EDAMAME_LLM_BASE_URL` | Ollama base URL | `agentic_provider: ollama` |
 | `EDAMAME_LLM_MODEL` | Override default model | Agentic features (optional) |
-| `EDAMAME_LLM_BASE_URL` | Custom LLM endpoint | Agentic features (optional) |
 | `EDAMAME_AGENTIC_SLACK_BOT_TOKEN` | Slack bot token | Slack notifications (optional) |
 | `EDAMAME_AGENTIC_SLACK_ACTIONS_CHANNEL` | Slack channel for actions | Slack notifications (optional) |
 | `EDAMAME_AGENTIC_SLACK_ESCALATIONS_CHANNEL` | Slack channel for escalations | Slack notifications (optional) |

@@ -182,7 +182,7 @@ inputs:
     required: false
     default: "disabled"
   agentic_provider:
-    description: "LLM provider for AI assistant: claude, openai, ollama, or none (requires EDAMAME_LLM_API_KEY environment variable)"
+    description: "LLM provider for AI assistant: edamame (recommended, uses EDAMAME_API_KEY env), claude, openai (use EDAMAME_LLM_API_KEY env), ollama (uses EDAMAME_LLM_BASE_URL env), or none"
     required: false
     default: "none"
   agentic_interval:
@@ -630,6 +630,29 @@ runs:
         fi
         if [[ "${{ inputs.include_local_traffic }}" == "true" ]]; then
           INSTALL_ARGS+=(--include-local-traffic)
+        fi
+        
+        # Add agentic mode configuration
+        if [[ "${{ inputs.agentic_mode }}" != "disabled" && "${{ inputs.agentic_mode }}" != "" ]]; then
+          INSTALL_ARGS+=(--agentic-mode "${{ inputs.agentic_mode }}")
+        fi
+        if [[ "${{ inputs.agentic_provider }}" != "none" && "${{ inputs.agentic_provider }}" != "" ]]; then
+          INSTALL_ARGS+=(--agentic-provider "${{ inputs.agentic_provider }}")
+          # Log which provider is being used
+          case "${{ inputs.agentic_provider }}" in
+            edamame)
+              echo "[OK] Using EDAMAME Cloud LLM (requires EDAMAME_API_KEY env var)"
+              ;;
+            claude|openai)
+              echo "[OK] Using BYOLLM provider: ${{ inputs.agentic_provider }} (requires EDAMAME_LLM_API_KEY env var)"
+              ;;
+            ollama)
+              echo "[OK] Using local Ollama (requires EDAMAME_LLM_BASE_URL env var)"
+              ;;
+          esac
+        fi
+        if [[ "${{ inputs.agentic_interval }}" != "3600" && -n "${{ inputs.agentic_interval }}" ]]; then
+          INSTALL_ARGS+=(--agentic-interval "${{ inputs.agentic_interval }}")
         fi
         
         # Add debug build flag
@@ -1146,6 +1169,11 @@ runs:
 
           if [[ "${{ inputs.agentic_mode }}" != "disabled" && "${{ inputs.agentic_mode }}" != "" ]]; then
             START_ARGS+=(--agentic-mode "${{ inputs.agentic_mode }}")
+          fi
+          
+          # Add agentic provider for disconnected mode
+          if [[ "${{ inputs.agentic_provider }}" != "none" && "${{ inputs.agentic_provider }}" != "" ]]; then
+            START_ARGS+=(--agentic-provider "${{ inputs.agentic_provider }}")
           fi
 
           # Verify cancellation script exists (was created earlier in the install step)
