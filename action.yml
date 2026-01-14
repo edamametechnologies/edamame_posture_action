@@ -641,7 +641,7 @@ runs:
           # Log which provider is being used
           case "${{ inputs.agentic_provider }}" in
             edamame)
-              echo "[OK] Using EDAMAME Portal LLM (requires EDAMAME_API_KEY env var)"
+              echo "[OK] Using EDAMAME Portal LLM (requires EDAMAME_LLM_API_KEY env var)"
               ;;
             claude|openai)
               echo "[OK] Using BYOLLM provider: ${{ inputs.agentic_provider }} (requires EDAMAME_LLM_API_KEY env var)"
