@@ -182,7 +182,7 @@ inputs:
     required: false
     default: "disabled"
   agentic_provider:
-    description: "LLM provider for AI assistant: edamame (recommended, uses EDAMAME_API_KEY env), claude, openai (use EDAMAME_LLM_API_KEY env), ollama (uses EDAMAME_LLM_BASE_URL env), or none"
+    description: "LLM provider for AI assistant: edamame (recommended), claude, openai (all use EDAMAME_LLM_API_KEY env), ollama (uses EDAMAME_LLM_BASE_URL env), or none"
     required: false
     default: "none"
   agentic_interval:
@@ -641,7 +641,7 @@ runs:
           # Log which provider is being used
           case "${{ inputs.agentic_provider }}" in
             edamame)
-              echo "[OK] Using EDAMAME Cloud LLM (requires EDAMAME_API_KEY env var)"
+              echo "[OK] Using EDAMAME Portal LLM (requires EDAMAME_API_KEY env var)"
               ;;
             claude|openai)
               echo "[OK] Using BYOLLM provider: ${{ inputs.agentic_provider }} (requires EDAMAME_LLM_API_KEY env var)"

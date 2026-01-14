@@ -186,7 +186,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `auto_whitelist_promote_exceptions`: When true, promotes whitelist violations to legitimate entries instead of failing. Use to add new endpoints after stabilization without restarting learning (default: false)
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
-- `agentic_provider`: LLM provider for AI assistant: `edamame` (recommended, uses `EDAMAME_API_KEY` env), `claude`/`openai` (uses `EDAMAME_LLM_API_KEY` env), `ollama` (uses `EDAMAME_LLM_BASE_URL` env), or `none` (default: "none")
+- `agentic_provider`: LLM provider for AI assistant: `edamame` (recommended), `claude`, `openai` (all use `EDAMAME_LLM_API_KEY` env), `ollama` (uses `EDAMAME_LLM_BASE_URL` env), or `none` (default: "none")
 - `agentic_interval`: Interval in seconds for automated AI assistant todo processing (default: 3600)
 - `stop`: Stop the background process  (default: false)
 
@@ -1529,9 +1529,9 @@ For public repos that need access to private repos (or other restricted endpoint
     edamame_mandatory_threats: "encrypted disk disabled,critical vulnerability"
 ```
 
-### Using AI Assistant with EDAMAME Cloud LLM (Recommended for CI/CD)
+### Using AI Assistant with EDAMAME Portal LLM (Recommended for CI/CD)
 ```yaml
-- name: EDAMAME Posture with EDAMAME Cloud LLM
+- name: EDAMAME Posture with EDAMAME Portal LLM
   uses: edamametechnologies/edamame_posture_action@v1
   with:
     edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
@@ -1540,10 +1540,10 @@ For public repos that need access to private repos (or other restricted endpoint
     edamame_id: ${{ github.run_id }}
     network_scan: true
     agentic_mode: analyze                     # AI provides recommendations without executing
-    agentic_provider: edamame                 # Use EDAMAME Cloud LLM
+    agentic_provider: edamame                 # Use EDAMAME Portal LLM
     agentic_interval: 3600                    # Check for new todos every hour
   env:
-    EDAMAME_API_KEY: ${{ secrets.EDAMAME_API_KEY }}  # Get at https://portal.edamame.tech/api-keys
+    EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}  # Get at https://portal.edamame.tech/api-keys
 ```
 
 ### Using AI Assistant with BYOLLM (Bring Your Own LLM)
@@ -1569,7 +1569,7 @@ For public repos that need access to private repos (or other restricted endpoint
 - `auto`: AI automatically executes low-risk security actions and escalates high-risk items
 
 **LLM Providers (`agentic_provider`):**
-- **`edamame`** (recommended): EDAMAME Cloud LLM - set `EDAMAME_API_KEY` env var
+- **`edamame`** (recommended): EDAMAME Portal LLM - set `EDAMAME_LLM_API_KEY` env var
 - **`claude`**: Anthropic Claude - set `EDAMAME_LLM_API_KEY` env var
 - **`openai`**: OpenAI GPT - set `EDAMAME_LLM_API_KEY` env var
 - **`ollama`**: Local Ollama - set `EDAMAME_LLM_BASE_URL` env var
@@ -1727,8 +1727,7 @@ These environment variables can be set in the workflow to configure advanced fea
 
 | Variable | Purpose | Required For |
 |----------|---------|--------------|
-| `EDAMAME_API_KEY` | EDAMAME Cloud LLM API key | `agentic_provider: edamame` |
-| `EDAMAME_LLM_API_KEY` | BYOLLM API key (Claude/OpenAI) | `agentic_provider: claude/openai` |
+| `EDAMAME_LLM_API_KEY` | LLM API key (all providers) | `agentic_provider: edamame/claude/openai` |
 | `EDAMAME_LLM_BASE_URL` | Ollama base URL | `agentic_provider: ollama` |
 | `EDAMAME_LLM_MODEL` | Override default model | Agentic features (optional) |
 | `EDAMAME_AGENTIC_SLACK_BOT_TOKEN` | Slack bot token | Slack notifications (optional) |
