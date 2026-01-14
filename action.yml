@@ -4145,15 +4145,15 @@ runs:
       run: |
         cd
         STATE_ITERATION=$(cat auto_whitelist_iteration.txt 2>/dev/null || echo "0")
-        cat <<'EOF' > auto_whitelist_state.json
+        GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        cat > auto_whitelist_state.json <<EOF
         {
           "last_run_id": "${GITHUB_RUN_ID}",
-          "last_iteration": "__STATE_ITERATION__",
+          "last_iteration": "${STATE_ITERATION}",
           "artifact_name": "${{ env.AUTO_WHITELIST_ARTIFACT_NAME || inputs.auto_whitelist_artifact_name }}",
-          "generated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          "generated_at": "${GENERATED_AT}"
         }
         EOF
-        sed -i "s/__STATE_ITERATION__/$STATE_ITERATION/" auto_whitelist_state.json
       shell: bash
     
     - name: Upload auto-whitelist artifact
