@@ -33,7 +33,7 @@ jobs:
       # Set the release version
       - name: Set Release Version
         run: |
-          VERSION_TAG="v0"
+          VERSION_TAG="v1"
           echo "VERSION_TAG=${VERSION_TAG}" >> $GITHUB_ENV
 
       # Check if release exists and delete it if it does
@@ -41,7 +41,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete ${VERSION_TAG} --cleanup-tag --repo ${{ github.repository }} --yes
+          # Delete release but keep going even if it doesn't exist
+          gh release delete ${VERSION_TAG} --cleanup-tag --repo ${{ github.repository }} --yes || true
+
+      # Force update the v1 tag to current commit
+      - name: Update v1 tag
+        run: |
+          git tag -f ${VERSION_TAG}
+          git push origin -f ${VERSION_TAG}
 
       # Create the release
       - name: Create Release
