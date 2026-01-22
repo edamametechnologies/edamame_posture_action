@@ -166,13 +166,6 @@ inputs:
     description: "Name for the artifact storing auto-whitelist state (default: auto-whitelist-state)"
     required: false
     default: "auto-whitelist-state"
-  auto_whitelist_promote_exceptions:
-    description: |
-      When true, automatically promote any whitelist exceptions to legitimate entries.
-      Use this to add new endpoints to a stable whitelist without restarting learning.
-      The whitelist remains stable after promotion.
-    required: false
-    default: "false"
   include_local_traffic:
     description: "Include local traffic in network capture and session logs"
     required: false
@@ -3663,15 +3656,17 @@ runs:
           echo "Session update completed"
         fi
         
-        # Check if we're promoting exceptions (stable whitelist + promote flag)
-        PROMOTE_EXCEPTIONS="${{ inputs.auto_whitelist_promote_exceptions }}"
+        # Check if we're promoting exceptions (stable whitelist + promote flag via repository variable)
+        PROMOTE_EXCEPTIONS="${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}"
+        
         if [[ "$PROMOTE_EXCEPTIONS" == "true" && "$AUTO_WHITELIST_STABLE" == "true" ]]; then
           echo ""
           echo "╔══════════════════════════════════════════════════════════════════════════════╗"
           echo "║              PROMOTING EXCEPTIONS TO WHITELIST                               ║"
           echo "╚══════════════════════════════════════════════════════════════════════════════╝"
           echo ""
-          echo "The whitelist is stable but 'auto_whitelist_promote_exceptions: true' is set."
+          echo "Promotion triggered by repository variable EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS"
+          echo "The whitelist is stable but promotion mode is enabled."
           echo "Any non-conforming sessions will be added to the whitelist."
           echo ""
           
@@ -3719,8 +3714,8 @@ runs:
           echo "The whitelist remains STABLE and will continue enforcing."
           echo "Next run will use the updated whitelist."
           echo ""
-          echo "To disable promotion mode, remove 'auto_whitelist_promote_exceptions: true'"
-          echo "from your workflow configuration."
+          echo "To disable promotion mode, run:"
+          echo "  gh variable delete EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --repo ${{ github.repository }}"
           echo ""
           
           echo "AUTO_WHITELIST_STATUS=promoted" >> $GITHUB_ENV
@@ -4072,23 +4067,24 @@ runs:
             echo "                         RECOVERY OPTIONS"
             echo "═══════════════════════════════════════════════════════════════════════════════"
             echo ""
-            echo "OPTION 1: Add exception to whitelist (if legitimate)"
+            echo "OPTION 1: Promote exceptions via gh CLI (RECOMMENDED)"
             echo "─────────────────────────────────────────────────────"
-            echo "Re-run this workflow with 'auto_whitelist_promote_exceptions: true' to"
-            echo "automatically add the detected exceptions to your whitelist:"
+            echo "Set a repository variable to promote exceptions on the next run:"
             echo ""
-            echo "  - name: Setup EDAMAME Posture"
-            echo "    uses: edamametechnologies/edamame_posture_action@v1"
-            echo "    with:"
-            echo "      auto_whitelist: true"
-            echo "      auto_whitelist_promote_exceptions: true  # <-- Add this"
-            echo "      # ... other options"
+            echo "  # Enable promotion for next run"
+            echo "  gh variable set EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --body \"true\" --repo ${{ github.repository }}"
+            echo ""
+            echo "  # Re-run this workflow (or wait for next scheduled run)"
+            echo "  gh workflow run <workflow-file> --repo ${{ github.repository }}"
+            echo ""
+            echo "  # After success, disable promotion"
+            echo "  gh variable delete EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --repo ${{ github.repository }}"
             echo ""
             echo "OPTION 2: Temporarily switch to learning mode"
             echo "─────────────────────────────────────────────────────"
             echo "Delete the auto-whitelist artifact to restart learning:"
             echo ""
-            echo "  gh api -X DELETE repos/${{ github.repository }}/actions/artifacts \\"
+            echo "  gh api repos/${{ github.repository }}/actions/artifacts \\"
             echo "    --jq '.artifacts[] | select(.name==\"${{ env.AUTO_WHITELIST_ARTIFACT_NAME || inputs.auto_whitelist_artifact_name }}\") | .id' \\"
             echo "    | xargs -I {} gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/{}"
             echo ""
@@ -4254,7 +4250,7 @@ runs:
             echo "   No new endpoints needed promotion."
           fi
           echo "   Whitelist remains STABLE - enforcement continues."
-          echo "   Remove 'auto_whitelist_promote_exceptions: true' when done adding endpoints."
+          echo "   Run: gh variable delete EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --repo ${{ github.repository }}"
         fi
       shell: bash
       env:
