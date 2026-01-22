@@ -183,7 +183,6 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
 - `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
 - `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "15")
-- `auto_whitelist_promote_exceptions`: When true, promotes whitelist violations to legitimate entries instead of failing. Use to add new endpoints after stabilization without restarting learning (default: false)
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
 - `agentic_provider`: LLM provider for AI assistant: `edamame` (recommended), `claude`, `openai` (all use `EDAMAME_LLM_API_KEY` env), `ollama` (uses `EDAMAME_LLM_BASE_URL` env), or `none` (default: "none")
@@ -1241,7 +1240,10 @@ That's it! The action handles everything else automatically.
 | `auto_whitelist_stability_threshold` | string | `"0"` | Percentage change threshold (0 = no new endpoints) |
 | `auto_whitelist_stability_consecutive_runs` | string | `"3"` | Consecutive stable runs required |
 | `auto_whitelist_max_iterations` | string | `"15"` | Maximum learning iterations |
-| `auto_whitelist_promote_exceptions` | boolean | `false` | Promote violations to whitelist entries |
+
+**Repository Variable for Exception Promotion:**
+
+To promote whitelist violations to legitimate entries after stabilization, use the `EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS` repository variable via `gh` CLI (see Troubleshooting section).
 
 ### When to Use Auto-Whitelist
 
@@ -1347,16 +1349,18 @@ Whitelist difference: 0.00%
 
 **Solutions**:
 
-1. **Use promotion mode (recommended)** - Add `auto_whitelist_promote_exceptions: true` to your workflow:
-   ```yaml
-   - name: Setup EDAMAME Posture
-     uses: edamametechnologies/edamame_posture_action@v1
-     with:
-       auto_whitelist: true
-       auto_whitelist_promote_exceptions: true  # Promotes exceptions to whitelist
-       # ... other options
+1. **Use promotion mode via gh CLI (recommended)** - Set a repository variable to promote exceptions on the next run:
+   ```bash
+   # Enable promotion for next run
+   gh variable set EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --body "true" --repo OWNER/REPO
+
+   # Re-run the workflow (or wait for next scheduled run)
+   gh workflow run <workflow-file> --repo OWNER/REPO
+
+   # After success, disable promotion
+   gh variable delete EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --repo OWNER/REPO
    ```
-   This will add any non-conforming sessions to the whitelist while keeping it stable. Remove the flag after the endpoint is added.
+   This will add any non-conforming sessions to the whitelist while keeping it stable.
 
 2. **Manual augmentation** - Run a workflow with:
    ```yaml
