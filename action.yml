@@ -659,7 +659,7 @@ runs:
         fi
         
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
-        INSTALL_SCRIPT_REF="v0.9.82"
+        INSTALL_SCRIPT_REF="v1.0.0"
         RELEASE_API="https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases?per_page=2"
         echo "Determining latest installer release from: $RELEASE_API"
         if command -v curl >/dev/null 2>&1; then
