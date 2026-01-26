@@ -166,6 +166,13 @@ inputs:
     description: "Name for the artifact storing auto-whitelist state (default: auto-whitelist-state)"
     required: false
     default: "auto-whitelist-state"
+  promote_exceptions:
+    description: |
+      Promote whitelist exceptions immediately without waiting for stability.
+      When true, any non-conforming sessions are added to the whitelist regardless of stability state.
+      This is useful during releases to quickly update whitelists without multiple iterations.
+    required: false
+    default: "false"
   include_local_traffic:
     description: "Include local traffic in network capture and session logs"
     required: false
@@ -3997,7 +4004,7 @@ runs:
         AUTO_WHITELIST_THRESHOLD: ${{ env.AUTO_WHITELIST_THRESHOLD }}
         AUTO_WHITELIST_CONSECUTIVE: ${{ env.AUTO_WHITELIST_CONSECUTIVE }}
         AUTO_WHITELIST_MAX_ITER: ${{ env.AUTO_WHITELIST_MAX_ITER }}
-        PROMOTE_EXCEPTIONS: ${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}
+        PROMOTE_EXCEPTIONS: ${{ inputs.promote_exceptions }}
 
     - name: Dump sessions log if requested
       if: ${{ inputs.dump_sessions_log == 'true' }}
@@ -4168,7 +4175,7 @@ runs:
         EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
         AUTO_WHITELIST_ENABLED: ${{ env.AUTO_WHITELIST_ENABLED }}
         AUTO_WHITELIST_STABLE: ${{ env.AUTO_WHITELIST_STABLE }}
-        PROMOTE_EXCEPTIONS: ${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}
+        PROMOTE_EXCEPTIONS: ${{ inputs.promote_exceptions }}
 
     - name: Display logs if requested
       run: |
