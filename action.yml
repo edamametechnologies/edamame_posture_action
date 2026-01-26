@@ -3656,17 +3656,22 @@ runs:
           echo "Session update completed"
         fi
         
-        # Check if we're promoting exceptions (stable whitelist + promote flag via repository variable)
+        # Check if we're promoting exceptions (promote flag via repository variable)
+        # Promotion mode works regardless of stability - it always adds exceptions to whitelist
         PROMOTE_EXCEPTIONS="${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}"
         
-        if [[ "$PROMOTE_EXCEPTIONS" == "true" && "$AUTO_WHITELIST_STABLE" == "true" ]]; then
+        if [[ "$PROMOTE_EXCEPTIONS" == "true" ]]; then
           echo ""
           echo "╔══════════════════════════════════════════════════════════════════════════════╗"
           echo "║              PROMOTING EXCEPTIONS TO WHITELIST                               ║"
           echo "╚══════════════════════════════════════════════════════════════════════════════╝"
           echo ""
           echo "Promotion triggered by repository variable EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS"
-          echo "The whitelist is stable but promotion mode is enabled."
+          if [[ "$AUTO_WHITELIST_STABLE" == "true" ]]; then
+            echo "The whitelist is stable but promotion mode is enabled."
+          else
+            echo "The whitelist is still learning - promotion mode accelerates learning."
+          fi
           echo "Any non-conforming sessions will be added to the whitelist."
           echo ""
           
@@ -3711,7 +3716,11 @@ runs:
             echo "[OK] No new endpoints to promote (whitelist unchanged)"
           fi
           echo ""
-          echo "The whitelist remains STABLE and will continue enforcing."
+          if [[ "$AUTO_WHITELIST_STABLE" == "true" ]]; then
+            echo "The whitelist remains STABLE and will continue enforcing."
+          else
+            echo "The whitelist will continue learning with the promoted endpoints."
+          fi
           echo "Next run will use the updated whitelist."
           echo ""
           echo "To disable promotion mode, run:"
@@ -3719,7 +3728,8 @@ runs:
           echo ""
           
           echo "AUTO_WHITELIST_STATUS=promoted" >> $GITHUB_ENV
-          echo "AUTO_WHITELIST_STABLE=true" >> $GITHUB_ENV
+          # Preserve the current stable state
+          echo "AUTO_WHITELIST_STABLE=$AUTO_WHITELIST_STABLE" >> $GITHUB_ENV
           echo "AUTO_WHITELIST_PROMOTED_COUNT=$PROMOTED_COUNT" >> $GITHUB_ENV
           
           # Exit early - don't continue to normal augmentation logic
@@ -4045,76 +4055,108 @@ runs:
             echo "[OK] No whitelist exceptions detected"
           fi
         elif [[ "$AUTO_WHITELIST_ENABLED" == "true" && "$AUTO_WHITELIST_STABLE" == "true" ]]; then
-          # Stable/enforcement phase: capture exit code and provide recovery instructions on failure
-          echo "Executing: $EDAMAME_POSTURE_CMD ${ARGS[*]}"
-          set +e
-          $EDAMAME_POSTURE_CMD "${ARGS[@]}"
-          EXIT_CODE=$?
-          set -e
+          # Stable phase: check if promotion mode is enabled (skip enforcement and promote exceptions instead)
+          PROMOTE_EXCEPTIONS="${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}"
           
-          if [[ $EXIT_CODE -ne 0 ]]; then
+          if [[ "$PROMOTE_EXCEPTIONS" == "true" ]]; then
             echo ""
             echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-            echo "║                    WHITELIST VIOLATION DETECTED                              ║"
+            echo "║              PROMOTION MODE ENABLED - SKIPPING ENFORCEMENT                   ║"
             echo "╚══════════════════════════════════════════════════════════════════════════════╝"
             echo ""
-            echo "The auto-whitelist is in ENFORCEMENT mode and detected unauthorized network traffic."
-            echo "This could indicate:"
-            echo "  • A supply chain attack (compromised dependency)"
-            echo "  • A legitimate new endpoint that needs to be whitelisted"
+            echo "EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS is set to 'true'"
+            echo "Whitelist exceptions will be added to the whitelist instead of failing."
+            echo "This step will NOT fail on whitelist violations."
             echo ""
-            echo "═══════════════════════════════════════════════════════════════════════════════"
-            echo "                         RECOVERY OPTIONS"
-            echo "═══════════════════════════════════════════════════════════════════════════════"
+            
+            # Run get-sessions without fail-on-whitelist to log sessions (informational only)
+            echo "Executing (informational): $EDAMAME_POSTURE_CMD get-sessions"
+            set +e
+            $EDAMAME_POSTURE_CMD get-sessions || true
+            set -e
+            
             echo ""
-            echo "OPTION 1: Promote exceptions via gh CLI (RECOMMENDED)"
-            echo "─────────────────────────────────────────────────────"
-            echo "Set a repository variable to promote exceptions on the next run:"
+            echo "[OK] Promotion mode active - any exceptions will be promoted during augmentation"
+            echo "   The augmentation step will add new endpoints to the whitelist."
             echo ""
-            echo "  # Enable promotion for next run"
-            echo "  gh variable set EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --body \"true\" --repo ${{ github.repository }}"
-            echo ""
-            echo "  # Re-run this workflow (or wait for next scheduled run)"
-            echo "  gh workflow run <workflow-file> --repo ${{ github.repository }}"
-            echo ""
-            echo "  # After success, disable promotion"
+            echo "To disable promotion mode after this run, execute:"
             echo "  gh variable delete EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --repo ${{ github.repository }}"
             echo ""
-            echo "OPTION 2: Temporarily switch to learning mode"
-            echo "─────────────────────────────────────────────────────"
-            echo "Delete the auto-whitelist artifact to restart learning:"
-            echo ""
-            echo "  gh api repos/${{ github.repository }}/actions/artifacts \\"
-            echo "    --jq '.artifacts[] | select(.name==\"${{ env.AUTO_WHITELIST_ARTIFACT_NAME || inputs.auto_whitelist_artifact_name }}\") | .id' \\"
-            echo "    | xargs -I {} gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/{}"
-            echo ""
-            echo "OPTION 3: Manual augmentation (one-time)"
-            echo "─────────────────────────────────────────────────────"
-            echo "Run a separate workflow step to augment the whitelist:"
-            echo ""
-            echo "  - name: Augment whitelist with new endpoints"
-            echo "    uses: edamametechnologies/edamame_posture_action@v1"
-            echo "    with:"
-            echo "      augment_custom_whitelists: true"
-            echo "      custom_whitelists_path: ~/auto_whitelist.json"
-            echo ""
-            echo "═══════════════════════════════════════════════════════════════════════════════"
-            echo "                         DOCUMENTATION"
-            echo "═══════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            echo "For more details on auto-whitelist recovery, see:"
-            echo "  https://github.com/edamametechnologies/edamame_posture_action#troubleshooting"
-            echo ""
-            echo "For supply chain attack investigation guidance, see:"
-            echo "  https://github.com/edamametechnologies/edamame_posture_action#what-are-custom-whitelists"
-            echo ""
-            echo "═══════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            # Save exception info for potential promotion
-            echo "AUTO_WHITELIST_VIOLATION=true" >> $GITHUB_ENV
-            exit $EXIT_CODE
+            
+            # Signal that promotion is needed (will be handled by augmentation step)
+            echo "AUTO_WHITELIST_PROMOTION_REQUESTED=true" >> $GITHUB_ENV
           else
-            echo "[OK] No whitelist exceptions detected - workflow is conforming"
+            # Normal enforcement phase: capture exit code and provide recovery instructions on failure
+            echo "Executing: $EDAMAME_POSTURE_CMD ${ARGS[*]}"
+            set +e
+            $EDAMAME_POSTURE_CMD "${ARGS[@]}"
+            EXIT_CODE=$?
+            set -e
+            
+            if [[ $EXIT_CODE -ne 0 ]]; then
+              echo ""
+              echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+              echo "║                    WHITELIST VIOLATION DETECTED                              ║"
+              echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+              echo ""
+              echo "The auto-whitelist is in ENFORCEMENT mode and detected unauthorized network traffic."
+              echo "This could indicate:"
+              echo "  • A supply chain attack (compromised dependency)"
+              echo "  • A legitimate new endpoint that needs to be whitelisted"
+              echo ""
+              echo "═══════════════════════════════════════════════════════════════════════════════"
+              echo "                         RECOVERY OPTIONS"
+              echo "═══════════════════════════════════════════════════════════════════════════════"
+              echo ""
+              echo "OPTION 1: Promote exceptions via gh CLI (RECOMMENDED)"
+              echo "─────────────────────────────────────────────────────"
+              echo "Set a repository variable to promote exceptions on the next run:"
+              echo ""
+              echo "  # Enable promotion for next run"
+              echo "  gh variable set EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --body \"true\" --repo ${{ github.repository }}"
+              echo ""
+              echo "  # Re-run this workflow (or wait for next scheduled run)"
+              echo "  gh workflow run <workflow-file> --repo ${{ github.repository }}"
+              echo ""
+              echo "  # After success, disable promotion"
+              echo "  gh variable delete EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --repo ${{ github.repository }}"
+              echo ""
+              echo "OPTION 2: Temporarily switch to learning mode"
+              echo "─────────────────────────────────────────────────────"
+              echo "Delete the auto-whitelist artifact to restart learning:"
+              echo ""
+              echo "  gh api repos/${{ github.repository }}/actions/artifacts \\"
+              echo "    --jq '.artifacts[] | select(.name==\"${{ env.AUTO_WHITELIST_ARTIFACT_NAME || inputs.auto_whitelist_artifact_name }}\") | .id' \\"
+              echo "    | xargs -I {} gh api -X DELETE repos/${{ github.repository }}/actions/artifacts/{}"
+              echo ""
+              echo "OPTION 3: Manual augmentation (one-time)"
+              echo "─────────────────────────────────────────────────────"
+              echo "Run a separate workflow step to augment the whitelist:"
+              echo ""
+              echo "  - name: Augment whitelist with new endpoints"
+              echo "    uses: edamametechnologies/edamame_posture_action@v1"
+              echo "    with:"
+              echo "      augment_custom_whitelists: true"
+              echo "      custom_whitelists_path: ~/auto_whitelist.json"
+              echo ""
+              echo "═══════════════════════════════════════════════════════════════════════════════"
+              echo "                         DOCUMENTATION"
+              echo "═══════════════════════════════════════════════════════════════════════════════"
+              echo ""
+              echo "For more details on auto-whitelist recovery, see:"
+              echo "  https://github.com/edamametechnologies/edamame_posture_action#troubleshooting"
+              echo ""
+              echo "For supply chain attack investigation guidance, see:"
+              echo "  https://github.com/edamametechnologies/edamame_posture_action#what-are-custom-whitelists"
+              echo ""
+              echo "═══════════════════════════════════════════════════════════════════════════════"
+              echo ""
+              # Save exception info for potential promotion
+              echo "AUTO_WHITELIST_VIOLATION=true" >> $GITHUB_ENV
+              exit $EXIT_CODE
+            else
+              echo "[OK] No whitelist exceptions detected - workflow is conforming"
+            fi
           fi
         else
           # Manual mode: fail on errors
