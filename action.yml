@@ -3658,7 +3658,7 @@ runs:
         
         # Check if we're promoting exceptions (promote flag via repository variable)
         # Promotion mode works regardless of stability - it always adds exceptions to whitelist
-        PROMOTE_EXCEPTIONS="${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}"
+        # Note: PROMOTE_EXCEPTIONS is passed via env block from vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS
         
         if [[ "$PROMOTE_EXCEPTIONS" == "true" ]]; then
           echo ""
@@ -3997,6 +3997,7 @@ runs:
         AUTO_WHITELIST_THRESHOLD: ${{ env.AUTO_WHITELIST_THRESHOLD }}
         AUTO_WHITELIST_CONSECUTIVE: ${{ env.AUTO_WHITELIST_CONSECUTIVE }}
         AUTO_WHITELIST_MAX_ITER: ${{ env.AUTO_WHITELIST_MAX_ITER }}
+        PROMOTE_EXCEPTIONS: ${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}
 
     - name: Dump sessions log if requested
       if: ${{ inputs.dump_sessions_log == 'true' }}
@@ -4056,7 +4057,7 @@ runs:
           fi
         elif [[ "$AUTO_WHITELIST_ENABLED" == "true" && "$AUTO_WHITELIST_STABLE" == "true" ]]; then
           # Stable phase: check if promotion mode is enabled (skip enforcement and promote exceptions instead)
-          PROMOTE_EXCEPTIONS="${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}"
+          # Note: PROMOTE_EXCEPTIONS is passed via env block from vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS
           
           if [[ "$PROMOTE_EXCEPTIONS" == "true" ]]; then
             echo ""
@@ -4167,6 +4168,7 @@ runs:
         EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
         AUTO_WHITELIST_ENABLED: ${{ env.AUTO_WHITELIST_ENABLED }}
         AUTO_WHITELIST_STABLE: ${{ env.AUTO_WHITELIST_STABLE }}
+        PROMOTE_EXCEPTIONS: ${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}
 
     - name: Display logs if requested
       run: |
