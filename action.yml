@@ -299,6 +299,7 @@ runs:
             else
               echo "All required tools present on Alpine, skipping apk install"
             fi
+            # No need to ensure GTK3 runtime libraries are present as we don't link it to the musl bin that must be static and gtk can't be static
           else
             # Debian/Ubuntu-based Linux
             # Define function to wait for apt/dpkg locks
@@ -482,6 +483,15 @@ runs:
           if ! command -v node &> /dev/null; then
             echo "Installing node + npm..."
             apt_cmd_with_retry sudo -E apt-get install -y nodejs npm
+          fi
+
+          # Ensure GTK3 runtime libraries are present (required by edamame_posture daemon)
+          if ! ldconfig -p 2>/dev/null | grep -q libgtk-3; then
+            echo "Installing GTK3 runtime libraries..."
+            if [[ "$NEED_PACKAGE_INSTALL" != "true" ]]; then
+              apt_cmd_with_retry sudo -E apt-get update -y
+            fi
+            apt_cmd_with_retry sudo -E apt-get install -y libgtk-3-0
           fi
           fi  # Close Alpine detection if block
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
