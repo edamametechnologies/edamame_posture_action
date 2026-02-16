@@ -1,5 +1,7 @@
 # EDAMAME Posture GitHub Action
 
+> Part of the **[EDAMAME Agents](https://github.com/edamametechnologies#edamame-agents)** family - AI-powered security assistants for the modern SDLC with shared LLM subscription via [EDAMAME Portal](https://portal.edamame.tech).
+
 Harden GitHub Actions runners and continuously verify runtime/network behavior to catch suspicious activity fast — before it turns into source/code or secret exfiltration.
 
 ### At a glance
@@ -1602,7 +1604,7 @@ For public repos that need access to private repos (or other restricted endpoint
 This GitHub Action is part of the broader EDAMAME security ecosystem:
 
 - **EDAMAME Core**: The core implementation used by all EDAMAME components (closed source)
-- **[EDAMAME Security](https://github.com/edamametechnologies/edamame_security)**: Desktop/mobile security application with full UI and enhanced capabilities (closed source)
+- **[EDAMAME Security App](https://github.com/edamametechnologies/edamame_security)**: Desktop/mobile security application with full UI and enhanced capabilities (closed source)
 - **[EDAMAME Foundation](https://github.com/edamametechnologies/edamame_foundation)**: Foundation library providing security assessment functionality
 - **[EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli)**: CLI tool for security posture assessment and remediation
 - **[EDAMAME Helper](https://github.com/edamametechnologies/edamame_helper)**: Helper application for executing privileged security checks
