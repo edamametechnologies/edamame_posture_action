@@ -56,6 +56,30 @@ jobs:
 - `auto_whitelist`: Automate learning → augmentation → enforcement lifecycle.
 - `dump_sessions_log` + `exit_on_*`: Fail the workflow on violations at teardown.
 
+## Adversarial Coverage (CVE-Style)
+
+This repository includes adversarial tests that exercise runtime network-policy enforcement against CVE-2025-30066-style behavior.
+
+Covered patterns:
+- allowed-domain exfiltration (non-gating)
+- DNS-over-HTTPS
+- CDN piggybacking
+- process masquerade
+
+Configuration and runners:
+- `tests/adversarial_scenarios.json` (source of truth for scenarios and expected outcomes)
+- `tests/run_adversarial_lima.sh` (local runner)
+- `.github/workflows/test_adversarial_evasion.yml` (CI runner; matrix is generated from `tests/adversarial_scenarios.json`)
+
+Local example:
+
+```bash
+./tests/run_adversarial_lima.sh --scenario dns_over_https --mode enforcement
+```
+
+Limitations:
+- This validates runtime policy enforcement and behavioral signals; it is not a CVE signature scanner.
+
 ## Installation Behavior
 
 This action uses an intelligent installation strategy that prefers package managers over direct binary downloads.

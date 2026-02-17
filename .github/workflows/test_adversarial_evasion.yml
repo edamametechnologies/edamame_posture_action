@@ -1,0 +1,177 @@
+name: Test Adversarial Evasion Patterns
+
+on:
+  workflow_dispatch:
+    inputs:
+      gating_mode:
+        description: "observe (non-blocking) or strict (fail if attack is not detected)"
+        required: false
+        default: "observe"
+        type: choice
+        options:
+          - observe
+          - strict
+      include_allowed_domain_exfil:
+        description: "Also run allowed-domain exfil scenario (experimental, non-gating)."
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate-matrix:
+    name: Generate adversarial matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+      strict: ${{ steps.build.outputs.strict }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build matrix from scenario config
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          strict="false"
+          if [[ "${{ github.event_name }}" == "schedule" || "${{ inputs.gating_mode }}" == "strict" ]]; then
+            strict="true"
+          fi
+          echo "strict=$strict" >> "$GITHUB_OUTPUT"
+
+          # Include allowed_domain_exfil only when requested via workflow_dispatch.
+          include_allowed="false"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.include_allowed_domain_exfil }}" == "true" ]]; then
+            include_allowed="true"
+          fi
+
+          matrix_json="$(jq -c --argjson includeAllowed "$include_allowed" '
+            {
+              include: (
+                .scenarios
+                | map(
+                    select(.id != "allowed_domain_exfil" or $includeAllowed)
+                    | {
+                        scenario: .id,
+                        include_process: (.requires_include_process // false),
+                        ci_ready: (.ci_ready // false),
+                        require_failure: (.enforcement_expected.require_failure // false)
+                      }
+                  )
+              )
+            }
+          ' tests/adversarial_scenarios.json)"
+          echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
+
+  adversarial-core:
+    name: Scenario (${{ matrix.scenario }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: generate-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+    env:
+      STRICT_MODE: ${{ needs.generate-matrix.outputs.strict }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup EDAMAME Posture (disconnected)
+        uses: ./
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          whitelist: github_ubuntu
+
+      - name: Prepare Python
+        run: |
+          python3 -m pip install --quiet requests
+
+      - name: Generate baseline traffic
+        run: |
+          curl -s --max-time 15 https://github.com/robots.txt >/dev/null || true
+          curl -s --max-time 15 https://api.github.com/zen >/dev/null || true
+          curl -s --max-time 15 https://pypi.org/pypi/requests/json >/dev/null || true
+          sleep 10
+
+      - name: Create baseline custom whitelist
+        uses: ./
+        with:
+          create_custom_whitelists: true
+          include_process_in_whitelist: ${{ matrix.include_process }}
+          custom_whitelists_path: ./custom_whitelist.json
+
+      - name: Apply baseline custom whitelist
+        uses: ./
+        with:
+          set_custom_whitelists: true
+          custom_whitelists_path: ./custom_whitelist.json
+
+      - name: Execute adversarial scenario
+        run: |
+          jq -r --arg s "${{ matrix.scenario }}" '.scenarios[] | select(.id == $s) | .command' \
+            tests/adversarial_scenarios.json > ./payload.sh
+          chmod +x ./payload.sh
+          bash ./payload.sh
+          sleep 10
+
+      - name: Verify violation detection
+        id: verify
+        continue-on-error: true
+        uses: ./
+        with:
+          dump_sessions_log: true
+          exit_on_whitelist_exceptions: true
+          # Keep this deterministic: enforce explicit whitelist violations.
+          # Anomaly heuristics can be valuable, but are more environment/noise-sensitive.
+          exit_on_anomalous_sessions: false
+
+      - name: Collect exceptions for diagnostics
+        if: always()
+        run: |
+          $EDAMAME_POSTURE_CMD get-exceptions > ./exceptions.log 2>&1 || true
+          echo "Exceptions summary"
+          echo "  NonConforming: $(grep -ci 'whitelisted:[[:space:]]*NonConforming' ./exceptions.log || echo 0)"
+          echo "  Unknown: $(grep -ci 'whitelisted:[[:space:]]*Unknown' ./exceptions.log || echo 0)"
+          echo "  Anomalous strings: $(grep -ci 'anomalous' ./exceptions.log || echo 0)"
+
+      - name: Gate core scenario
+        if: always()
+        run: |
+          echo "STRICT_MODE=${STRICT_MODE}"
+          echo "verify.outcome=${{ steps.verify.outcome }}"
+          echo "ci_ready=${{ matrix.ci_ready }}"
+          echo "require_failure=${{ matrix.require_failure }}"
+
+          if [[ "${{ matrix.ci_ready }}" != "true" ]]; then
+            echo "Non-CI-ready scenario: not gating."
+            exit 0
+          fi
+
+          if [[ "${STRICT_MODE}" == "true" && "${{ matrix.require_failure }}" == "true" && "${{ steps.verify.outcome }}" != "failure" ]]; then
+            echo "Expected get-sessions to fail in strict mode but it did not."
+            exit 1
+          fi
+          if [[ "${STRICT_MODE}" != "true" ]]; then
+            echo "Observe mode: not gating on detection outcome."
+          fi
+
+      - name: Stop posture daemon
+        if: always()
+        uses: ./
+        with:
+          stop: true
+        continue-on-error: true
+
+  # allowed_domain_exfil is included in the matrix when requested via workflow_dispatch.
