@@ -3579,24 +3579,45 @@ runs:
           fi
           
           if [[ -n "${{ inputs.custom_whitelists_path }}" ]]; then
-            # Save to the specified file
-            $CREATE_CMD > "${{ inputs.custom_whitelists_path }}"
-            
-            # Check if the created whitelist has endpoints
-            if command -v jq &> /dev/null; then
-              ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "${{ inputs.custom_whitelists_path }}" 2>/dev/null || echo "0")
-              echo "Created whitelist contains $ENDPOINT_COUNT endpoints"
-              
-              if [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
-                echo "[WARNING]  Warning: Created whitelist is empty (no endpoints)"
-                echo "This can happen if:"
-                echo "  - No network sessions were captured yet (wait longer before creating whitelist)"
-                echo "  - Only ingress (local-to-local) sessions exist (these are excluded from whitelists)"
-                echo "  - All sessions were filtered out"
-                echo "The whitelist file was created but will not be loaded automatically if empty"
+            # Create-custom-whitelists relies on a cache that is populated by get-sessions.
+            # In CI, sessions/exceptions can lag behind traffic generation, so we flush and retry.
+            $EDAMAME_POSTURE_CMD get-sessions > /dev/null 2>&1 || true
+
+            attempt=1
+            max_attempts=5
+            ENDPOINT_COUNT=0
+            while [[ "$attempt" -le "$max_attempts" ]]; do
+              echo "Creating custom whitelists (attempt $attempt/$max_attempts)..."
+              $CREATE_CMD > "${{ inputs.custom_whitelists_path }}"
+
+              if command -v jq &> /dev/null; then
+                ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "${{ inputs.custom_whitelists_path }}" 2>/dev/null || echo "0")
+                echo "Created whitelist contains $ENDPOINT_COUNT endpoints"
+                if [[ "$ENDPOINT_COUNT" -gt 0 ]]; then
+                  break
+                fi
+              else
+                echo "[WARNING]  Warning: jq not available, cannot verify endpoint count"
+                break
               fi
+
+              attempt=$((attempt + 1))
+              if [[ "$attempt" -le "$max_attempts" ]]; then
+                echo "[INFO] No endpoints yet; waiting for sessions to flush and retrying"
+                $EDAMAME_POSTURE_CMD get-sessions > /dev/null 2>&1 || true
+                sleep 5
+              fi
+            done
+
+            if command -v jq &> /dev/null && [[ "$ENDPOINT_COUNT" -eq 0 ]]; then
+              echo "[WARNING]  Warning: Created whitelist is empty (no endpoints)"
+              echo "This can happen if:"
+              echo "  - No network sessions were captured yet (wait longer before creating whitelist)"
+              echo "  - Only ingress (local-to-local) sessions exist (these are excluded from whitelists)"
+              echo "  - All sessions were filtered out"
+              echo "The whitelist file was created but will not be loaded automatically if empty"
             fi
-            
+
             echo "Custom whitelists saved to: ${{ inputs.custom_whitelists_path }}"
           else
             # Just display the whitelist JSON

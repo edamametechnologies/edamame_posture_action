@@ -196,8 +196,13 @@ jobs:
           echo "verify.outcome=${{ steps.verify.outcome }}"
           echo "ci_ready=${{ matrix.ci_ready }}"
           echo "require_failure=${{ matrix.require_failure }}"
-          nonconforming="$(grep -ci 'whitelisted:[[:space:]]*NonConforming' ./exceptions.log 2>/dev/null || echo 0)"
-          unknown="$(grep -ci 'whitelisted:[[:space:]]*Unknown' ./exceptions.log 2>/dev/null || echo 0)"
+          to_int() {
+            raw="$(printf '%s' "${1:-}" | tr -cd '0-9')"
+            [[ -n "$raw" ]] || raw="0"
+            printf '%s' "$raw"
+          }
+          nonconforming="$(to_int "$(grep -ci 'whitelisted:[[:space:]]*NonConforming' ./exceptions.log 2>/dev/null || true)")"
+          unknown="$(to_int "$(grep -ci 'whitelisted:[[:space:]]*Unknown' ./exceptions.log 2>/dev/null || true)")"
           echo "exceptions.nonconforming=$nonconforming"
           echo "exceptions.unknown=$unknown"
 
