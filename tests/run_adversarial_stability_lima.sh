@@ -51,6 +51,9 @@ done
 command -v limactl >/dev/null 2>&1 || fail "Missing limactl"
 command -v jq >/dev/null 2>&1 || fail "Missing jq"
 
+VM_REPO_DIR="$ROOT_DIR"
+VM_REPO_DIR_ESCAPED="$(printf '%q' "$VM_REPO_DIR")"
+
 IFS=',' read -r -a scenario_list <<< "$SCENARIOS"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 HOST_OUT_DIR="$ROOT_DIR/tests/artifacts/adversarial_stability_lima/$RUN_ID"
@@ -68,18 +71,26 @@ for iter in $(seq 1 "$ITERATIONS"); do
     log "Running scenario=$scenario"
 
     # Run scenario in VM; write artifacts to /tmp inside VM to avoid read-only mounts.
+    scenario_q="$(printf '%q' "$scenario")"
+    mode_q="$(printf '%q' "$MODE")"
+    remote_cmd="cd ${VM_REPO_DIR_ESCAPED} && ./tests/run_adversarial_lima.sh --scenario ${scenario_q} --mode ${mode_q} --output-dir /tmp/adversarial_local"
     if limactl shell "$VM_NAME" sudo -n /bin/bash -lc \
-      "cd '/Users/flyonnet/Programming/edamame_posture_action' && ./tests/run_adversarial_lima.sh --scenario '$scenario' --mode '$MODE' --output-dir /tmp/adversarial_local" \
+      "$remote_cmd" \
       >"$HOST_OUT_DIR/${iter}_${scenario}.stdout.log" 2>&1; then
       :
     fi
 
-    # Find most recent run directory in VM.
-    vm_latest="$(limactl shell "$VM_NAME" /bin/bash -lc "ls -1t /tmp/adversarial_local 2>/dev/null | head -1" 2>/dev/null || true)"
-    [[ -n "$vm_latest" ]] || fail "Could not find /tmp/adversarial_local runs in VM"
+    # Prefer the run directory emitted by the runner (more reliable than "latest").
+    run_dir="$(sed -n 's/^\\[adversarial\\] Evidence directory: //p' "$HOST_OUT_DIR/${iter}_${scenario}.stdout.log" | tail -1 || true)"
+    if [[ -n "${run_dir:-}" ]]; then
+      vm_summary_path="${run_dir}/${scenario}/result_summary.json"
+    else
+      vm_latest="$(limactl shell "$VM_NAME" /bin/bash -lc "ls -1t /tmp/adversarial_local 2>/dev/null | head -1" 2>/dev/null || true)"
+      [[ -n "$vm_latest" ]] || fail "Could not find /tmp/adversarial_local runs in VM"
+      vm_summary_path="/tmp/adversarial_local/${vm_latest}/${scenario}/result_summary.json"
+    fi
 
     # Fetch result summary to host for aggregation.
-    vm_summary_path="/tmp/adversarial_local/${vm_latest}/${scenario}/result_summary.json"
     summary_json="$(limactl shell "$VM_NAME" /bin/bash -lc "cat '$vm_summary_path' 2>/dev/null" 2>/dev/null || true)"
     if [[ -z "$summary_json" ]]; then
       # If the scenario failed before writing result_summary, record as fail.

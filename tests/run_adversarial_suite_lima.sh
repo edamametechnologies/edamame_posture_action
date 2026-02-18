@@ -51,6 +51,9 @@ command -v jq >/dev/null 2>&1 || fail "Missing jq"
 CONFIG_JSON="$ROOT_DIR/tests/adversarial_scenarios.json"
 [[ -f "$CONFIG_JSON" ]] || fail "Missing scenario config: $CONFIG_JSON"
 
+VM_REPO_DIR="$ROOT_DIR"
+VM_REPO_DIR_ESCAPED="$(printf '%q' "$VM_REPO_DIR")"
+
 declare -a scenario_list=()
 if [[ "$SCENARIOS" == "all" ]]; then
   while IFS= read -r s; do scenario_list+=("$s"); done < <(jq -r '.scenarios[].id' "$CONFIG_JSON")
@@ -80,8 +83,11 @@ for scenario in "${scenario_list[@]}"; do
     log "Attempt $attempt/$((MAX_RETRIES + 1))"
 
     set +e
+    scenario_q="$(printf '%q' "$scenario")"
+    mode_q="$(printf '%q' "$MODE")"
+    remote_cmd="cd ${VM_REPO_DIR_ESCAPED} && ./tests/run_adversarial_lima.sh --scenario ${scenario_q} --mode ${mode_q} --output-dir /tmp/adversarial_local"
     limactl shell "$VM_NAME" sudo -n /bin/bash -lc \
-      "cd '/Users/flyonnet/Programming/edamame_posture_action' && ./tests/run_adversarial_lima.sh --scenario '$scenario' --mode '$MODE' --output-dir /tmp/adversarial_local" \
+      "$remote_cmd" \
       >"$OUT_DIR/${scenario}.stdout.log" 2>&1
     rc=$?
     set -e
@@ -94,11 +100,16 @@ for scenario in "${scenario_list[@]}"; do
     fi
 
     # Non-zero can mean test failure; still fetch result_summary if present.
-    vm_latest="$(limactl shell "$VM_NAME" /bin/bash -lc "ls -1t /tmp/adversarial_local 2>/dev/null | head -1" 2>/dev/null || true)"
-    if [[ -n "$vm_latest" ]]; then
-      vm_summary="/tmp/adversarial_local/${vm_latest}/${scenario}/result_summary.json"
-      limactl shell "$VM_NAME" /bin/bash -lc "cat '$vm_summary' 2>/dev/null" \
-        >"$OUT_DIR/${scenario}.result_summary.json" 2>/dev/null || true
+    run_dir="$(sed -n 's/^\\[adversarial\\] Evidence directory: //p' "$OUT_DIR/${scenario}.stdout.log" | tail -1 || true)"
+    if [[ -n "${run_dir:-}" ]]; then
+      vm_summary="${run_dir}/${scenario}/result_summary.json"
+      limactl shell "$VM_NAME" /bin/bash -lc "cat '$vm_summary' 2>/dev/null" >"$OUT_DIR/${scenario}.result_summary.json" 2>/dev/null || true
+    else
+      vm_latest="$(limactl shell "$VM_NAME" /bin/bash -lc "ls -1t /tmp/adversarial_local 2>/dev/null | head -1" 2>/dev/null || true)"
+      if [[ -n "$vm_latest" ]]; then
+        vm_summary="/tmp/adversarial_local/${vm_latest}/${scenario}/result_summary.json"
+        limactl shell "$VM_NAME" /bin/bash -lc "cat '$vm_summary' 2>/dev/null" >"$OUT_DIR/${scenario}.result_summary.json" 2>/dev/null || true
+      fi
     fi
 
     if [[ -f "$OUT_DIR/${scenario}.result_summary.json" ]] && jq -e '.pass == true' "$OUT_DIR/${scenario}.result_summary.json" >/dev/null 2>&1; then

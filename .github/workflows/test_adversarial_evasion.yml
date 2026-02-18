@@ -92,6 +92,10 @@ jobs:
           disconnected_mode: true
           network_scan: true
           packet_capture: true
+          # Keep this workflow deterministic: enforce violations at verification time,
+          # not during background capture.
+          check_blacklist: false
+          check_anomalous: false
           whitelist: github_ubuntu
 
       - name: Prepare Python
@@ -118,6 +122,22 @@ jobs:
           set_custom_whitelists: true
           custom_whitelists_path: ./custom_whitelist.json
 
+      - name: Verify custom whitelist is active
+        run: |
+          endpoint_count="$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' ./custom_whitelist.json 2>/dev/null || echo 0)"
+          echo "custom_whitelist endpoint_count=$endpoint_count"
+          if [[ "$endpoint_count" -le 0 ]]; then
+            echo "Baseline custom whitelist is empty; refusing to run adversarial scenario."
+            exit 1
+          fi
+
+          active="$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo unknown)"
+          echo "active_whitelist=$active"
+          if [[ "$active" != "custom_whitelist" ]]; then
+            echo "Custom whitelist was not loaded into the daemon."
+            exit 1
+          fi
+
       - name: Execute adversarial scenario
         run: |
           jq -r --arg s "${{ matrix.scenario }}" '.scenarios[] | select(.id == $s) | .command' \
@@ -140,11 +160,34 @@ jobs:
       - name: Collect exceptions for diagnostics
         if: always()
         run: |
-          $EDAMAME_POSTURE_CMD get-exceptions > ./exceptions.log 2>&1 || true
+          # Exceptions can be populated asynchronously; retry briefly for deterministic evidence capture.
+          for i in {1..8}; do
+            $EDAMAME_POSTURE_CMD get-exceptions > ./exceptions.log 2>&1 || true
+            if grep -qi 'whitelisted:' ./exceptions.log 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
           echo "Exceptions summary"
           echo "  NonConforming: $(grep -ci 'whitelisted:[[:space:]]*NonConforming' ./exceptions.log || echo 0)"
           echo "  Unknown: $(grep -ci 'whitelisted:[[:space:]]*Unknown' ./exceptions.log || echo 0)"
           echo "  Anomalous strings: $(grep -ci 'anomalous' ./exceptions.log || echo 0)"
+
+      - name: Collect sessions for diagnostics
+        if: always()
+        run: |
+          $EDAMAME_POSTURE_CMD get-sessions > ./sessions.log 2>&1 || true
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adversarial-${{ matrix.scenario }}-${{ github.run_id }}
+          path: |
+            ./custom_whitelist.json
+            ./payload.sh
+            ./exceptions.log
+            ./sessions.log
 
       - name: Gate core scenario
         if: always()
@@ -153,10 +196,19 @@ jobs:
           echo "verify.outcome=${{ steps.verify.outcome }}"
           echo "ci_ready=${{ matrix.ci_ready }}"
           echo "require_failure=${{ matrix.require_failure }}"
+          nonconforming="$(grep -ci 'whitelisted:[[:space:]]*NonConforming' ./exceptions.log 2>/dev/null || echo 0)"
+          unknown="$(grep -ci 'whitelisted:[[:space:]]*Unknown' ./exceptions.log 2>/dev/null || echo 0)"
+          echo "exceptions.nonconforming=$nonconforming"
+          echo "exceptions.unknown=$unknown"
 
           if [[ "${{ matrix.ci_ready }}" != "true" ]]; then
             echo "Non-CI-ready scenario: not gating."
             exit 0
+          fi
+
+          if [[ "${STRICT_MODE}" == "true" && "${{ matrix.require_failure }}" == "true" && $((nonconforming + unknown)) -le 0 ]]; then
+            echo "Expected whitelist exceptions in strict mode but none were captured."
+            exit 1
           fi
 
           if [[ "${STRICT_MODE}" == "true" && "${{ matrix.require_failure }}" == "true" && "${{ steps.verify.outcome }}" != "failure" ]]; then
