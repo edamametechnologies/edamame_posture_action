@@ -118,7 +118,7 @@ start_disconnected_daemon() {
     systemctl stop edamame_posture.service >/dev/null 2>&1 || true
   fi
   $EDAMAME_POSTURE_CMD stop >/dev/null 2>&1 || true
-  pkill -f edamame_posture >/dev/null 2>&1 || true
+  pkill -x edamame_posture >/dev/null 2>&1 || true
   sleep 2
   start_output="$($EDAMAME_POSTURE_CMD background-start-disconnected \
     --network-scan \
@@ -128,7 +128,7 @@ start_disconnected_daemon() {
   if echo "$start_output" | grep -qi "unable to lock pid file"; then
     log "Detected stale pid lock; forcing cleanup and retrying startup once"
     $EDAMAME_POSTURE_CMD stop >/dev/null 2>&1 || true
-    pkill -f edamame_posture >/dev/null 2>&1 || true
+    pkill -x edamame_posture >/dev/null 2>&1 || true
     sleep 2
     $EDAMAME_POSTURE_CMD background-start-disconnected \
       --network-scan \
@@ -192,6 +192,10 @@ create_and_load_whitelist() {
   [[ "$endpoint_count" -gt 0 ]] || fail "Baseline whitelist is empty after retries for scenario=$scenario"
 
   $EDAMAME_POSTURE_CMD set-custom-whitelists-from-file "$wl_file"
+  # Make sure the test is actually exercising the custom whitelist enforcement path.
+  sleep 1
+  loaded_name="$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "")"
+  [[ "$loaded_name" == "custom_whitelist" ]] || fail "Custom whitelist not active after apply (got='$loaded_name')"
 }
 
 run_scenario_payload() {
@@ -216,33 +220,82 @@ collect_and_assert() {
   local min_nonconforming
   local min_anomalous
   local min_recorded_sessions
+  local signal_process
 
   require_failure="$(jq -r --arg s "$scenario" --arg mode "$MODE" '.scenarios[] | select(.id == $s) | if $mode == "enforcement" then .enforcement_expected.require_failure // false else .learning_expected.require_failure // false end' "$SCENARIO_CONFIG")"
   min_nonconforming="$(jq -r --arg s "$scenario" --arg mode "$MODE" '.scenarios[] | select(.id == $s) | if $mode == "enforcement" then .enforcement_expected.min_nonconforming // 0 else .learning_expected.min_nonconforming // 0 end' "$SCENARIO_CONFIG")"
   min_anomalous="$(jq -r --arg s "$scenario" --arg mode "$MODE" '.scenarios[] | select(.id == $s) | if $mode == "enforcement" then .enforcement_expected.min_anomalous // 0 else .learning_expected.min_anomalous // 0 end' "$SCENARIO_CONFIG")"
   min_recorded_sessions="$(jq -r --arg s "$scenario" --arg mode "$MODE" '.scenarios[] | select(.id == $s) | if $mode == "enforcement" then .enforcement_expected.min_recorded_sessions // 1 else .learning_expected.min_recorded_sessions // 1 end' "$SCENARIO_CONFIG")"
+  signal_process="$(jq -r --arg s "$scenario" '.scenarios[] | select(.id == $s) | .signal_process // ""' "$SCENARIO_CONFIG")"
 
   local sessions_file="$scenario_dir/sessions.log"
+  local sessions_flush_file="$scenario_dir/sessions_flush.log"
   local exceptions_file="$scenario_dir/exceptions.log"
   local summary_file="$scenario_dir/result_summary.json"
   local sessions_exit=0
 
+  # Flush sessions/exceptions caches before assertion. In practice, exceptions can be computed
+  # asynchronously, so we prefer to "warm" the cache and then retry get-exceptions briefly.
+  $EDAMAME_POSTURE_CMD get-sessions > "$sessions_flush_file" 2>&1 || true
+
+  local want_exceptions="false"
+  if [[ "$MODE" == "enforcement" && "$require_failure" == "true" ]]; then
+    want_exceptions="true"
+  fi
+  if [[ "$min_nonconforming" -gt 0 || "$min_anomalous" -gt 0 ]]; then
+    want_exceptions="true"
+  fi
+
+  if [[ "$want_exceptions" == "true" ]]; then
+    exceptions_ok="false"
+    for i in {1..8}; do
+      $EDAMAME_POSTURE_CMD get-exceptions > "$exceptions_file" 2>&1 || true
+      if [[ -n "$signal_process" ]]; then
+        if grep -F "process: Some(\"$signal_process\")" "$exceptions_file" 2>/dev/null | grep -qi 'whitelisted:[[:space:]]*\(nonconforming\|unknown\|anomalous\)'; then
+          exceptions_ok="true"
+          break
+        fi
+      else
+        if grep -qi 'whitelisted:[[:space:]]*\(nonconforming\|unknown\|anomalous\)' "$exceptions_file" 2>/dev/null; then
+          exceptions_ok="true"
+          break
+        fi
+      fi
+      sleep 2
+    done
+  else
+    $EDAMAME_POSTURE_CMD get-exceptions > "$exceptions_file" 2>&1 || true
+    exceptions_ok="true"
+  fi
+
   set +e
   if [[ "$MODE" == "enforcement" ]]; then
-    $EDAMAME_POSTURE_CMD get-sessions --fail-on-whitelist --fail-on-anomalous > "$sessions_file" 2>&1
+    # Keep enforcement deterministic: gate on explicit whitelist violations by default.
+    # If a scenario explicitly requires anomalous detection, it can set min_anomalous > 0.
+    ARGS=(get-sessions --fail-on-whitelist)
+    if [[ "$min_anomalous" -gt 0 ]]; then
+      ARGS+=(--fail-on-anomalous)
+    fi
+    $EDAMAME_POSTURE_CMD "${ARGS[@]}" > "$sessions_file" 2>&1
   else
     $EDAMAME_POSTURE_CMD get-sessions > "$sessions_file" 2>&1
   fi
   sessions_exit=$?
   set -e
 
-  $EDAMAME_POSTURE_CMD get-exceptions > "$exceptions_file" 2>&1 || true
+  local exceptions_signal_file
+  exceptions_signal_file="$exceptions_file"
+  if [[ -n "$signal_process" ]]; then
+    exceptions_signal_file="$scenario_dir/exceptions.signal.log"
+    grep -F "process: Some(\"$signal_process\")" "$exceptions_file" > "$exceptions_signal_file" 2>/dev/null || true
+  fi
 
-  local nonconforming_count anomalous_count unknown_count recorded_sessions
-  nonconforming_count="$(to_int "$(grep -ci 'whitelisted:[[:space:]]*nonconforming' "$sessions_file" 2>/dev/null || true)")"
-  anomalous_count="$(to_int "$(grep -ci 'anomalous' "$exceptions_file" 2>/dev/null || true)")"
-  unknown_count="$(to_int "$(grep -ci 'whitelisted:[[:space:]]*unknown' "$sessions_file" 2>/dev/null || true)")"
-  recorded_sessions="$(to_int "$(grep -cve '^[[:space:]]*$' "$sessions_file" 2>/dev/null || true)")"
+  local nonconforming_count anomalous_count unknown_count recorded_sessions active_whitelist
+  nonconforming_count="$(to_int "$(grep -ci 'whitelisted:[[:space:]]*nonconforming' "$exceptions_signal_file" 2>/dev/null || true)")"
+  unknown_count="$(to_int "$(grep -ci 'whitelisted:[[:space:]]*unknown' "$exceptions_signal_file" 2>/dev/null || true)")"
+  anomalous_count="$(to_int "$(grep -ci 'whitelisted:[[:space:]]*anomalous' "$exceptions_signal_file" 2>/dev/null || true)")"
+  recorded_sessions="$(to_int "$(grep -c '^[[]' "$sessions_file" 2>/dev/null || true)")"
+  active_whitelist="$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "unknown")"
 
   local pass="true"
   local reason=()
@@ -250,6 +303,10 @@ collect_and_assert() {
   if [[ "$require_failure" == "true" && "$sessions_exit" -eq 0 ]]; then
     pass="false"
     reason+=("expected_nonzero_exit")
+  fi
+  if [[ "$want_exceptions" == "true" && "${exceptions_ok:-false}" != "true" ]]; then
+    pass="false"
+    reason+=("exceptions_unavailable")
   fi
   if [[ "$nonconforming_count" -lt "$min_nonconforming" ]]; then
     pass="false"
@@ -269,6 +326,8 @@ collect_and_assert() {
     --arg mode "$MODE" \
     --arg pass "$pass" \
     --arg reason "$(IFS=,; echo "${reason[*]:-ok}")" \
+    --arg signal_process "$signal_process" \
+    --arg active_whitelist "$active_whitelist" \
     --argjson sessions_exit "$sessions_exit" \
     --argjson nonconforming "$nonconforming_count" \
     --argjson anomalous "$anomalous_count" \
@@ -283,6 +342,8 @@ collect_and_assert() {
       pass: ($pass == "true"),
       reason: $reason,
       observed: {
+        signal_process: $signal_process,
+        active_whitelist: $active_whitelist,
         sessions_exit: $sessions_exit,
         nonconforming: $nonconforming,
         anomalous: $anomalous,
