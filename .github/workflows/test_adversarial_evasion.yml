@@ -114,13 +114,14 @@ jobs:
         with:
           create_custom_whitelists: true
           include_process_in_whitelist: ${{ matrix.include_process }}
-          custom_whitelists_path: ./custom_whitelist.json
+          # The action runs from $HOME; use an absolute path for consistency.
+          custom_whitelists_path: ${{ github.workspace }}/custom_whitelist.json
 
       - name: Apply baseline custom whitelist
         uses: ./
         with:
           set_custom_whitelists: true
-          custom_whitelists_path: ./custom_whitelist.json
+          custom_whitelists_path: ${{ github.workspace }}/custom_whitelist.json
 
       - name: Verify custom whitelist is active
         run: |
