@@ -7,7 +7,7 @@ Harden GitHub Actions runners and continuously verify runtime/network behavior t
 ### At a glance
 
 - **Runner hardening**: Baseline security checks + optional **auto-remediation** to reduce drift and obvious misconfigurations.
-- **Network anomaly detection**: Optional **network scanning** + **packet capture** to surface unexpected outbound traffic and suspicious destinations.
+- **Network anomaly detection**: Optional **network scanning** + **packet capture** with **L7 process attribution** (process name, path, parent lineage, open files, temp-origin detection) to surface unexpected outbound traffic and suspicious destinations.
 - **“Token loophole” mitigation (access control)**: Add an extra enforcement layer via **EDAMAME Hub** that continuously checks **identity + device posture + context** so **stolen tokens/keys can’t be used from untrusted endpoints**.
 - **Supply-chain / backdoor signals**: Detect “unexpected network behavior” patterns that show up in real incidents (e.g., **CVE-2025-30066**-style surprises) by comparing observed traffic to your expected baseline/allowlist.
 - **Developer-friendly**: Works on **Windows, Linux, and macOS** runners with copy/paste setup.
@@ -326,7 +326,9 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
 
 1. **Dump sessions log**  
    - If `dump_sessions_log` is true, retrieves network sessions from daemon
+   - Sessions include L7 process attribution (process name, path, parent chain, open files, temp-origin detection)
    - Enforces violations if whitelist is stable
+   - See [EDAMAME Core API MCP Reference](https://github.com/edamametechnologies/edamame_core_api/blob/main/MCP.md#l7-session-enrichment-fields) for complete session field documentation
 
 1. **Upload artifacts**  
    - Uploads auto-whitelist files to GitHub artifacts for next run
@@ -1785,7 +1787,8 @@ The following CLI arguments are intentionally not exposed in the GitHub Action:
 
 - `--zeek-format` - Not relevant for GitHub Actions output
 - Verbose flags (`-v`, `-vv`, `-vvv`) - Use debug mode instead
-- MCP server commands - Not needed in CI/CD
+- MCP server commands - Not needed in CI/CD (see [EDAMAME Core API MCP Reference](https://github.com/edamametechnologies/edamame_core_api/blob/main/MCP.md) for interactive use)
+- Identity management commands (add/remove pwned emails) - Available via MCP for interactive AI agents
 - Direct device/session management commands - Not relevant for CI/CD
 
 ### Special Handling
