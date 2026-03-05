@@ -227,40 +227,36 @@ runs:
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           cd
           # Install gh, wget, curl, jq using Chocolatey if not already installed
-          if ! choco list | grep -E '^gh[[:space:]]'; then
+          # Check command availability first (gh may be pre-installed on hosted runners outside Chocolatey)
+          if ! command -v gh &> /dev/null && ! choco list | grep -E '^gh[[:space:]]'; then
             echo "Installing gh..."
             choco install gh -y
+          else
+            echo "gh is already available: $(gh --version | head -1)"
           fi
 
-          if ! choco list | grep -E '^wget[[:space:]]'; then
+          if ! command -v wget &> /dev/null && ! choco list | grep -E '^wget[[:space:]]'; then
             echo "Installing wget..."
-            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install wget -y | grep -v "Progress:"
           fi
 
-          if ! choco list | grep -q '^curl[[:space:]]'; then
+          if ! command -v curl &> /dev/null && ! choco list | grep -q '^curl[[:space:]]'; then
             echo "Installing curl..."
-            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install curl -y | grep -v "Progress:"
           fi
 
-          if ! choco list | grep -q '^jq[[:space:]]'; then
+          if ! command -v jq &> /dev/null && ! choco list | grep -q '^jq[[:space:]]'; then
             echo "Installing jq..."
-            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install jq -y | grep -v "Progress:"
           fi
 
-          # Install node if not installed
-          if ! choco list | grep -q '^nodejs[[:space:]]'; then
+          if ! command -v node &> /dev/null && ! choco list | grep -q '^nodejs[[:space:]]'; then
             echo "Installing nodejs..."
-            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install nodejs -y | grep -v "Progress:"
           fi
 
-          # Install vcredist2015 if not installed
           if ! choco list | grep -q '^vcredist2015[[:space:]]'; then
             echo "Installing vcredist2015..."
-            # --no-progress is not supported by all Chocolatey version/systems, we rather filter lines with "Progress:"
             choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y | grep -v "Progress:"
           fi
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
