@@ -1,67 +1,37 @@
-# Test Scripts
+# Tests
 
-This directory contains test scripts for validating EDAMAME Posture Action features.
+## Auto-whitelist lifecycle
 
-## test_auto_whitelist_feature.sh
+- `test_auto_whitelist_feature.sh`: drives `.github/workflows/test_auto_whitelist_feature.yml` across multiple runs and checks artifact/state progression.
 
-Tests the actual `auto_whitelist: true` feature by sequentially triggering workflow runs and verifying the complete lifecycle.
+## Adversarial scenarios (CVE-style)
 
-### What it tests:
+Source of truth:
+- `adversarial_scenarios.json`: scenario definitions and expected outcomes (`learning` vs `enforcement`).
 
-1. **Artifact Cleanup**: Ensures a clean state by deleting existing artifacts
-2. **Sequential Workflow Runs**: Triggers multiple workflow runs one after another
-3. **Lifecycle Verification**: 
-   - First run creates initial whitelist
-   - Subsequent runs augment the whitelist
-   - Checks for stability (no changes for N consecutive runs)
-4. **Status Validation**: Verifies each run completes successfully
-5. **Stability Detection**: Confirms when auto-whitelist reaches stable state
+Local runner:
+- `run_adversarial_lima.sh`: executes one scenario (or `all`) and writes evidence to the chosen output directory.
 
-### Prerequisites:
+Stability runners:
+- `run_adversarial_stability.sh`: repeated local runs (single machine) and a JSON summary.
+- `run_adversarial_stability_lima.sh`: host-driven stability runner for a Lima VM.
 
-- `gh` CLI installed (`brew install gh` or see [GitHub CLI docs](https://cli.github.com/))
-- Authenticated with GitHub (`gh auth login`)
-- Repository access to trigger workflows
-- `jq` installed for JSON parsing (usually pre-installed on macOS/Linux)
+Suite runner:
+- `run_adversarial_suite_lima.sh`: runs a full scenario set against a Lima VM and writes a local summary.
 
-### Usage:
+Examples:
 
 ```bash
-# From the repository root
-./tests/test_auto_whitelist_feature.sh
+./tests/run_adversarial_lima.sh --scenario dns_over_https --mode enforcement
+
+./tests/run_adversarial_stability_lima.sh \
+  --vm edamame-posture-action \
+  --iterations 3 \
+  --min-pass-rate 95 \
+  --max-unknown 0 \
+  --scenarios dns_over_https,cdn_piggyback,process_masquerade
 ```
 
-Or with explicit token:
-
-```bash
-GITHUB_TOKEN=your_token ./tests/test_auto_whitelist_feature.sh
-```
-
-### Configuration:
-
-Edit the script to customize:
-
-- `MAX_ITERATIONS`: Maximum number of workflow runs (default: 5)
-- `STABILITY_REQUIRED`: Number of consecutive stable runs needed (default: 3)
-- `ARTIFACT_NAME_PREFIX`: Artifact name prefix (default: "test-auto-whitelist-feature")
-
-### Expected Behavior:
-
-1. **Iteration 1**: Creates initial whitelist from captured traffic
-2. **Iteration 2**: Augments whitelist with new endpoints (if any)
-3. **Iterations 3-5**: Continues until stability is reached (no changes for 3 consecutive runs)
-
-### Output:
-
-The script provides:
-- Color-coded status for each iteration
-- Artifact download and validation
-- Stability count tracking
-- Final test verdict (PASS/FAIL)
-
-### Troubleshooting:
-
-- **Workflow not triggering**: Check `gh auth status` and repository permissions
-- **Artifacts not found**: Ensure workflow completed successfully and artifacts were uploaded
-- **Stability not reached**: May need more iterations - increase `MAX_ITERATIONS`
+Evidence:
+- `tests/artifacts/` is gitignored; scripts write structured summaries and per-scenario logs there by default.
 

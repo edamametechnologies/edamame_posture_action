@@ -1,11 +1,13 @@
 # EDAMAME Posture GitHub Action
 
+> Part of the **[EDAMAME Agents](https://github.com/edamametechnologies#edamame-agents)** family - AI-powered security assistants for the modern SDLC with shared LLM subscription via [EDAMAME Portal](https://portal.edamame.tech).
+
 Harden GitHub Actions runners and continuously verify runtime/network behavior to catch suspicious activity fast — before it turns into source/code or secret exfiltration.
 
 ### At a glance
 
 - **Runner hardening**: Baseline security checks + optional **auto-remediation** to reduce drift and obvious misconfigurations.
-- **Network anomaly detection**: Optional **network scanning** + **packet capture** to surface unexpected outbound traffic and suspicious destinations.
+- **Network anomaly detection**: Optional **network scanning** + **packet capture** with **L7 process attribution** (process name, path, parent lineage, open files, temp-origin detection) to surface unexpected outbound traffic and suspicious destinations.
 - **“Token loophole” mitigation (access control)**: Add an extra enforcement layer via **EDAMAME Hub** that continuously checks **identity + device posture + context** so **stolen tokens/keys can’t be used from untrusted endpoints**.
 - **Supply-chain / backdoor signals**: Detect “unexpected network behavior” patterns that show up in real incidents (e.g., **CVE-2025-30066**-style surprises) by comparing observed traffic to your expected baseline/allowlist.
 - **Developer-friendly**: Works on **Windows, Linux, and macOS** runners with copy/paste setup.
@@ -53,6 +55,30 @@ jobs:
 - `whitelist`: Default list to enforce (e.g., `github`, auto-suffixed per OS).
 - `auto_whitelist`: Automate learning → augmentation → enforcement lifecycle.
 - `dump_sessions_log` + `exit_on_*`: Fail the workflow on violations at teardown.
+
+## Adversarial Coverage (CVE-Style)
+
+This repository includes adversarial tests that exercise runtime network-policy enforcement against CVE-2025-30066-style behavior.
+
+Covered patterns:
+- allowed-domain exfiltration (non-gating)
+- DNS-over-HTTPS
+- CDN piggybacking
+- process masquerade
+
+Configuration and runners:
+- `tests/adversarial_scenarios.json` (source of truth for scenarios and expected outcomes)
+- `tests/run_adversarial_lima.sh` (local runner)
+- `.github/workflows/test_adversarial_evasion.yml` (CI runner; matrix is generated from `tests/adversarial_scenarios.json`)
+
+Local example:
+
+```bash
+./tests/run_adversarial_lima.sh --scenario dns_over_https --mode enforcement
+```
+
+Limitations:
+- This validates runtime policy enforcement and behavioral signals; it is not a CVE signature scanner.
 
 ## Installation Behavior
 
@@ -300,7 +326,9 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
 
 1. **Dump sessions log**  
    - If `dump_sessions_log` is true, retrieves network sessions from daemon
+   - Sessions include L7 process attribution (process name, path, parent chain, open files, temp-origin detection)
    - Enforces violations if whitelist is stable
+   - See [EDAMAME Core API MCP Reference](https://github.com/edamametechnologies/edamame_core_api/blob/main/MCP.md#l7-session-enrichment-fields) for complete session field documentation
 
 1. **Upload artifacts**  
    - Uploads auto-whitelist files to GitHub artifacts for next run
@@ -1627,7 +1655,7 @@ For public repos that need access to private repos (or other restricted endpoint
 This GitHub Action is part of the broader EDAMAME security ecosystem:
 
 - **EDAMAME Core**: The core implementation used by all EDAMAME components (closed source)
-- **[EDAMAME Security](https://github.com/edamametechnologies/edamame_security)**: Desktop/mobile security application with full UI and enhanced capabilities (closed source)
+- **[EDAMAME Security App](https://github.com/edamametechnologies/edamame_security)**: Desktop/mobile security application with full UI and enhanced capabilities (closed source)
 - **[EDAMAME Foundation](https://github.com/edamametechnologies/edamame_foundation)**: Foundation library providing security assessment functionality
 - **[EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli)**: CLI tool for security posture assessment and remediation
 - **[EDAMAME Helper](https://github.com/edamametechnologies/edamame_helper)**: Helper application for executing privileged security checks
@@ -1784,7 +1812,8 @@ The following CLI arguments are intentionally not exposed in the GitHub Action:
 
 - `--zeek-format` - Not relevant for GitHub Actions output
 - Verbose flags (`-v`, `-vv`, `-vvv`) - Use debug mode instead
-- MCP server commands - Not needed in CI/CD
+- MCP server commands - Not needed in CI/CD (see [EDAMAME Core API MCP Reference](https://github.com/edamametechnologies/edamame_core_api/blob/main/MCP.md) for interactive use)
+- Identity management commands (add/remove pwned emails) - Available via MCP for interactive AI agents
 - Direct device/session management commands - Not relevant for CI/CD
 
 ### Special Handling
