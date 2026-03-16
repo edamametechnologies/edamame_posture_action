@@ -15,7 +15,7 @@ Harden GitHub Actions runners and continuously verify runtime/network behavior t
 For the broader “Zero Trust at the GitHub layer” framing (identity + device + context, continuous verification per request), see: https://www.edamame.tech/zerotrust-github
 
 ## Overview
-This GitHub Action sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli), a security posture management tool.  
+This GitHub Action sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture), a security posture management tool.  
 It supports Windows, Linux, and macOS runners, checking for and installing any missing dependencies such as wget, curl, jq, Node.js, etc.
 
 ## Quickstart (copy/paste)
@@ -1657,7 +1657,7 @@ This GitHub Action is part of the broader EDAMAME security ecosystem:
 - **EDAMAME Core**: The core implementation used by all EDAMAME components (closed source)
 - **[EDAMAME Security App](https://github.com/edamametechnologies/edamame_security)**: Desktop/mobile security application with full UI and enhanced capabilities (closed source)
 - **[EDAMAME Foundation](https://github.com/edamametechnologies/edamame_foundation)**: Foundation library providing security assessment functionality
-- **[EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli)**: CLI tool for security posture assessment and remediation
+- **[EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture)**: CLI tool for security posture assessment and remediation
 - **[EDAMAME Helper](https://github.com/edamametechnologies/edamame_helper)**: Helper application for executing privileged security checks
 - **[EDAMAME CLI](https://github.com/edamametechnologies/edamame_cli)**: Interface to EDAMAME core services
 - **[GitHub Action](https://github.com/edamametechnologies/edamame_posture_action)**: CI/CD integration to enforce posture and network controls
