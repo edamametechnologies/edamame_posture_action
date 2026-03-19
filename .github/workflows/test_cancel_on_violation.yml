@@ -10,6 +10,8 @@ on:
     branches:
         - 'dev'
         - 'main'
+    paths:
+      - 'action.yml'
           
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

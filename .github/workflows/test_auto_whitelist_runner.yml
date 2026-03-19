@@ -13,6 +13,8 @@ on:
   workflow_dispatch:
   push:
     branches: ['dev', 'main']
+    paths:
+      - 'action.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
