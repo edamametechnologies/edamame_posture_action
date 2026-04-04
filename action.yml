@@ -109,6 +109,22 @@ inputs:
     description: "Exit with error when anomalous sessions are detected (directly passed to get-sessions)"
     required: false
     default: "false"
+  file_monitoring:
+    description: "Enable file integrity monitoring during the workflow"
+    required: false
+    default: "false"
+  file_monitoring_paths:
+    description: "Comma-separated paths to monitor (default: workspace + temp dirs)"
+    required: false
+    default: ""
+  check_file_tampering:
+    description: "Report file integrity monitoring events in the dump step"
+    required: false
+    default: "false"
+  exit_on_file_tampering:
+    description: "Exit with error when suspicious file events are detected"
+    required: false
+    default: "false"
   report_email:
     description: "Report email address"
     required: false
@@ -1197,6 +1213,16 @@ runs:
           fi
 
           $EDAMAME_POSTURE_CMD "${START_ARGS[@]}"
+
+          # Start file integrity monitoring if requested
+          if [[ "${{ inputs.file_monitoring }}" == "true" ]]; then
+            echo "Starting file integrity monitoring..."
+            FIM_ARGS=(start-file-monitor)
+            if [[ "${{ inputs.file_monitoring_paths }}" != "" ]]; then
+              FIM_ARGS+=(--paths "${{ inputs.file_monitoring_paths }}")
+            fi
+            $EDAMAME_POSTURE_CMD "${FIM_ARGS[@]}" || echo "[WARNING] Failed to start file monitor"
+          fi
         fi
       shell: bash
 
@@ -4203,6 +4229,19 @@ runs:
         AUTO_WHITELIST_ENABLED: ${{ env.AUTO_WHITELIST_ENABLED }}
         AUTO_WHITELIST_STABLE: ${{ env.AUTO_WHITELIST_STABLE }}
         PROMOTE_EXCEPTIONS: ${{ inputs.promote_exceptions }}
+
+    - name: Check file integrity monitoring events
+      if: ${{ inputs.check_file_tampering == 'true' }}
+      run: |
+        echo "Checking file integrity monitoring events..."
+        FIM_ARGS=(get-file-events)
+        if [[ "${{ inputs.exit_on_file_tampering }}" == "true" ]]; then
+          FIM_ARGS+=(--fail-on-suspicious)
+        fi
+        $EDAMAME_POSTURE_CMD "${FIM_ARGS[@]}"
+      shell: bash
+      env:
+        EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
 
     - name: Display logs if requested
       run: |
