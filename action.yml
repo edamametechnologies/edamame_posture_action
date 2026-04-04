@@ -1221,7 +1221,10 @@ runs:
             if [[ "${{ inputs.file_monitoring_paths }}" != "" ]]; then
               FIM_ARGS+=(--paths "${{ inputs.file_monitoring_paths }}")
             fi
-            $EDAMAME_POSTURE_CMD "${FIM_ARGS[@]}" || echo "[WARNING] Failed to start file monitor"
+            if ! $EDAMAME_POSTURE_CMD "${FIM_ARGS[@]}"; then
+              echo "::error::Failed to start file integrity monitor"
+              exit 1
+            fi
           fi
         fi
       shell: bash
