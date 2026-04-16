@@ -213,10 +213,6 @@ inputs:
     description: "Display logs"
     required: false
     default: "false"
-  force_binary:
-    description: "Skip package managers, download binary directly from GitHub release"
-    required: false
-    default: "false"
   debug:
     description: "Debug mode"
     required: false
@@ -679,11 +675,6 @@ runs:
         fi
         if [[ "${{ inputs.agentic_interval }}" != "3600" && -n "${{ inputs.agentic_interval }}" ]]; then
           INSTALL_ARGS+=(--agentic-interval "${{ inputs.agentic_interval }}")
-        fi
-        
-        # Add force binary flag (skip package managers)
-        if [[ "${{ inputs.force_binary }}" == "true" ]]; then
-          INSTALL_ARGS+=(--force-binary)
         fi
         
         # Add debug build flag
