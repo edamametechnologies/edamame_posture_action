@@ -89,16 +89,24 @@ This action uses an intelligent installation strategy that prefers package manag
 When the action is called multiple times in the same workflow (e.g., setup → policy checks → augment → stop), it intelligently skips redundant operations:
 
 **Initial Setup Call (credentials provided):**
-- Passes all parameters to installer
+- Runs the installer to download/upgrade the binary
 - Installer configures service/daemon
 - Service starts with network flags
 - Packet capture begins
 
 **Subsequent Calls (policy checks, augment, dump, stop):**
-- Skips passing credentials to installer
-- Installer detects existing installation and skips everything (fast)
+- Skips the installer step entirely
+- Avoids any chance of stopping the running daemon for a binary refresh
 - Service keeps running with original configuration
 - Packet capture data preserved for augmentation
+
+The installer is skipped when any of the following inputs is set, since these
+operations target an already-running daemon and a surprise binary refresh
+could otherwise kill it mid-workflow:
+
+- `stop`, `dump_sessions_log`
+- `edamame_policy`, `edamame_minimum_score`
+- `create_custom_whitelists`, `augment_custom_whitelists`
 
 ### Package Manager Priority (Default)
 
