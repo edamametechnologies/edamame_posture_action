@@ -544,6 +544,24 @@ runs:
 
     - name: Install or Update EDAMAME Posture
       id: install_posture
+      # Skip the installer entirely for non-setup operations (policy checks,
+      # dump_sessions_log, stop, custom-whitelist ops). install.sh performs an
+      # unconditional binary-refresh-on-checksum-mismatch that would stop the
+      # running daemon; stopping it during a post-step breaks downstream
+      # verification because the same install.sh invocation would not restart
+      # the daemon without credentials/network flags.
+      #
+      # The in-step IS_INITIAL_SETUP guard below is retained as defense in
+      # depth: even if this step ever does run for a post-step operation
+      # (e.g. a future condition is added to one side only), the installer
+      # will still be invoked without credentials and without network flags.
+      if: >
+        inputs.stop != 'true' &&
+        inputs.dump_sessions_log != 'true' &&
+        inputs.edamame_policy == '' &&
+        inputs.edamame_minimum_score == '' &&
+        inputs.create_custom_whitelists != 'true' &&
+        inputs.augment_custom_whitelists != 'true'
       shell: bash
       env:
         INSTALL_STATE_FILE: ${{ runner.temp }}/edamame_install_state
