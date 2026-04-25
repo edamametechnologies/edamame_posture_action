@@ -55,6 +55,7 @@ jobs:
 - `whitelist`: Default list to enforce (e.g., `github`, auto-suffixed per OS).
 - `auto_whitelist`: Automate learning → augmentation → enforcement lifecycle.
 - `dump_sessions_log` + `exit_on_*`: Fail the workflow on violations at teardown.
+- `vulnerability_detection` + `dump_vulnerability_findings`: Start the runtime CVE-style detector and fail later if active findings exist.
 
 ## Adversarial Coverage (CVE-Style)
 
@@ -79,6 +80,42 @@ Local example:
 
 Limitations:
 - This validates runtime policy enforcement and behavioral signals; it is not a CVE signature scanner.
+
+## Runtime Vulnerability Gate
+
+Use this when you want the CI job to stop on EDAMAME runtime vulnerability findings, similar to `exit_on_whitelist_exceptions` or `exit_on_blacklisted_sessions`.
+
+This gate does **not** require an LLM provider or API key. The detector emits model-independent runtime findings from packet capture, blacklist/anomaly evidence, file integrity events, and host telemetry. For CI/security gates, though, configuring an LLM is strongly recommended: EDAMAME can use it for adjudication, suppression of likely false positives, and clearer human-readable alert text. Without an LLM, raw detector findings still gate the workflow.
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start EDAMAME runtime monitoring
+        uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          disconnected_mode: true
+          network_scan: true
+          packet_capture: true
+          vulnerability_detection: true
+          vulnerability_detection_interval: "60"
+
+      - name: Build and test
+        run: |
+          ./build.sh
+          ./test.sh
+
+      - name: Stop on runtime vulnerability findings
+        uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          dump_vulnerability_findings: true
+          exit_on_vulnerability_findings: true
+```
+
+The final step prints the detector status and fails the workflow when `active_findings` is greater than zero.
 
 ## Installation Behavior
 
@@ -207,6 +244,10 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true)
 - `exit_on_blacklisted_sessions`: Exit with error when blacklisted sessions are detected (default: false)
 - `exit_on_anomalous_sessions`: Exit with error when anomalous sessions are detected (default: false)
+- `vulnerability_detection`: Start the runtime vulnerability detector during setup (default: false)
+- `vulnerability_detection_interval`: Detector tick interval in seconds (default: 60)
+- `dump_vulnerability_findings`: Print runtime vulnerability detector status/findings in a later action invocation (default: false)
+- `exit_on_vulnerability_findings`: Exit with error when active runtime vulnerability findings are detected (default: true)
 - `report_email`: Send a compliance report to this email address (default: "")
 - `create_custom_whitelists`: Create custom whitelists from captured network sessions (default: false)
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")

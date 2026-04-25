@@ -14,6 +14,8 @@ REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner
 WORKFLOW_FILE=".github/workflows/test_auto_whitelist_feature.yml"
 ARTIFACT_NAME_PREFIX="test-auto-whitelist-feature"
 BRANCH="${GITHUB_REF_NAME:-$(git branch --show-current 2>/dev/null || echo "main")}"
+ARTIFACT_NAME="$ARTIFACT_NAME_PREFIX-$BRANCH"
+STATE_ARTIFACT_NAME="$ARTIFACT_NAME_PREFIX-state-$BRANCH"
 MAX_ITERATIONS=20
 STABILITY_REQUIRED=3
 
@@ -84,7 +86,7 @@ echo ""
 log_header "PHASE 1: Cleanup"
 
 log_step "Deleting existing auto-whitelist artifacts..."
-ARTIFACT_IDS=$(gh api repos/$REPO/actions/artifacts --paginate --jq ".artifacts[] | select(.name | startswith(\"$ARTIFACT_NAME_PREFIX\")) | .id" 2>/dev/null || true)
+ARTIFACT_IDS=$(gh api repos/$REPO/actions/artifacts --paginate --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" or .name == \"$STATE_ARTIFACT_NAME\") | .id" 2>/dev/null || true)
 
 if [[ -n "$ARTIFACT_IDS" ]]; then
     COUNT=0
@@ -108,13 +110,15 @@ declare -a RUN_STATUSES=()
 declare -a ENDPOINT_HISTORY=()
 LAST_ENDPOINT_COUNT=0
 STABLE_REACHED=false
+ENFORCEMENT_PENDING=false
+ENFORCEMENT_VERIFIED=false
 
 for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
     echo "------------------------------------------------------------------------"
     echo "  ITERATION $i / $MAX_ITERATIONS"
     echo "------------------------------------------------------------------------"
-    
+
     # Get the latest run ID before triggering
     LATEST_RUN_BEFORE=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || echo "")
     
@@ -198,10 +202,10 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     ELAPSED=0
     
     while [[ $ELAPSED -lt $MAX_WAIT_TIME ]]; do
-        ARTIFACT_EXISTS=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME_PREFIX-$BRANCH\") | .id" 2>/dev/null || echo "")
+        ARTIFACT_EXISTS=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id" 2>/dev/null || echo "")
         
         if [[ -n "$ARTIFACT_EXISTS" ]]; then
-            if gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME_PREFIX-$BRANCH" --dir "$TEMP_DIR" 2>/dev/null; then
+            if gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$TEMP_DIR" 2>/dev/null; then
                 if [[ -f "$TEMP_DIR/auto_whitelist.json" ]]; then
                     ARTIFACT_DOWNLOADED=true
                     break
@@ -255,12 +259,27 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "    Endpoints:  $CURRENT_ENDPOINT_COUNT (delta: $DELTA)"
     echo "    Stability:  $STABLE_COUNT / $STABILITY_REQUIRED"
     
-    # Check if stable
+    if [[ "$ENFORCEMENT_PENDING" == "true" ]]; then
+        echo ""
+        if [[ "$CONCLUSION" == "success" ]]; then
+            echo "✓ ENFORCEMENT VERIFIED"
+            echo "    Stable whitelist rejected the malicious endpoint as expected."
+            ENFORCEMENT_VERIFIED=true
+            break
+        fi
+        echo "✗ ENFORCEMENT FAILED"
+        echo "    Enforcement iteration did not complete successfully."
+        break
+    fi
+
+    # Check if stable. One additional run is required because enforcement
+    # only activates when a run starts with a previously stable whitelist.
     if [[ "$STABLE_COUNT" -ge "$STABILITY_REQUIRED" ]]; then
         echo ""
         echo "🎉 STABILITY REACHED!"
+        echo "  Triggering one more iteration to verify enforcement."
         STABLE_REACHED=true
-        break
+        ENFORCEMENT_PENDING=true
     fi
     
     # Delay between runs
@@ -312,18 +331,25 @@ echo ""
 echo ""
 echo "========================================================================"
 
-if [[ "$STABLE_REACHED" == "true" ]]; then
+if [[ "$ENFORCEMENT_VERIFIED" == "true" ]]; then
     echo "  ✅ TEST PASSED"
     echo ""
     echo "  Auto-whitelist completed full lifecycle:"
     echo "    • Baseline created"
     echo "    • Learning phase completed"  
     echo "    • Stability reached ($STABILITY_REQUIRED consecutive stable runs)"
-    echo "    • Ready for enforcement"
+    echo "    • Enforcement verified with a malicious endpoint"
     echo "========================================================================"
     exit 0
+elif [[ "$STABLE_REACHED" == "true" ]]; then
+    echo "  ❌ TEST FAILED"
+    echo ""
+    echo "  Stability was reached, but the required enforcement validation"
+    echo "  iteration did not pass."
+    echo "========================================================================"
+    exit 1
 elif [[ $FAILURE_COUNT -eq 0 ]]; then
-    echo "  ⚠️  TEST PARTIAL"
+    echo "  ❌ TEST FAILED"
     echo ""
     echo "  All $SUCCESS_COUNT iterations succeeded but stability not reached"
     echo "  after $MAX_ITERATIONS iterations."
@@ -332,7 +358,7 @@ elif [[ $FAILURE_COUNT -eq 0 ]]; then
     echo "    • Network traffic is still evolving"
     echo "    • More iterations needed"
     echo "========================================================================"
-    exit 0
+    exit 1
 else
     echo "  ❌ TEST FAILED"
     echo ""
