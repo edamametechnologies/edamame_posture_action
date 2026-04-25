@@ -60,6 +60,7 @@ jobs:
           packet_capture: true
           auto_whitelist: true
           auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
+          auto_whitelist_state_artifact_name: test-auto-whitelist-feature-state-${{ github.ref_name }}
 
       - name: "Wait for daemon"
         run: |
@@ -112,9 +113,14 @@ jobs:
           curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null && echo "OK" || echo "FAIL"
           
           # Iteration 2+: Additional endpoints to test augmentation
-          if [[ "${{ inputs.iteration }}" -ge "2" ]]; then
+          iteration="${{ inputs.iteration }}"
+          if ! [[ "$iteration" =~ ^[0-9]+$ ]]; then
+            echo "Invalid iteration value: $iteration"
+            exit 1
+          fi
+          if (( iteration >= 2 )); then
             echo ""
-            echo "Additional endpoints for iteration ${{ inputs.iteration }}:"
+            echo "Additional endpoints for iteration $iteration:"
             echo -n "www.npmjs.com: "
             curl -s --max-time 10 https://www.npmjs.com/ > /dev/null && echo "OK" || echo "FAIL"
           fi
@@ -130,18 +136,18 @@ jobs:
           cd
           if [[ -f "auto_whitelist_stable_count.txt" ]]; then
             STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
-            echo "stable_count=$STABLE_COUNT" >> $GITHUB_OUTPUT
+            echo "stable_count=$STABLE_COUNT" >> "$GITHUB_OUTPUT"
             echo "Current stability: $STABLE_COUNT/3"
             
-            if [[ "$STABLE_COUNT" -ge "3" ]]; then
+            if (( STABLE_COUNT >= 3 )); then
               echo "Whitelist is STABLE - enforcement mode active"
-              echo "is_stable=true" >> $GITHUB_OUTPUT
+              echo "is_stable=true" >> "$GITHUB_OUTPUT"
             else
-              echo "is_stable=false" >> $GITHUB_OUTPUT
+              echo "is_stable=false" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "stable_count=0" >> $GITHUB_OUTPUT
-            echo "is_stable=false" >> $GITHUB_OUTPUT
+            echo "stable_count=0" >> "$GITHUB_OUTPUT"
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: "CVE-2025-30066 Detection Test"
@@ -164,9 +170,8 @@ jobs:
           pip3 install --quiet requests 2>/dev/null || true
           
           # Create malicious script simulating CVE-2025-30066
-          cat > /tmp/malicious_build.py << 'EOF'
+          cat > /tmp/malicious_build.py <<'PY'
           import requests
-          import sys
           
           print("SIMULATING CVE-2025-30066 ATTACK VECTOR")
           print("=" * 50)
@@ -178,7 +183,7 @@ jobs:
               # This should be blocked by the whitelist
               response = requests.get(
                   "https://gist.githubusercontent.com/gewashington/a4d0211e6f8601b69ff74e30d9e3ca20/raw/9d3e37cf7742b41e39606e70aab7a4f971353749/practice-python-fibonnaci.py",
-                  timeout=10
+                  timeout=10,
               )
               print(f"Response status: {response.status_code}")
               print("Connection succeeded (should be detected as violation)")
@@ -187,11 +192,11 @@ jobs:
           
           print("")
           print("Attack vector simulation complete")
-          EOF
+          PY
           
           # Run the malicious script
           echo "Running malicious script..."
-          python3 /tmp/malicious_build.py || true
+          python3 /tmp/malicious_build.py
           
           echo ""
           echo "Waiting 30s for daemon to capture violation..."
@@ -202,9 +207,11 @@ jobs:
 
       # PHASE 3: Dump and analyze
       - name: "Dump sessions"
+        id: dump_sessions
         uses: ./
         with:
           dump_sessions_log: true
+        continue-on-error: true
 
       - name: "Analyze whitelist changes"
         if: always()
@@ -302,6 +309,50 @@ jobs:
               echo "WARNING: No exceptions log found"
             fi
           fi
+
+      - name: "Assert iteration outcome"
+        if: always()
+        run: |
+          set -euo pipefail
+          cd
+          is_stable="${{ steps.check_stable.outputs.is_stable }}"
+          dump_outcome="${{ steps.dump_sessions.outcome }}"
+          echo "is_stable=$is_stable"
+          echo "dump_sessions.outcome=$dump_outcome"
+
+          if [[ "$is_stable" != "true" ]]; then
+            if [[ "$dump_outcome" != "success" ]]; then
+              echo "Dump sessions failed during learning/stability confirmation."
+              exit 1
+            fi
+            echo "Learning iteration succeeded."
+            exit 0
+          fi
+
+          if [[ "$dump_outcome" != "failure" ]]; then
+            echo "Expected dump_sessions to fail in enforcement mode after malicious traffic."
+            exit 1
+          fi
+
+          for attempt in {1..8}; do
+            echo "Exception poll attempt $attempt/8"
+            $EDAMAME_POSTURE_CMD get-exceptions > /tmp/exceptions.log 2>/dev/null || true
+            if grep -q "gist.githubusercontent.com" /tmp/exceptions.log 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          malicious_exceptions=$(grep -c "gist.githubusercontent.com" /tmp/exceptions.log 2>/dev/null || echo "0")
+          echo "CVE-2025-30066 violations (gist.githubusercontent.com): $malicious_exceptions"
+          if [[ "$malicious_exceptions" -le 0 ]]; then
+            echo "Expected at least one gist.githubusercontent.com whitelist exception in enforcement mode."
+            echo "Exceptions log:"
+            cat /tmp/exceptions.log 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Enforcement iteration succeeded: malicious endpoint was detected and failed the gate."
 
       - name: "Stop EDAMAME Posture"
         if: always()

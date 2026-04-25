@@ -109,6 +109,22 @@ inputs:
     description: "Exit with error when anomalous sessions are detected (directly passed to get-sessions)"
     required: false
     default: "false"
+  vulnerability_detection:
+    description: "Start the runtime vulnerability detector during setup"
+    required: false
+    default: "false"
+  vulnerability_detection_interval:
+    description: "Runtime vulnerability detector tick interval in seconds"
+    required: false
+    default: "60"
+  dump_vulnerability_findings:
+    description: "Dump runtime vulnerability detector status/findings during a later action invocation"
+    required: false
+    default: "false"
+  exit_on_vulnerability_findings:
+    description: "Exit with error when active runtime vulnerability findings are detected"
+    required: false
+    default: "true"
   file_monitoring:
     description: "Enable file integrity monitoring during the workflow"
     required: false
@@ -545,7 +561,8 @@ runs:
     - name: Install or Update EDAMAME Posture
       id: install_posture
       # Skip the installer entirely for non-setup operations (policy checks,
-      # dump_sessions_log, stop, custom-whitelist ops). install.sh performs an
+      # dump_sessions_log, dump_vulnerability_findings, stop, custom-whitelist ops).
+      # install.sh performs an
       # unconditional binary-refresh-on-checksum-mismatch that would stop the
       # running daemon; stopping it during a post-step breaks downstream
       # verification because the same install.sh invocation would not restart
@@ -558,6 +575,7 @@ runs:
       if: >
         inputs.stop != 'true' &&
         inputs.dump_sessions_log != 'true' &&
+        inputs.dump_vulnerability_findings != 'true' &&
         inputs.edamame_policy == '' &&
         inputs.edamame_minimum_score == '' &&
         inputs.create_custom_whitelists != 'true' &&
@@ -575,6 +593,7 @@ runs:
         IS_INITIAL_SETUP="true"
         if [[ "${{ inputs.stop }}" == "true" || \
               "${{ inputs.dump_sessions_log }}" == "true" || \
+              "${{ inputs.dump_vulnerability_findings }}" == "true" || \
               -n "${{ inputs.edamame_policy }}" || \
               -n "${{ inputs.edamame_minimum_score }}" || \
               "${{ inputs.create_custom_whitelists }}" == "true" || \
@@ -1206,7 +1225,7 @@ runs:
       shell: bash
     
     - name: Start EDAMAME Posture in disconnected mode if requested
-      if: ${{ inputs.disconnected_mode == 'true' && inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
+      if: ${{ inputs.disconnected_mode == 'true' && inputs.dump_sessions_log != 'true' && inputs.dump_vulnerability_findings != 'true' && inputs.stop != 'true' }}
       run: |
         cd
         if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
@@ -1301,9 +1320,24 @@ runs:
         fi
       shell: bash
 
+    - name: Start vulnerability detector if requested
+      if: ${{ inputs.vulnerability_detection == 'true' && inputs.dump_sessions_log != 'true' && inputs.dump_vulnerability_findings != 'true' && inputs.stop != 'true' }}
+      run: |
+        set -euo pipefail
+        cd
+        interval="${{ inputs.vulnerability_detection_interval }}"
+        if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval <= 0 )); then
+          echo "::error::vulnerability_detection_interval must be a positive integer"
+          exit 1
+        fi
+        echo "Starting runtime vulnerability detector with interval ${interval}s"
+        $EDAMAME_POSTURE_CMD vulnerability-start "$interval"
+        $EDAMAME_POSTURE_CMD vulnerability-status || true
+      shell: bash
+
     # We must wait here as we can use the API to download the whitelist artifact from the previous run
     - name: Wait for API access to be granted if requested
-      if: ${{ inputs.dump_sessions_log != 'true' && inputs.stop != 'true' }}
+      if: ${{ inputs.dump_sessions_log != 'true' && inputs.dump_vulnerability_findings != 'true' && inputs.stop != 'true' }}
       run: |
         if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
           echo "Waiting for GitHub API access to be granted..."
@@ -4133,6 +4167,48 @@ runs:
         AUTO_WHITELIST_CONSECUTIVE: ${{ env.AUTO_WHITELIST_CONSECUTIVE }}
         AUTO_WHITELIST_MAX_ITER: ${{ env.AUTO_WHITELIST_MAX_ITER }}
         PROMOTE_EXCEPTIONS: ${{ inputs.promote_exceptions }}
+
+    - name: Dump vulnerability findings if requested
+      if: ${{ inputs.dump_vulnerability_findings == 'true' }}
+      run: |
+        set -euo pipefail
+        cd
+        STATUS_FILE="${RUNNER_TEMP:-/tmp}/edamame_vulnerability_status.json"
+        if [[ "${{ inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
+          echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings"
+          set +e
+          $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings 2>&1 | tee "$STATUS_FILE"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [[ $rc -eq 0 ]]; then
+            exit 0
+          fi
+          if ! grep -qiE '(fail-on-findings|unexpected argument|unknown argument|unrecognized option)' "$STATUS_FILE"; then
+            exit "$rc"
+          fi
+          echo "[INFO] Installed edamame_posture does not expose --fail-on-findings; falling back to active_findings parsing."
+        fi
+
+        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status"
+        $EDAMAME_POSTURE_CMD vulnerability-status | tee "$STATUS_FILE"
+        if [[ "${{ inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
+          active_findings="$(python3 - "$STATUS_FILE" <<'PY'
+        import json
+        import sys
+
+        with open(sys.argv[1], "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+
+        print(int(data.get("active_findings") or 0))
+        PY
+        )"
+          echo "Active vulnerability findings: $active_findings"
+          if [[ "$active_findings" -gt 0 ]]; then
+            echo "::error::Active runtime vulnerability findings detected: $active_findings"
+            exit 1
+          fi
+        fi
+      shell: bash
 
     - name: Dump sessions log if requested
       if: ${{ inputs.dump_sessions_log == 'true' }}
