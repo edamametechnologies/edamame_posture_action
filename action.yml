@@ -1140,15 +1140,65 @@ runs:
         
         echo "Waiting for EDAMAME Posture to connect..."
         if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" ]]; then
+          dump_posture_logs() {
+            cd
+            find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
+          }
+
+          wait_for_connection_once() {
+            local timeout_arg="${1:-}"
+            WAIT_LOG="${RUNNER_TEMP:-/tmp}/edamame_wait_for_connection.log"
+            set +e
+            if [[ -n "$timeout_arg" ]]; then
+              $EDAMAME_POSTURE_CMD wait-for-connection "$timeout_arg" >"$WAIT_LOG" 2>&1
+            else
+              $EDAMAME_POSTURE_CMD wait-for-connection >"$WAIT_LOG" 2>&1
+            fi
+            local rc=$?
+            set -e
+            cat "$WAIT_LOG"
+            return "$rc"
+          }
+
+          wait_for_connection_with_retry() {
+            local timeout_arg="${1:-}"
+            local max_attempts=6
+            local delay_seconds=10
+            local attempt=1
+
+            while [ "$attempt" -le "$max_attempts" ]; do
+              echo "wait-for-connection attempt $attempt/$max_attempts"
+              if wait_for_connection_once "$timeout_arg"; then
+                return 0
+              fi
+
+              # The backend can briefly report NonExistentDevice immediately
+              # after report_score succeeds, before policy lookup sees the new
+              # CI device. Retry this propagation race instead of failing setup.
+              if grep -q "NonExistentDevice" "$WAIT_LOG" && [ "$attempt" -lt "$max_attempts" ]; then
+                echo "[WARN] Transient NonExistentDevice while waiting for connection; retrying in ${delay_seconds}s..."
+                sleep "$delay_seconds"
+                attempt=$((attempt + 1))
+                continue
+              fi
+
+              dump_posture_logs
+              return 1
+            done
+
+            dump_posture_logs
+            return 1
+          }
+
           # On Windows, set a timeout of 1800 seconds instead of the default 900 seconds.
           # GitHub-hosted Windows runners sit on a /20 subnet with a virtual neighbor
           # table and no responsive gateway, so the initial blocking LAN scan
           # (scan_gateways_task sweeps 1020 hard-coded RFC1918 gateway candidates
           # via ICMP before connect_domain() runs) routinely takes ~20 minutes.
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            $EDAMAME_POSTURE_CMD wait-for-connection 1800 || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+            wait_for_connection_with_retry 1800 || exit 1
           else
-            $EDAMAME_POSTURE_CMD wait-for-connection || { cd; find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"; exit 1; }
+            wait_for_connection_with_retry || exit 1
           fi
         else
           echo "No connection parameters provided, skipping connection wait"
