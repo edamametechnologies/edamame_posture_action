@@ -67,8 +67,10 @@ jobs:
       - name: Replace cancellation hook with local recorder
         run: |
           set -euo pipefail
-          marker="$HOME/cancel_hook_${{ matrix.mode }}_${{ github.run_id }}.log"
+          marker="${RUNNER_TEMP:-/tmp}/cancel_hook_${{ matrix.mode }}_${{ github.run_id }}.log"
           script="$HOME/cancel_pipeline.sh"
+          : > "$marker"
+          chmod 666 "$marker"
           cat > "$script" <<SH
           #!/bin/sh
           marker="$marker"
@@ -100,9 +102,9 @@ jobs:
             echo "poll=$attempt"
             $EDAMAME_POSTURE_CMD get-sessions || true
             $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "cancel|violation|whitelist" | tail -80 || true
-            if [[ -f "$marker" ]] && grep -q "HOOK_CALLED=1" "$marker"; then
+            if [[ -f "$marker" ]] && sudo grep -q "HOOK_CALLED=1" "$marker"; then
               echo "Cancellation hook executed."
-              cat "$marker"
+              sudo cat "$marker"
               exit 0
             fi
             sleep 15
@@ -111,6 +113,7 @@ jobs:
           echo "Cancellation hook was not executed."
           echo "Script path: $script"
           ls -la "$script" || true
+          sudo chmod a+r "$marker" 2>/dev/null || true
           $EDAMAME_POSTURE_CMD get-exceptions || true
           exit 1
 
