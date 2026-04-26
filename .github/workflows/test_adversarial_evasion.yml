@@ -70,7 +70,8 @@ jobs:
                         scenario: .id,
                         include_process: (.requires_include_process // false),
                         ci_ready: (.ci_ready // false),
-                        require_failure: (.enforcement_expected.require_failure // false)
+                        require_failure: (.enforcement_expected.require_failure // false),
+                        expected_pattern: (.expected_evidence_pattern // "")
                       }
                   )
               )
@@ -168,7 +169,7 @@ jobs:
         if: always()
         run: |
           # Exceptions can be populated asynchronously; retry briefly for deterministic evidence capture.
-          for i in {1..8}; do
+          for _ in {1..8}; do
             $EDAMAME_POSTURE_CMD get-exceptions > ./exceptions.log 2>&1 || true
             if grep -qi 'whitelisted:' ./exceptions.log 2>/dev/null; then
               break
@@ -203,6 +204,7 @@ jobs:
           echo "verify.outcome=${{ steps.verify.outcome }}"
           echo "ci_ready=${{ matrix.ci_ready }}"
           echo "require_failure=${{ matrix.require_failure }}"
+          echo "expected_pattern=${{ matrix.expected_pattern }}"
           to_int() {
             raw="$(printf '%s' "${1:-}" | tr -cd '0-9')"
             [[ -n "$raw" ]] || raw="0"
@@ -226,6 +228,13 @@ jobs:
           if [[ "${STRICT_MODE}" == "true" && "${{ matrix.require_failure }}" == "true" && "${{ steps.verify.outcome }}" != "failure" ]]; then
             echo "Expected get-sessions to fail in strict mode but it did not."
             exit 1
+          fi
+          expected_pattern="${{ matrix.expected_pattern }}"
+          if [[ "${STRICT_MODE}" == "true" && "${{ matrix.require_failure }}" == "true" && -n "$expected_pattern" ]]; then
+            if ! grep -Eiq "$expected_pattern" ./exceptions.log ./sessions.log 2>/dev/null; then
+              echo "Expected scenario-specific evidence matching: $expected_pattern"
+              exit 1
+            fi
           fi
           if [[ "${STRICT_MODE}" != "true" ]]; then
             echo "Observe mode: not gating on detection outcome."

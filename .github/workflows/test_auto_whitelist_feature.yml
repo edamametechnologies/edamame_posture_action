@@ -211,6 +211,9 @@ jobs:
         uses: ./
         with:
           dump_sessions_log: true
+          # Learning iterations are expected to discover and promote new endpoints.
+          # Enforcement is only meaningful once the run starts from a stable whitelist.
+          exit_on_whitelist_exceptions: ${{ steps.check_stable.outputs.is_stable }}
         continue-on-error: true
 
       - name: "Analyze whitelist changes"
