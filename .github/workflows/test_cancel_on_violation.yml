@@ -1,232 +1,97 @@
 name: Test Cancel on Violation
 
-# This workflow tests the cancel_on_violation feature:
-# Tests that violations trigger cancellation in both connected and disconnected modes
-# Expected: Workflow should be cancelled when violations are detected
+# Verifies cancel_on_violation without making this verifier workflow report as
+# cancelled. Each matrix entry dispatches a target workflow that should cancel
+# itself when the daemon sees a whitelist violation.
 
 on:
   workflow_dispatch:
   push:
     branches:
-        - 'dev'
-        - 'main'
+      - 'dev'
+      - 'main'
     paths:
       - 'action.yml'
-          
+      - '.github/workflows/test_cancel_on_violation.yml'
+      - '.github/workflows/test_cancel_on_violation_target.yml'
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false  # Allow sequential runs for testing
+  cancel-in-progress: false
 
 permissions:
   contents: read
   actions: write
 
 jobs:
-  # Test cancellation in connected mode
-  test-cancellation-connected:
-    name: Test Cancellation (Connected Mode)
+  verify-cancellation:
+    name: Verify cancellation (${{ matrix.mode }})
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode:
+          - connected
+          - disconnected
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup EDAMAME Posture with cancel_on_violation
-        uses: ./
-        with:
-          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
-          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
-          edamame_id: ${{ github.run_id }}_cancel_test_connected
-          network_scan: true
-          packet_capture: true
-          whitelist: github_ubuntu
-          check_whitelist: true
-          cancel_on_violation: true
-          display_logs: true
-
-      - name: Debug - Check cancellation script and CI/CD detection
+      - name: Trigger cancellation target
+        id: trigger
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODE: ${{ matrix.mode }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          PARENT_RUN_ID: ${{ github.run_id }}
         run: |
-          echo "=== CI Environment Variables ==="
-          echo "CI=$CI"
-          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
-          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID"
-          echo "HOME=$HOME"
-          echo ""
-          echo "=== Checking cancellation script location ==="
-          ls -la "$HOME/cancel_pipeline.sh" 2>&1 || echo "NOT FOUND at $HOME/cancel_pipeline.sh"
-          echo ""
-          echo "=== Script contents (if exists) ==="
-          cat "$HOME/cancel_pipeline.sh" 2>/dev/null || echo "Cannot read $HOME/cancel_pipeline.sh"
-          echo ""
-          echo "=== Daemon status ==="
-          $EDAMAME_POSTURE_CMD status || echo "Daemon not responding"
-          echo ""
-          echo "=== Checking if daemon sees CI/CD environment ==="
-          $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "CI/CD|cancel|environment" | head -20 || echo "No CI/CD related logs yet"
+          set -euo pipefail
+          workflow=".github/workflows/test_cancel_on_violation_target.yml"
+          latest_before="$(gh run list --repo "$REPO" --workflow "$workflow" --branch "$BRANCH" --limit 1 --json databaseId --jq '.[0].databaseId // ""')"
+          gh workflow run "$workflow" --repo "$REPO" --ref "$BRANCH" \
+            -f mode="$MODE" \
+            -f parent_run_id="$PARENT_RUN_ID"
 
-      - name: Generate Violation (Unauthorized Connection)
-        run: |
-          echo "Waiting 60 seconds for daemon to stabilize..."
-          sleep 60
-
-          echo "Generating unauthorized network connection to trigger cancellation..."
-          echo "This should cause the workflow to be cancelled by EDAMAME Posture"
-          
-          # Make a connection to a domain not in github_ubuntu whitelist
-          # This will trigger a whitelist violation
-          curl -s --max-time 5 https://example.com > /dev/null || true
-          
-          # Wait for the violation to be detected by the daemon
-          # The daemon checks for violations every 10 seconds, so we need to wait at least 15 seconds
-          # to ensure it has time to detect and execute the cancellation
-          echo "Waiting for daemon to detect violation and cancel pipeline..."
-          for i in {1..10}; do
-            # Dump sessions log
-            $EDAMAME_POSTURE_CMD get-sessions || echo "Daemon not responding (may have exited after cancellation attempt)"
-            echo "--- Checking daemon logs ---"
-            $EDAMAME_POSTURE_CMD logs 2>&1 | tail -50 || echo "Cannot get logs"
-            sleep 20
+          target_run_id=""
+          for _ in {1..30}; do
+            sleep 2
+            latest_after="$(gh run list --repo "$REPO" --workflow "$workflow" --branch "$BRANCH" --limit 1 --json databaseId --jq '.[0].databaseId // ""')"
+            if [[ -n "$latest_after" && "$latest_after" != "$latest_before" ]]; then
+              target_run_id="$latest_after"
+              break
+            fi
           done
 
-          echo "[WARNING] If you see this message, cancellation may not have worked"
-          echo "Expected: Workflow should be cancelled before reaching this point"
-
-      - name: Verify Cancellation Result
-        if: always()
-        run: |
-          # Give filesystem a moment to sync after cancellation
-          sleep 2
-          sync 2>/dev/null || true
-          
-          # Log file includes run ID for non-ephemeral runners
-          LOGFILE="$HOME/cancel_pipeline_${{ github.run_id }}.log"
-          echo "=== Cancellation Script Log (at $LOGFILE) ==="
-          if [[ -f "$LOGFILE" ]]; then
-            cat "$LOGFILE"
-            echo ""
-            # Check if cancellation was successful (check for either success message or that gh command was executed)
-            if grep -q "\[OK\] Pipeline cancellation command" "$LOGFILE"; then
-              echo "[SUCCESS] Cancellation was triggered and executed!"
-              exit 0
-            elif grep -q "Executing: gh run cancel" "$LOGFILE"; then
-              echo "[SUCCESS] Cancellation command was executed (log may be incomplete due to runner shutdown)"
-              exit 0
-            else
-              echo "[WARNING] Cancellation log exists but execution not confirmed"
-              exit 1
-            fi
-          else
-            echo "[ERROR] No cancellation log found at $LOGFILE"
-            echo "Cancellation script may not have been executed"
-            # If the job was cancelled, the script likely ran but log wasn't synced
-            if [[ "${{ job.status }}" == "cancelled" ]]; then
-              echo "[INFO] Job was cancelled - script likely ran but log not synced before shutdown"
-              exit 0
-            fi
+          if [[ -z "$target_run_id" ]]; then
+            echo "Failed to detect target workflow run for mode=$MODE"
             exit 1
           fi
 
-  # Test cancellation in disconnected mode
-  test-cancellation-disconnected:
-    name: Test Cancellation (Disconnected Mode)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+          echo "target_run_id=$target_run_id" >> "$GITHUB_OUTPUT"
+          echo "Target run: https://github.com/$REPO/actions/runs/$target_run_id"
 
-      - name: Setup EDAMAME Posture in Disconnected Mode with cancel_on_violation
-        uses: ./
-        with:
-          disconnected_mode: true
-          network_scan: true
-          packet_capture: true
-          whitelist: github_ubuntu
-          check_whitelist: true
-          cancel_on_violation: true
-          display_logs: true
-
-      - name: Debug - Check cancellation script and CI/CD detection
+      - name: Wait for target cancellation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TARGET_RUN_ID: ${{ steps.trigger.outputs.target_run_id }}
         run: |
-          echo "=== CI Environment Variables ==="
-          echo "CI=$CI"
-          echo "GITHUB_ACTIONS=$GITHUB_ACTIONS"
-          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID"
-          echo "HOME=$HOME"
-          echo ""
-          echo "=== Checking cancellation script location ==="
-          ls -la "$HOME/cancel_pipeline.sh" 2>&1 || echo "NOT FOUND at $HOME/cancel_pipeline.sh"
-          echo ""
-          echo "=== Script contents (if exists) ==="
-          cat "$HOME/cancel_pipeline.sh" 2>/dev/null || echo "Cannot read $HOME/cancel_pipeline.sh"
-          echo ""
-          echo "=== Daemon status ==="
-          $EDAMAME_POSTURE_CMD status || echo "Daemon not responding"
-          echo ""
-          echo "=== Checking if daemon sees CI/CD environment ==="
-          $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "CI/CD|cancel|environment" | head -20 || echo "No CI/CD related logs yet"
-
-      - name: Generate Violation (Unauthorized Connection)
-        run: |
-          echo "Waiting 60 seconds for daemon to stabilize..."
-          sleep 60
-
-          echo "Generating unauthorized network connection to trigger cancellation..."
-          echo "This should cause the workflow to be cancelled by EDAMAME Posture"
-          
-          # Make a connection to a domain not in github_ubuntu whitelist
-          curl -s --max-time 5 https://example.com > /dev/null || true
-          
-          # Wait for the violation to be detected by the daemon
-          # The daemon checks for violations every 10 seconds, so we need to wait at least 15 seconds
-          # to ensure it has time to detect and execute the cancellation
-          echo "Waiting for daemon to detect violation and cancel pipeline..."
-          for i in {1..10}; do
-            # Dump sessions log
-            $EDAMAME_POSTURE_CMD get-sessions || echo "Daemon not responding (may have exited after cancellation attempt)"
-            echo "--- Checking daemon logs ---"
-            $EDAMAME_POSTURE_CMD logs 2>&1 | tail -50 || echo "Cannot get logs"
-            sleep 20
+          set -euo pipefail
+          conclusion=""
+          for _ in {1..80}; do
+            status="$(gh run view "$TARGET_RUN_ID" --repo "$REPO" --json status --jq '.status')"
+            conclusion="$(gh run view "$TARGET_RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion // ""')"
+            echo "target status=$status conclusion=$conclusion"
+            if [[ "$status" == "completed" ]]; then
+              break
+            fi
+            sleep 10
           done
 
-          echo "[WARNING] If you see this message, cancellation may not have worked"
-          echo "Expected: Workflow should be cancelled before reaching this point"
-
-      - name: Verify Cancellation Result
-        if: always()
-        run: |
-          # Give filesystem a moment to sync after cancellation
-          sleep 2
-          sync 2>/dev/null || true
-          
-          # Log file includes run ID for non-ephemeral runners
-          LOGFILE="$HOME/cancel_pipeline_${{ github.run_id }}.log"
-          echo "=== Cancellation Script Log (at $LOGFILE) ==="
-          if [[ -f "$LOGFILE" ]]; then
-            cat "$LOGFILE"
-            echo ""
-            # Check if cancellation was successful (check for either success message or that gh command was executed)
-            if grep -q "\[OK\] Pipeline cancellation command" "$LOGFILE"; then
-              echo "[SUCCESS] Cancellation was triggered and executed!"
-              exit 0
-            elif grep -q "Executing: gh run cancel" "$LOGFILE"; then
-              echo "[SUCCESS] Cancellation command was executed (log may be incomplete due to runner shutdown)"
-              exit 0
-            else
-              echo "[WARNING] Cancellation log exists but execution not confirmed"
-              exit 1
-            fi
-          else
-            echo "[ERROR] No cancellation log found at $LOGFILE"
-            echo "Cancellation script may not have been executed"
-            # If the job was cancelled, the script likely ran but log wasn't synced
-            if [[ "${{ job.status }}" == "cancelled" ]]; then
-              echo "[INFO] Job was cancelled - script likely ran but log not synced before shutdown"
-              exit 0
-            fi
+          if [[ "$conclusion" != "cancelled" ]]; then
+            echo "Expected target run to be cancelled, got conclusion=$conclusion"
+            gh run view "$TARGET_RUN_ID" --repo "$REPO" --log || true
             exit 1
           fi
+
+          echo "Target run cancelled as expected."
 

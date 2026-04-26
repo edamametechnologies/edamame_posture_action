@@ -245,6 +245,11 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     fi
     
     ENDPOINT_HISTORY+=("$CURRENT_ENDPOINT_COUNT")
+
+    if [[ "$CONCLUSION" != "success" && "$ENFORCEMENT_PENDING" != "true" ]]; then
+        log_error "Iteration $i failed before enforcement was expected"
+        break
+    fi
     
     # Calculate delta
     DELTA=0
