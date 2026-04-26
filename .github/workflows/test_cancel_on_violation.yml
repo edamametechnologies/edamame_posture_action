@@ -1,25 +1,12 @@
 name: Test Cancel on Violation
 
-# Verifies cancel_on_violation without making this verifier workflow report as
-# cancelled. Each matrix entry dispatches a target workflow that should cancel
-# itself when the daemon sees a whitelist violation.
+# Verifies that cancel_on_violation executes the configured cancellation hook
+# when a whitelist violation is observed. The hook records local evidence instead
+# of calling the GitHub Actions API, which is blocked from hosted runners by the
+# organization's IP allow list.
 
 on:
   workflow_dispatch:
-    inputs:
-      target_mode:
-        description: "Internal target mode. Leave as verifier for normal runs."
-        required: false
-        default: verifier
-        type: choice
-        options:
-          - verifier
-          - connected
-          - disconnected
-      parent_run_id:
-        description: "Verifier workflow run id"
-        required: false
-        type: string
   push:
     branches:
       - 'dev'
@@ -29,19 +16,17 @@ on:
       - '.github/workflows/test_cancel_on_violation.yml'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_mode || 'verifier' }}-${{ github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
-  verify-cancellation:
-    name: Verify cancellation (${{ matrix.mode }})
-    if: github.event_name != 'workflow_dispatch' || inputs.target_mode == 'verifier'
+  verify-cancellation-hook:
+    name: Verify cancellation hook (${{ matrix.mode }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
@@ -49,83 +34,17 @@ jobs:
           - connected
           - disconnected
     steps:
-      - name: Trigger cancellation target
-        id: trigger
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MODE: ${{ matrix.mode }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
-          PARENT_RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          workflow=".github/workflows/test_cancel_on_violation.yml"
-          latest_before="$(gh run list --repo "$REPO" --workflow "$workflow" --branch "$BRANCH" --limit 1 --json databaseId --jq '.[0].databaseId // ""')"
-          gh workflow run "$workflow" --repo "$REPO" --ref "$BRANCH" \
-            -f target_mode="$MODE" \
-            -f parent_run_id="$PARENT_RUN_ID"
-
-          target_run_id=""
-          for _ in {1..30}; do
-            sleep 2
-            latest_after="$(gh run list --repo "$REPO" --workflow "$workflow" --branch "$BRANCH" --limit 1 --json databaseId --jq '.[0].databaseId // ""')"
-            if [[ -n "$latest_after" && "$latest_after" != "$latest_before" ]]; then
-              target_run_id="$latest_after"
-              break
-            fi
-          done
-
-          if [[ -z "$target_run_id" ]]; then
-            echo "Failed to detect target workflow run for mode=$MODE"
-            exit 1
-          fi
-
-          echo "target_run_id=$target_run_id" >> "$GITHUB_OUTPUT"
-          echo "Target run: https://github.com/$REPO/actions/runs/$target_run_id"
-
-      - name: Wait for target cancellation
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          TARGET_RUN_ID: ${{ steps.trigger.outputs.target_run_id }}
-        run: |
-          set -euo pipefail
-          conclusion=""
-          for _ in {1..80}; do
-            status="$(gh run view "$TARGET_RUN_ID" --repo "$REPO" --json status --jq '.status')"
-            conclusion="$(gh run view "$TARGET_RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion // ""')"
-            echo "target status=$status conclusion=$conclusion"
-            if [[ "$status" == "completed" ]]; then
-              break
-            fi
-            sleep 10
-          done
-
-          if [[ "$conclusion" != "cancelled" ]]; then
-            echo "Expected target run to be cancelled, got conclusion=$conclusion"
-            gh run view "$TARGET_RUN_ID" --repo "$REPO" --log || true
-            exit 1
-          fi
-
-          echo "Target run cancelled as expected."
-
-  cancel-target:
-    name: Cancellation target (${{ inputs.target_mode }})
-    if: github.event_name == 'workflow_dispatch' && inputs.target_mode != 'verifier'
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup EDAMAME Posture with cancel_on_violation (connected)
-        if: inputs.target_mode == 'connected'
+        if: matrix.mode == 'connected'
         uses: ./
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
           edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
-          edamame_id: ${{ github.run_id }}_cancel_target_connected
+          edamame_id: ${{ github.run_id }}_cancel_hook_connected
           network_scan: true
           packet_capture: true
           whitelist: github_ubuntu
@@ -134,7 +53,7 @@ jobs:
           display_logs: true
 
       - name: Setup EDAMAME Posture with cancel_on_violation (disconnected)
-        if: inputs.target_mode == 'disconnected'
+        if: matrix.mode == 'disconnected'
         uses: ./
         with:
           disconnected_mode: true
@@ -145,17 +64,30 @@ jobs:
           cancel_on_violation: true
           display_logs: true
 
-      - name: Debug cancellation setup
+      - name: Replace cancellation hook with local recorder
         run: |
-          echo "target_mode=${{ inputs.target_mode }}"
-          echo "parent_run_id=${{ inputs.parent_run_id }}"
-          echo "target_run_id=${{ github.run_id }}"
-          echo "HOME=$HOME"
-          ls -la "$HOME/cancel_pipeline.sh" 2>&1 || echo "cancel_pipeline.sh not found"
-          $EDAMAME_POSTURE_CMD status || echo "Daemon not responding"
-          $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "CI/CD|cancel|environment" | head -20 || true
+          set -euo pipefail
+          marker="$HOME/cancel_hook_${{ matrix.mode }}_${{ github.run_id }}.log"
+          script="$HOME/cancel_pipeline.sh"
+          cat > "$script" <<SH
+          #!/bin/sh
+          marker="$marker"
+          {
+            echo "HOOK_CALLED=1"
+            echo "MODE=${{ matrix.mode }}"
+            echo "RUN_ID=${{ github.run_id }}"
+            echo "REASON=\${1:-}"
+            date -u '+TIMESTAMP=%Y-%m-%dT%H:%M:%SZ'
+          } >> "\$marker"
+          sync 2>/dev/null || true
+          exit 0
+          SH
+          chmod 700 "$script"
+          echo "marker=$marker" >> "$GITHUB_ENV"
+          echo "script=$script" >> "$GITHUB_ENV"
+          ls -la "$script"
 
-      - name: Generate whitelist violation and wait for self-cancellation
+      - name: Generate violation and wait for hook
         run: |
           set -euo pipefail
           echo "Waiting for daemon to stabilize..."
@@ -164,14 +96,30 @@ jobs:
           echo "Generating unauthorized network connection."
           curl -s --max-time 5 https://example.com > /dev/null || true
 
-          echo "Waiting for EDAMAME to cancel this target run..."
           for attempt in {1..12}; do
             echo "poll=$attempt"
             $EDAMAME_POSTURE_CMD get-sessions || true
-            $EDAMAME_POSTURE_CMD logs 2>&1 | tail -80 || true
+            $EDAMAME_POSTURE_CMD logs 2>&1 | grep -iE "cancel|violation|whitelist" | tail -80 || true
+            if [[ -f "$marker" ]] && grep -q "HOOK_CALLED=1" "$marker"; then
+              echo "Cancellation hook executed."
+              cat "$marker"
+              exit 0
+            fi
             sleep 15
           done
 
-          echo "cancel_on_violation did not cancel the target run."
+          echo "Cancellation hook was not executed."
+          echo "Script path: $script"
+          ls -la "$script" || true
+          $EDAMAME_POSTURE_CMD get-exceptions || true
           exit 1
+
+      - name: Upload cancellation hook evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cancel-on-violation-${{ matrix.mode }}-${{ github.run_id }}
+          path: |
+            ${{ env.marker }}
+          if-no-files-found: warn
 
