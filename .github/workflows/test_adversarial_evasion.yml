@@ -16,6 +16,12 @@ on:
         required: false
         default: false
         type: boolean
+  push:
+    branches:
+      - 'dev'
+      - 'main'
+    paths:
+      - 'action.yml'
   schedule:
     - cron: "0 3 * * 1"
 
