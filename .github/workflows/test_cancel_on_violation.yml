@@ -68,10 +68,12 @@ jobs:
         run: |
           set -euo pipefail
           marker="${RUNNER_TEMP:-/tmp}/cancel_hook_${{ matrix.mode }}_${{ github.run_id }}.log"
-          script="$HOME/cancel_pipeline.sh"
+          runner_script="$HOME/cancel_pipeline.sh"
+          root_script="/root/cancel_pipeline.sh"
+          script_template="${RUNNER_TEMP:-/tmp}/cancel_pipeline_recorder.sh"
           : > "$marker"
           chmod 666 "$marker"
-          cat > "$script" <<SH
+          cat > "$script_template" <<SH
           #!/bin/sh
           marker="$marker"
           {
@@ -84,10 +86,18 @@ jobs:
           sync 2>/dev/null || true
           exit 0
           SH
-          chmod 700 "$script"
-          echo "marker=$marker" >> "$GITHUB_ENV"
-          echo "script=$script" >> "$GITHUB_ENV"
-          ls -la "$script"
+          chmod 700 "$script_template"
+          cp "$script_template" "$runner_script"
+          chmod 700 "$runner_script"
+          sudo cp "$script_template" "$root_script"
+          sudo chmod 700 "$root_script"
+          {
+            echo "marker=$marker"
+            echo "runner_script=$runner_script"
+            echo "root_script=$root_script"
+          } >> "$GITHUB_ENV"
+          ls -la "$runner_script"
+          sudo ls -la "$root_script"
 
       - name: Generate violation and wait for hook
         run: |
@@ -111,8 +121,10 @@ jobs:
           done
 
           echo "Cancellation hook was not executed."
-          echo "Script path: $script"
-          ls -la "$script" || true
+          echo "Runner script path: $runner_script"
+          echo "Root script path: $root_script"
+          ls -la "$runner_script" || true
+          sudo ls -la "$root_script" || true
           sudo chmod a+r "$marker" 2>/dev/null || true
           $EDAMAME_POSTURE_CMD get-exceptions || true
           exit 1
