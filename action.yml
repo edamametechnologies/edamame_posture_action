@@ -4174,6 +4174,28 @@ runs:
         set -euo pipefail
         cd
         STATUS_FILE="${RUNNER_TEMP:-/tmp}/edamame_vulnerability_status.json"
+        FINDINGS_FILE="${RUNNER_TEMP:-/tmp}/edamame_vulnerability_findings.json"
+
+        # Best-effort: dump per-finding details (finding_key, check, severity,
+        # description, process_*, destination_*, open_files, detection_basis)
+        # via the `vulnerability-findings` subcommand. This subcommand was
+        # added in edamame_posture > 1.2.2; older binaries don't expose it
+        # and the call falls through with a stderr warning. Either way the
+        # gate logic below uses `vulnerability-status` which is universally
+        # available.
+        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-findings --active-only"
+        set +e
+        $EDAMAME_POSTURE_CMD vulnerability-findings --active-only 2>&1 | tee "$FINDINGS_FILE"
+        findings_rc=${PIPESTATUS[0]}
+        set -e
+        if [[ $findings_rc -ne 0 ]]; then
+          if grep -qiE '(unrecognized subcommand|unexpected argument|unknown argument|usage:|invalid value)' "$FINDINGS_FILE"; then
+            echo "[INFO] Installed edamame_posture does not expose 'vulnerability-findings'; per-finding details are unavailable until the next posture release. The summary count below is still reliable."
+          else
+            echo "[WARN] vulnerability-findings call failed with rc=$findings_rc; continuing with summary-only output."
+          fi
+        fi
+
         if [[ "${{ inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
           echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings"
           set +e
