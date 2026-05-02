@@ -4221,7 +4221,16 @@ runs:
         with open(sys.argv[1], "r", encoding="utf-8") as fh:
             data = json.load(fh)
 
-        print(int(data.get("active_findings") or 0))
+        # Prefer the alertable count (HIGH/CRITICAL only) when the daemon
+        # exposes it. LOW severity findings (e.g. ambient `spawned_from_tmp`
+        # signals from CI bootstrappers like rustup-init or cargo install)
+        # remain visible in the dashboard but do not by themselves indicate
+        # an actionable runtime compromise. Older daemons that do not yet
+        # emit this field fall back to the raw `active_findings` total.
+        if data.get("active_alertable_findings") is not None:
+            print(int(data.get("active_alertable_findings") or 0))
+        else:
+            print(int(data.get("active_findings") or 0))
         PY
         )"
           echo "Active vulnerability findings: $active_findings"
