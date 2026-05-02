@@ -115,7 +115,7 @@ jobs:
           exit_on_vulnerability_findings: true
 ```
 
-The final step prints the detector status and fails the workflow when `active_findings` is greater than zero.
+The final step prints the detector status and fails the workflow when there are active **alertable** findings (HIGH or CRITICAL severity, non-dismissed). The action prefers `active_alertable_findings` from the daemon when available so LOW-severity ambient findings (e.g. CI bootstrappers like `rustup-init` running from `/tmp/`, build scripts writing benign `.log` artifacts) stay visible in the dashboard for operator triage without by themselves failing the run. Older daemons that predate the alertable counter fall back to the raw `active_findings` total.
 
 ## Installation Behavior
 
