@@ -2,76 +2,135 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver version to release (e.g. 1.1.0). Major must match the moving v1 tag."
+        required: true
+        type: string
 
-# Auto cancel previous runs if they were not completed.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
-# Write permissions are required to upload the release asset.
 permissions: write-all
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-
+    timeout-minutes: 10
     steps:
-      - name: Setup EDAMAME Posture
-        uses: edamametechnologies/edamame_posture_action@v1
-        with:
-          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
-          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
-          edamame_id: ${{ github.run_id }}
-          auto_remediate: true
-          network_scan: true
-          checkout: true
-          # Wait for the API to be ready
-          wait_for_api: true
-          packet_capture: true
-          vulnerability_detection: true
-          vulnerability_detection_interval: "60"
-          agentic_mode: analyze
-          agentic_provider: edamame
-          agentic_interval: 600
-        env:
-          EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
-      # Set the release version
-      - name: Set Release Version
-        run: |
-          VERSION_TAG="v1"
-          echo "VERSION_TAG=${VERSION_TAG}" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
 
-      # Check if release exists and delete it if it does
-      - name: Clean up existing release
+      - name: Validate semver and major-version match
+        run: |
+          set -euo pipefail
+          v="${{ inputs.version }}"
+          if [[ ! "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Not semver (X.Y.Z): $v"
+            exit 1
+          fi
+          major="${v%%.*}"
+          if [[ "$major" != "1" ]]; then
+            echo "Major must be 1 (moving tag is v1); got $major"
+            exit 1
+          fi
+
+      - name: Validate version not already published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Delete release but keep going even if it doesn't exist
-          gh release delete ${VERSION_TAG} --cleanup-tag --repo ${{ github.repository }} --yes || true
+          set -euo pipefail
+          if gh release view "v${{ inputs.version }}" --repo ${{ github.repository }} >/dev/null 2>&1; then
+            echo "Release v${{ inputs.version }} already exists. Bump version."
+            exit 1
+          fi
 
-      # Force update the v1 tag to current commit
-      - name: Update v1 tag
+      - name: Validate CHANGELOG has entry for this version
         run: |
-          git tag -f ${VERSION_TAG}
-          git push origin -f ${VERSION_TAG}
+          set -euo pipefail
+          if ! grep -qE "^## \[${{ inputs.version }}\]" CHANGELOG.md; then
+            echo "CHANGELOG.md missing [${{ inputs.version }}] entry"
+            exit 1
+          fi
 
-      # Create the release
-      - name: Create Release
-        uses: actions/create-release@v1
+      - name: Assert test.yml green on this SHA
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ env.VERSION_TAG }}
-          release_name: Release ${{ env.VERSION_TAG }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          conclusion=$(gh run list \
+            --repo ${{ github.repository }} \
+            --workflow test.yml \
+            --branch ${{ github.ref_name }} \
+            --commit ${{ github.sha }} \
+            --limit 1 \
+            --json conclusion --jq '.[0].conclusion // "missing"')
+          if [[ "$conclusion" != "success" ]]; then
+            echo "test.yml not green for SHA ${{ github.sha }} (got: $conclusion)."
+            echo "Push the change, wait for test.yml to complete on this SHA, then re-dispatch release."
+            exit 1
+          fi
 
-
-      - name: Dump EDAMAME Posture vulnerability findings
-        if: always()
-        uses: edamametechnologies/edamame_posture_action@v1
+  release:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
         with:
-          dump_vulnerability_findings: true
-          exit_on_vulnerability_findings: true
+          fetch-depth: 0
+
+      - name: Tag immutable vX.Y.Z
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Force-update moving v1 tag
+        run: |
+          set -euo pipefail
+          git tag -f v1
+          git push origin -f v1
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          set -euo pipefail
+          awk -v v="${{ inputs.version }}" '
+            $0 ~ "^## \\["v"\\]" {flag=1; next}
+            flag && /^## \[/ {exit}
+            flag {print}
+          ' CHANGELOG.md > /tmp/notes.md
+          if [[ ! -s /tmp/notes.md ]]; then
+            echo "Extracted release notes are empty -- check CHANGELOG.md formatting"
+            exit 1
+          fi
+          echo "--- extracted notes ---"
+          cat /tmp/notes.md
+          echo "--- end notes ---"
+
+      - name: Create GitHub Release for vX.Y.Z
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "v${{ inputs.version }}" \
+            --repo ${{ github.repository }} \
+            --title "Release v${{ inputs.version }}" \
+            --notes-file /tmp/notes.md \
+            --latest
+
+      - name: Refresh GitHub Release for v1 (moving)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release delete v1 --repo ${{ github.repository }} --yes 2>/dev/null || true
+          gh release create v1 \
+            --repo ${{ github.repository }} \
+            --title "v1 (moving) -> v${{ inputs.version }}" \
+            --notes "Currently points to [v${{ inputs.version }}](../releases/tag/v${{ inputs.version }})." \
+            --target ${{ github.sha }} \
+            --prerelease=false

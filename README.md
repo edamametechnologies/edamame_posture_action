@@ -14,6 +14,19 @@ Harden GitHub Actions runners and continuously verify runtime/network behavior t
 
 For the broader “Zero Trust at the GitHub layer” framing (identity + device + context, continuous verification per request), see: https://www.edamame.tech/zerotrust-github
 
+### Pinning
+
+- Default: `uses: edamametechnologies/edamame_posture_action@v1`. Picks up
+  the latest backwards-compatible v1 release automatically. Recommended
+  for most users.
+- Reproducible: `uses: edamametechnologies/edamame_posture_action@v1.1.0`.
+  Pinned to an immutable tag. Recommended for release-critical
+  workflows where you need byte-identical action behavior across runs.
+
+The release workflow publishes both tags on every cut: a fresh
+immutable `vX.Y.Z` tag plus a force-updated `v1` pointing to the same
+commit. See [`CHANGELOG.md`](CHANGELOG.md) for the version history.
+
 ## Overview
 This GitHub Action sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture), the CLI for runner and build-host trust gates, posture checks, and optional runtime network enforcement.
 It supports Windows, Linux, and macOS runners, checking for and installing any missing dependencies such as wget, curl, jq, Node.js, etc.
@@ -116,6 +129,36 @@ jobs:
 ```
 
 The final step prints the detector status and fails the workflow when there are active **alertable** findings (HIGH or CRITICAL severity, non-dismissed). The action prefers `active_alertable_findings` from the daemon when available so LOW-severity ambient findings (e.g. CI bootstrappers like `rustup-init` running from `/tmp/`, build scripts writing benign `.log` artifacts) stay visible in the dashboard for operator triage without by themselves failing the run. Older daemons that predate the alertable counter fall back to the raw `active_findings` total.
+
+For postmortem of a wedged daemon (e.g. an integration test that hung and tripped the gate), set `display_logs: true` in the same end-of-job invocation. See [Daemon log collection](#daemon-log-collection) below for the upload pattern.
+
+## Daemon log collection
+
+When `display_logs: true` is set, the action dumps every EDAMAME daemon log file (`/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD` on Linux/macOS, the binary's parent directory on Windows) into the job log AND copies the same files to a stable directory under `$RUNNER_TEMP`. The directory path is exported as the `EDAMAME_DAEMON_LOGS_PATH` env var so a downstream step can hand it to `actions/upload-artifact` without having to recompute paths or trust the daemon's PID.
+
+Pattern:
+
+```yaml
+      - name: Stop on runtime vulnerability findings
+        uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          dump_vulnerability_findings: true
+          exit_on_vulnerability_findings: true
+          display_logs: true
+
+      - name: Upload EDAMAME daemon logs
+        if: always() && env.EDAMAME_DAEMON_LOGS_PATH != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: edamame-daemon-logs-${{ github.job }}
+          path: ${{ env.EDAMAME_DAEMON_LOGS_PATH }}
+          if-no-files-found: ignore
+```
+
+Notes:
+- The action pre-creates `/var/log/edamame` with mode `1777` on Unix runners, so both the root daemon and non-`sudo` CLI invocations can write their PID-suffixed log files without "Permission denied" warnings.
+- Each file is tail-capped at 2 MB in the job log to keep the run page responsive; the raw file in `EDAMAME_DAEMON_LOGS_PATH` is uncapped.
+- If no daemon ever started in this job (e.g. the action only ran in `stop` or dump mode and the daemon was never up), the directory exists but may be empty -- `if-no-files-found: ignore` keeps that from failing the upload.
 
 ## Installation Behavior
 
@@ -236,7 +279,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `wait`: Wait for a while (180 seconds) (default: false)  
 - `wait_for_api`: Wait for API access via the GitHub CLI (default: false)  
 - `token`: GitHub token to checkout the repo (default: ${{ github.token }})  
-- `display_logs`: Display posture logs (default: false)  
+- `display_logs`: Dump the EDAMAME daemon's rolling log files (`/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD` on Unix, beside the binary on Windows) to the job log AND copy them to `$RUNNER_TEMP/edamame-daemon-logs/`. The path is exported as `EDAMAME_DAEMON_LOGS_PATH` for downstream `actions/upload-artifact` steps. See [Daemon log collection](#daemon-log-collection) for an upload example. (default: false)  
 - `debug`: Enable debug mode - downloads debug version of binary and sets log level to debug (default: false)  
 - `get_device_info`: Display device info including eBPF support status. Linux only (default: false)
 - `verify_ebpf`: Verify eBPF is properly embedded in the binary. Fails if eBPF was not compiled in (build failure). Runtime restrictions (kernel settings, containers) are acceptable and won't fail. Implies `get_device_info=true`. Linux only (default: false)
@@ -382,8 +425,10 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
 1. **Upload artifacts**  
    - Uploads auto-whitelist files to GitHub artifacts for next run
 
-1. **Display posture logs**  
-   - If `display_logs` is true, prints the EDAMAME daemon logs
+1. **Collect EDAMAME daemon logs**  
+   - If `display_logs` is true, dumps the daemon's rolling logs (`/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD` on Unix, beside the binary on Windows) to the job log
+   - Copies the same files to `$RUNNER_TEMP/edamame-daemon-logs/` and exports the path as `EDAMAME_DAEMON_LOGS_PATH`
+   - Suitable for downstream `actions/upload-artifact` consumption (see [Daemon log collection](#daemon-log-collection))
 
 1. **Create custom whitelist**  
    - If `create_custom_whitelists` is true, generates a whitelist from the current network sessions.

@@ -226,7 +226,7 @@ inputs:
     required: false
     default: "false"
   display_logs:
-    description: "Display logs"
+    description: "Dump the EDAMAME daemon's rolling log files (/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD on Unix, beside the binary on Windows) to the job log AND copy them to $RUNNER_TEMP/edamame-daemon-logs/. Path is exported as EDAMAME_DAEMON_LOGS_PATH for downstream actions/upload-artifact steps."
     required: false
     default: "false"
   debug:
@@ -557,6 +557,13 @@ runs:
           exit 1
         fi
       shell: bash
+
+    - name: Pre-create EDAMAME log directory (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        sudo mkdir -p /var/log/edamame
+        sudo chmod 1777 /var/log/edamame
 
     - name: Install or Update EDAMAME Posture
       id: install_posture
@@ -4425,15 +4432,41 @@ runs:
       env:
         EDAMAME_POSTURE_CMD: ${{ env.EDAMAME_POSTURE_CMD }}
 
-    - name: Display logs if requested
-      run: |
-        if [[ "${{ inputs.display_logs }}" == "true" ]]; then
-          # Rather scan the home directory for logs in case the dameon has been killed
-          cd
-          #$EDAMAME_POSTURE_CMD logs
-          find . \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) -exec echo "--- {} ---" \; -exec cat {} \; || echo "No logs found"
-        fi
+    - name: Collect EDAMAME daemon logs if requested
+      if: ${{ inputs.display_logs == 'true' }}
       shell: bash
+      run: |
+        set +e
+        LOG_DEST="${RUNNER_TEMP:-/tmp}/edamame-daemon-logs"
+        mkdir -p "$LOG_DEST"
+        case "$RUNNER_OS" in
+          Linux|macOS)
+            if [[ -d /var/log/edamame ]]; then
+              sudo cp -a /var/log/edamame/. "$LOG_DEST/" 2>/dev/null || true
+              sudo chmod -R a+r "$LOG_DEST" 2>/dev/null || true
+            fi
+            # Fallback: catch files left in $HOME (logger fallback path)
+            cd
+            find . -maxdepth 2 \( -name "edamame_*.2*-*-*" -o -name "*_panic_*.txt" \) \
+              -exec cp {} "$LOG_DEST/" \; 2>/dev/null || true
+            ;;
+          Windows)
+            BIN_DIR=$(dirname "${EDAMAME_BINARY_PATH:-}")
+            if [[ -n "$BIN_DIR" && -d "$BIN_DIR" ]]; then
+              find "$BIN_DIR" -maxdepth 1 -type f \
+                \( -name 'edamame_*_*.2*-*-*' -o -name '*_panic_*.txt' \) \
+                -print0 | xargs -0 -I {} cp "{}" "$LOG_DEST/" 2>/dev/null || true
+            fi
+            ;;
+        esac
+        echo "EDAMAME_DAEMON_LOGS_PATH=$LOG_DEST" >> "$GITHUB_ENV"
+        echo "--- /var/log/edamame contents ---"
+        [[ "$RUNNER_OS" != "Windows" ]] && (sudo ls -la /var/log/edamame/ 2>/dev/null || true)
+        echo "--- daemon log dump (capped at 2MB/file) ---"
+        find "$LOG_DEST" -type f \
+          -exec echo "=== {} ===" \; \
+          -exec tail -c 2000000 {} \; 2>/dev/null || true
+        echo "--- end daemon log dump ---"
 
     - name: Save auto-whitelist state
       if: ${{ inputs.dump_sessions_log == 'true' && env.AUTO_WHITELIST_ENABLED == 'true' }}
