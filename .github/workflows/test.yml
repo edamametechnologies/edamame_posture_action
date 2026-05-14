@@ -11,6 +11,9 @@ on:
       - 'main'
     paths:
       - 'action.yml'
+      - 'CHANGELOG.md'
+      - '.github/workflows/test.yml'
+      - '.github/workflows/release.yml'
       
 # Auto cancel previous runs if they were not completed.
 concurrency:
@@ -174,6 +177,30 @@ jobs:
           custom_whitelists_path: custom_whitelists.json
         continue-on-error: true
 
+      # Test display_logs collects daemon logs
+      - name: Test display_logs collects daemon logs
+        id: test-display-logs
+        uses: ./
+        with:
+          display_logs: true
+        continue-on-error: true
+
+      - name: Assert daemon log dump produced files
+        id: test-display-logs-assert
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${EDAMAME_DAEMON_LOGS_PATH:?EDAMAME_DAEMON_LOGS_PATH not set}"
+          [[ -d "$EDAMAME_DAEMON_LOGS_PATH" ]] || { echo "log dir missing"; exit 1; }
+          files=$(find "$EDAMAME_DAEMON_LOGS_PATH" -type f -name 'edamame_*' | wc -l)
+          if [[ "$files" -lt 1 ]]; then
+            echo "expected at least one daemon log, found $files"
+            ls -la "$EDAMAME_DAEMON_LOGS_PATH" || true
+            exit 1
+          fi
+          echo "OK: $files daemon log file(s) collected"
+        continue-on-error: true
+
       # Test stop
       - name: Test stop
         id: test-stop
@@ -240,6 +267,8 @@ jobs:
           (runner.os != 'Windows' && steps.test-create-custom-whitelist.outcome != 'success') || 
           (runner.os != 'Windows' && steps.test-set-custom-whitelist.outcome != 'success') ||
           (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
+          steps.test-display-logs.outcome != 'success' ||
+          steps.test-display-logs-assert.outcome != 'success' ||
           steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success'
@@ -258,6 +287,8 @@ jobs:
             - Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Display Logs Collect: ${{ steps.test-display-logs.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+            - Display Logs Assert: ${{ steps.test-display-logs-assert.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
             Branch: ${{ github.ref }}
@@ -277,6 +308,8 @@ jobs:
           (runner.os != 'Windows' && steps.test-create-custom-whitelist.outcome != 'success') || 
           (runner.os != 'Windows' && steps.test-set-custom-whitelist.outcome != 'success') ||
           (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
+          steps.test-display-logs.outcome != 'success' ||
+          steps.test-display-logs-assert.outcome != 'success' ||
           steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success'
@@ -292,6 +325,8 @@ jobs:
           echo "- Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Display Logs Collect: ${{ steps.test-display-logs.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
+          echo "- Display Logs Assert: ${{ steps.test-display-logs-assert.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
           echo "- Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
