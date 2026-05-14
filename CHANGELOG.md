@@ -46,13 +46,7 @@ also published for reproducible pins; see the README "Pinning" section.
 - New release-time validation: the `release.yml` workflow now gates on
   semver-shape, version not already published, the presence of a
   CHANGELOG entry for the dispatched version, and `test.yml` being
-  green on the same commit. The "test.yml green" check soft-passes
-  with a `::warning::` annotation when the github-hosted runner's
-  IP is blocked by the `edamametechnologies` org IP allow list (the
-  github-hosted runner pool is not whitelisted); the dispatcher is
-  expected to visually verify `test.yml` is green on the dispatched
-  SHA before invoking. The other three validate checks remain hard
-  failures.
+  green on the same commit. All four checks hard-fail.
 
 ### Improved
 
@@ -82,12 +76,16 @@ also published for reproducible pins; see the README "Pinning" section.
   `.github/workflows/release.yml` so a release-relevant commit always
   produces a green test run on its own SHA before the release gate
   evaluates it.
-- `release.yml` no longer dogfoods the action in-line (no more
-  `Setup Posture` + `dump_vulnerability_findings` steps in the release
-  workflow itself); the runner-protection gate is exercised by
-  `test.yml` and `test_vulnerability_gate.yml`. This also removes the
-  chicken-and-egg of `release.yml` consuming `@v1` while the release
-  is mid-flight.
+- `release.yml` keeps `Setup EDAMAME Posture` (connected mode) as the
+  first step of both the `validate` and `release` jobs. This is
+  mandatory: the github-hosted runner pool's IPs are not in the
+  `edamametechnologies` org IP allow list, so any direct
+  `api.github.com` / `git push` call returns 403 from a hosted
+  runner. Hub registration via Setup EDAMAME Posture dynamically
+  whitelists the runner's egress IP for the duration of the job.
+  The trailing `dump_vulnerability_findings: true` step also runs
+  in monitor-only mode (`exit_on_vulnerability_findings: false`) per
+  the workspace github-hosted-runner rule.
 
 ## [1.0.0] - 2026-04-17
 
