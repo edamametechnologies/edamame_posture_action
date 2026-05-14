@@ -44,8 +44,15 @@ also published for reproducible pins; see the README "Pinning" section.
 - README "Pinning" subsection explaining the difference between the
   moving `@v1` tag and immutable `@vX.Y.Z` tags.
 - New release-time validation: the `release.yml` workflow now gates on
-  `test.yml` being green on the same commit, semver-shape, and the
-  presence of a CHANGELOG entry for the dispatched version.
+  semver-shape, version not already published, the presence of a
+  CHANGELOG entry for the dispatched version, and `test.yml` being
+  green on the same commit. The "test.yml green" check soft-passes
+  with a `::warning::` annotation when the github-hosted runner's
+  IP is blocked by the `edamametechnologies` org IP allow list (the
+  github-hosted runner pool is not whitelisted); the dispatcher is
+  expected to visually verify `test.yml` is green on the dispatched
+  SHA before invoking. The other three validate checks remain hard
+  failures.
 
 ### Improved
 
