@@ -11,25 +11,10 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
-## [1.1.2] - 2026-05-15
-
-### Fixed
-
-- `dump_vulnerability_findings: true` no longer requires Python to apply the
-  CI-runtime false-positive filter for the Alpine rustup bootstrap case. This
-  keeps `exit_on_vulnerability_findings: true` usable in minimal container jobs
-  that do not ship `python3`.
-
 ## [1.1.1] - 2026-05-15
 
 ### Improved
 
-- `dump_vulnerability_findings: true` now applies a CI-runtime false-positive
-  filter before enforcing `exit_on_vulnerability_findings: true` when
-  per-finding output is available. The raw findings are still printed, but
-  known package-manager temp files, compiler scratch artifacts, runner
-  checkout `.env` files, rustup bootstrap temp paths, and EDAMAME test
-  fixtures no longer fail workflows by themselves.
 - `stop: true` now bounds the foreground stop command to 30 seconds before
   continuing into the existing verification and force-kill path. This prevents
   Windows-hosted action tests from hanging indefinitely when the posture CLI
