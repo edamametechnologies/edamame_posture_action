@@ -98,7 +98,7 @@ jobs:
         uses: edamametechnologies/edamame_posture_action@v1
         with:
           dump_vulnerability_findings: true
-          exit_on_vulnerability_findings: false
+          exit_on_vulnerability_findings: true
 
   release:
     needs: validate
@@ -185,4 +185,4 @@ jobs:
         uses: edamametechnologies/edamame_posture_action@v1
         with:
           dump_vulnerability_findings: true
-          exit_on_vulnerability_findings: false
+          exit_on_vulnerability_findings: true

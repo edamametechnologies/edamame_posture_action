@@ -83,9 +83,9 @@ also published for reproducible pins; see the README "Pinning" section.
   `api.github.com` / `git push` call returns 403 from a hosted
   runner. Hub registration via Setup EDAMAME Posture dynamically
   whitelists the runner's egress IP for the duration of the job.
-  The trailing `dump_vulnerability_findings: true` step also runs
-  in monitor-only mode (`exit_on_vulnerability_findings: false`) per
-  the workspace github-hosted-runner rule.
+  The trailing `dump_vulnerability_findings: true` step enforces the
+  gate (`exit_on_vulnerability_findings: true`) so the freshly-built
+  binary is observed end-to-end.
 
 ## [1.0.0] - 2026-04-17
 
