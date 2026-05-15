@@ -4773,7 +4773,28 @@ runs:
         if [[ "${{ inputs.stop }}" == "true" ]]; then
           cd
           echo "Stopping EDAMAME Posture process..."
-          $EDAMAME_POSTURE_CMD stop
+          set +e
+          $EDAMAME_POSTURE_CMD stop &
+          stop_pid=$!
+          stop_elapsed=0
+          stop_timeout=30
+          while kill -0 "$stop_pid" 2>/dev/null; do
+            if [[ "$stop_elapsed" -ge "$stop_timeout" ]]; then
+              echo "Warning: stop command timed out after ${stop_timeout}s; continuing to verification/force-kill path."
+              kill "$stop_pid" 2>/dev/null || true
+              sleep 1
+              kill -9 "$stop_pid" 2>/dev/null || true
+              break
+            fi
+            sleep 1
+            stop_elapsed=$((stop_elapsed + 1))
+          done
+          wait "$stop_pid" 2>/dev/null
+          stop_rc=$?
+          set -e
+          if [[ "$stop_rc" -ne 0 && "$stop_elapsed" -lt "$stop_timeout" ]]; then
+            echo "Warning: stop command exited with rc=$stop_rc; continuing to verification/force-kill path."
+          fi
           
           # Wait for daemon to fully stop
           echo "Verifying daemon has stopped..."
