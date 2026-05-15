@@ -11,6 +11,16 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-05-15
+
+### Fixed
+
+- Removed action-level vulnerability finding filtering from
+  `dump_vulnerability_findings`. The action now dumps raw findings and delegates
+  enforcement back to `edamame_posture vulnerability-status --fail-on-findings`;
+  stale workflow state and detector false positives must be fixed in their
+  owning workflow or detector layer.
+
 ## [1.1.1] - 2026-05-15
 
 ### Improved
