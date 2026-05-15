@@ -11,6 +11,17 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-15
+
+### Improved
+
+- `dump_vulnerability_findings: true` now applies a CI-runtime false-positive
+  filter before enforcing `exit_on_vulnerability_findings: true` when
+  per-finding output is available. The raw findings are still printed, but
+  known package-manager temp files, compiler scratch artifacts, runner
+  checkout `.env` files, rustup bootstrap temp paths, and EDAMAME test
+  fixtures no longer fail workflows by themselves.
+
 ## [1.1.0] - 2026-05-14
 
 ### Fixed
