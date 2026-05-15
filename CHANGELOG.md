@@ -21,6 +21,10 @@ also published for reproducible pins; see the README "Pinning" section.
   known package-manager temp files, compiler scratch artifacts, runner
   checkout `.env` files, rustup bootstrap temp paths, and EDAMAME test
   fixtures no longer fail workflows by themselves.
+- `stop: true` now bounds the foreground stop command to 30 seconds before
+  continuing into the existing verification and force-kill path. This prevents
+  Windows-hosted action tests from hanging indefinitely when the posture CLI
+  blocks while the daemon is shutting down.
 
 ## [1.1.0] - 2026-05-14
 
