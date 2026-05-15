@@ -11,6 +11,15 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-05-15
+
+### Fixed
+
+- `dump_vulnerability_findings: true` no longer requires Python to apply the
+  CI-runtime false-positive filter for the Alpine rustup bootstrap case. This
+  keeps `exit_on_vulnerability_findings: true` usable in minimal container jobs
+  that do not ship `python3`.
+
 ## [1.1.1] - 2026-05-15
 
 ### Improved
