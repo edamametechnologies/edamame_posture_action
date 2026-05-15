@@ -4203,7 +4203,190 @@ runs:
           fi
         fi
 
+        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status"
+        $EDAMAME_POSTURE_CMD vulnerability-status | tee "$STATUS_FILE"
         if [[ "${{ inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
+          if [[ $findings_rc -eq 0 ]]; then
+            FILTER_FILE="${RUNNER_TEMP:-/tmp}/edamame_vulnerability_effective_findings.json"
+            if python3 - "$FINDINGS_FILE" "$FILTER_FILE" <<'PY'
+        import json
+        import os
+        import re
+        import sys
+        from collections import Counter
+
+        findings_path, output_path = sys.argv[1], sys.argv[2]
+        repo = os.environ.get("GITHUB_REPOSITORY", "").lower()
+        edamame_test_repos = {
+            "edamametechnologies/edamame_core",
+            "edamametechnologies/edamame_foundation",
+            "edamametechnologies/edamame_helper",
+            "edamametechnologies/edamame_cli",
+            "edamametechnologies/flodbadd",
+        }
+
+        def load_json_from_log(path):
+            text = open(path, "r", encoding="utf-8", errors="replace").read()
+            decoder = json.JSONDecoder()
+            for index, char in enumerate(text):
+                if char != "{":
+                    continue
+                try:
+                    obj, _ = decoder.raw_decode(text[index:])
+                    return obj
+                except json.JSONDecodeError:
+                    continue
+            raise ValueError("no JSON object found in vulnerability findings output")
+
+        def norm(value):
+            return str(value or "").replace("\\\\", "/").lower()
+
+        def leaf(path):
+            return norm(path).rsplit("/", 1)[-1]
+
+        def is_dismissed(finding):
+            return bool(
+                finding.get("dismissed")
+                or finding.get("is_dismissed")
+                or str(finding.get("dismissal_status") or "").lower() == "dismissed"
+                or str(finding.get("status") or "").lower() == "dismissed"
+            )
+
+        def is_alertable(finding):
+            return (
+                str(finding.get("severity") or "").upper() in {"HIGH", "CRITICAL"}
+                and not is_dismissed(finding)
+            )
+
+        def ci_runtime_ignore_reason(finding):
+            check = str(finding.get("check") or "").lower()
+            path = norm(finding.get("subject_path"))
+            process_path = norm(finding.get("process_path"))
+            filename = leaf(path)
+
+            # GitHub Actions checkouts commonly materialize the committed
+            # project .env inside the runner workspace. Keep it in the dump,
+            # but don't treat the repo checkout itself as a compromise.
+            if path.endswith("/.env") and ("/_work/" in path or path.startswith("/__w/")):
+                return "ci-workspace-dotenv"
+
+            # Package manager signature verification and dpkg staging files
+            # are bursty /tmp artifacts from apt, not durable executable state.
+            if path.startswith("/tmp/") and (
+                filename.startswith(("apt.conf.", "apt.data.", "apt.sig.", "fileutl.message.", "clearsigned.message."))
+                or path.startswith("/tmp/apt-key-gpghome.")
+                or path.startswith("/tmp/apt-dpkg-install-")
+            ):
+                return "linux-apt-temp"
+
+            # GCC/ld creates short-lived /tmp/cc*.{c,o,res,ld,le,...}
+            # scratch artifacts during builds.
+            if re.fullmatch(r"/tmp/cc[^/]+\\.(?:c|i|ii|s|o|res|ld|le|out)", path):
+                return "linux-compiler-scratch"
+
+            # rustup runs its bootstrap binary from a temporary directory.
+            if re.fullmatch(r"/tmp/tmp[^/]*/rustup-init", path) or (
+                check == "sandbox_exploitation"
+                and re.fullmatch(r"/tmp/tmp[^/]*/rustup-init", process_path)
+            ):
+                return "rustup-bootstrap-temp"
+            if (
+                check == "file_system_tampering"
+                and re.fullmatch(r"/tmp/tmp\\.[^/]+", path)
+                and not process_path
+            ):
+                return "linux-tempdir-bootstrap"
+
+            # EDAMAME's own detector/foundation/flodbadd tests intentionally
+            # create suspicious-looking temp fixtures to prove the detector and
+            # gate work. Restrict this ignore class to EDAMAME test repos.
+            if repo in edamame_test_repos and (
+                "/tmp/edamame_vuln_detector_" in path
+                or "/tmp/edamame_secret_scan_test_" in path
+                or "/private/var/folders/" in path and "/edamame_secret_scan_test_" in path
+                or "/private/var/folders/" in path and re.search(r"/t/\\.tmp[^/]*/\\.ssh/id_rsa$", path)
+                or re.fullmatch(r"/tmp/\\.tmp[^/]*/\\.ssh/id_rsa", path)
+            ):
+                return "edamame-test-fixture"
+
+            # Windows hosted/self-hosted setup steps use temp PowerShell,
+            # Chocolatey, link, and random extraction scratch files. These are
+            # kept visible in the raw dump, but not counted as actionable
+            # runtime compromise signals for CI gates.
+            if re.match(r"^[a-z]:/users/(runner|runneradmin|runner~1)/appdata/local/temp/", path):
+                if re.fullmatch(r"\\.tmp[a-z0-9]+\\.ps1", filename):
+                    return "windows-temp-powershell"
+                if "/temp/chocolatey" in path:
+                    return "windows-chocolatey-temp"
+                if re.fullmatch(r"lnk\\{[0-9a-f-]+\\}\\.tmp", filename):
+                    return "windows-link-temp"
+                if re.fullmatch(r"tmp[_a-z0-9.]+", filename):
+                    return "windows-tool-temp"
+                if repo in edamame_test_repos and (
+                    "/edamame-test-" in path
+                    or "/flodbadd_pipeline_test/" in path
+                    or "/.claude/projects" in path
+                    or "/.cursor/projects" in path
+                    or re.search(r"/\\.tmp[^/]*(?:/|$)", path)
+                    or re.fullmatch(r"[a-z0-9]{8}\\.[a-z0-9]{3}", filename)
+                    or filename in {"chocolatey", "firefox"}
+                ):
+                    return "edamame-test-fixture"
+
+            return None
+
+        data = load_json_from_log(findings_path)
+        findings = data.get("findings") or []
+        alertable = [finding for finding in findings if is_alertable(finding)]
+        ignored = []
+        effective = []
+        for finding in alertable:
+            reason = ci_runtime_ignore_reason(finding)
+            if reason:
+                ignored.append((reason, finding))
+            else:
+                effective.append(finding)
+
+        summary = {
+            "total_alertable_findings": len(alertable),
+            "ignored_ci_runtime_false_positives": len(ignored),
+            "effective_alertable_findings": len(effective),
+            "ignored_reasons": dict(Counter(reason for reason, _ in ignored)),
+            "effective_samples": [
+                {
+                    "finding_key": finding.get("finding_key"),
+                    "check": finding.get("check"),
+                    "severity": finding.get("severity"),
+                    "subject_path": finding.get("subject_path"),
+                    "process_path": finding.get("process_path"),
+                    "description": finding.get("description"),
+                }
+                for finding in effective[:10]
+            ],
+        }
+        with open(output_path, "w", encoding="utf-8") as fh:
+            json.dump(summary, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+        PY
+            then
+              echo "Effective vulnerability gate summary after CI-runtime FP filtering:"
+              cat "$FILTER_FILE"
+              effective_findings="$(python3 - "$FILTER_FILE" <<'PY'
+        import json
+        import sys
+        with open(sys.argv[1], "r", encoding="utf-8") as fh:
+            print(int(json.load(fh).get("effective_alertable_findings") or 0))
+        PY
+        )"
+              if [[ "$effective_findings" -gt 0 ]]; then
+                echo "::error::Effective active runtime vulnerability findings detected: $effective_findings"
+                exit 1
+              fi
+              exit 0
+            fi
+            echo "[WARN] Could not parse per-finding output for CI-runtime FP filtering; falling back to summary gate."
+          fi
+
           echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings"
           set +e
           $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings 2>&1 | tee "$STATUS_FILE"
@@ -4216,11 +4399,7 @@ runs:
             exit "$rc"
           fi
           echo "[INFO] Installed edamame_posture does not expose --fail-on-findings; falling back to active_findings parsing."
-        fi
 
-        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status"
-        $EDAMAME_POSTURE_CMD vulnerability-status | tee "$STATUS_FILE"
-        if [[ "${{ inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
           active_findings="$(python3 - "$STATUS_FILE" <<'PY'
         import json
         import sys
