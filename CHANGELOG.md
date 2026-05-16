@@ -11,6 +11,24 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+### Changed
+
+- Live daemon cancellation now uses runtime vulnerability findings instead of
+  anomalous-session enforcement. When `vulnerability_detection` and
+  `exit_on_vulnerability_findings` are both enabled, setup passes
+  `--fail-on-findings` to `edamame_posture`.
+- Strict vulnerability gating now fails fast unless the setup invocation also
+  enables LLM adjudication with `agentic_mode=analyze|auto`, a non-`none`
+  `agentic_provider`, and the required provider credential environment variable.
+- Disconnected startup now passes `--agentic-interval`, matching connected
+  startup configuration.
+
+### Removed
+
+- Removed legacy posture-binary fallbacks from `dump_vulnerability_findings`.
+  The action now requires `vulnerability-findings --active-only` and
+  `vulnerability-status --fail-on-findings`.
+
 ## [1.1.2] - 2026-05-15
 
 ### Fixed
@@ -53,13 +71,11 @@ also published for reproducible pins; see the README "Pinning" section.
   directly without recomputing daemon paths or trusting the daemon PID.
   See README "Daemon log collection".
 - `dump_vulnerability_findings: true` now also runs
-  `vulnerability-findings --active-only` (when the installed
-  `edamame_posture` exposes the subcommand, > 1.2.2) and prints the full
+  `vulnerability-findings --active-only` and prints the full
   per-finding data (`finding_key`, `check`, `severity`, `description`,
   `process_*`, `destination_*`, `open_files`, `detection_basis`) so a CI
   operator can triage a finding from the job log alone without SSHing
-  into the runner. Older posture binaries gracefully fall through with
-  an `[INFO]` note; the summary-count gate path is unchanged.
+  into the runner.
 - README "Pinning" subsection explaining the difference between the
   moving `@v1` tag and immutable `@vX.Y.Z` tags.
 - New release-time validation: the `release.yml` workflow now gates on
@@ -69,15 +85,10 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ### Improved
 
-- The vulnerability gate's Python fallback (used when the installed
-  `edamame_posture` does not expose `--fail-on-findings`) now prefers
-  `active_alertable_findings` (HIGH/CRITICAL non-dismissed) over the raw
-  `active_findings` total, mirroring the native flag introduced in
-  `edamame_posture` v1.3.1. LOW-severity ambient findings (CI
-  bootstrappers like `rustup-init` from `/tmp/`, benign temp `.log`
-  writes) stay visible in the dashboard but no longer trip the run gate.
-  Older daemons that predate the alertable counter fall back to
-  `active_findings` so the gate keeps working during a rolling upgrade.
+- The vulnerability gate delegates to
+  `edamame_posture vulnerability-status --fail-on-findings`, which consumes
+  `active_alertable_findings` (HIGH/CRITICAL non-dismissed) so LOW-severity
+  ambient findings stay visible without tripping the run gate.
 - Self-test workflow `test_vulnerability_gate.yml` now clears runtime
   vulnerability state (`clear_vulnerability_history` +
   `reset_vulnerability_suppressions`) after the gate-firing scenario, so

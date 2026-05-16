@@ -268,7 +268,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `packet_capture`: Capture network traffic (`auto` mirrors `network_scan`; set to `true`/`false` to override)  
 - `check_whitelist`: When `true`, enforce whitelist conformance during network capture (requires `whitelist` to be set) (default: false)  
 - `check_blacklist`: When `true`, fail if blacklisted sessions are observed during capture (default: true)  
-- `check_anomalous`: When `true`, fail if anomalous sessions are detected during capture (default: true)  
+- `check_anomalous`: Deprecated for live enforcement; live cancellation now uses vulnerability findings when `vulnerability_detection` and `exit_on_vulnerability_findings` are enabled (default: true)
 - `cancel_on_violation`: When `true`, attempt to cancel the current CI pipeline if violations are detected during capture (default: false)  
 - `cancel_pipeline_script`: Path to custom cancellation script (default: `$HOME/cancel_pipeline.sh`). Script receives violation reason as first argument. See Pipeline Cancellation section for details.
 - `disconnected_mode`: Start EDAMAME Posture in disconnected mode without requiring domain authentication (default: false)
@@ -287,7 +287,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true)
 - `exit_on_blacklisted_sessions`: Exit with error when blacklisted sessions are detected (default: false)
 - `exit_on_anomalous_sessions`: Exit with error when anomalous sessions are detected (default: false)
-- `vulnerability_detection`: Start the runtime vulnerability detector during setup (default: false)
+- `vulnerability_detection`: Start the runtime vulnerability detector during setup (default: false). When combined with `exit_on_vulnerability_findings: true`, the action fails fast unless `agentic_mode` is `analyze` or `auto`, `agentic_provider` is set, and the provider credential env var is present.
 - `vulnerability_detection_interval`: Detector tick interval in seconds (default: 60)
 - `dump_vulnerability_findings`: Print runtime vulnerability detector status/findings in a later action invocation (default: false)
 - `exit_on_vulnerability_findings`: Exit with error when active runtime vulnerability findings are detected (default: true)
@@ -569,7 +569,8 @@ This GitHub Action provides multiple automation capabilities that can be combine
     whitelist: github_ubuntu
     check_whitelist: true           # Enable real-time whitelist checking
     check_blacklist: true           # Enable real-time blacklist checking
-    check_anomalous: true           # Enable real-time anomaly detection
+    vulnerability_detection: true   # Enable live vulnerability detection
+    exit_on_vulnerability_findings: true # Enable live vulnerability gate
     cancel_on_violation: true       # Cancel pipeline on violation
     # cancel_pipeline_script: custom_path.sh  # Optional: custom cancellation script
 ```
@@ -634,7 +635,8 @@ jobs:
           whitelist: github_ubuntu
           check_whitelist: true
           check_blacklist: true
-          check_anomalous: true
+          vulnerability_detection: true
+          exit_on_vulnerability_findings: true
           cancel_on_violation: true
           
           # AI Assistant for continuous remediation
@@ -1556,7 +1558,8 @@ Auto-whitelist works seamlessly with other EDAMAME features:
     auto_whitelist: true                          # Automated whitelist
     auto_whitelist_artifact_name: my-whitelist
     check_blacklist: true                         # Also check blacklists
-    check_anomalous: true                         # Also check ML anomalies
+    vulnerability_detection: true                 # Also check runtime vulnerabilities
+    exit_on_vulnerability_findings: true          # Fail/cancel on active vuln findings
     cancel_on_violation: true                     # Cancel on any violation
 ```
 
@@ -1837,7 +1840,7 @@ This section shows how GitHub Action inputs map to CLI flags.
 | `whitelist` | `--whitelist` | string | "github" | Whitelist name |
 | `check_whitelist` | `--fail-on-whitelist` | flag | false | Fail on whitelist violations |
 | `check_blacklist` | `--fail-on-blacklist` | flag | true | Fail on blacklist matches |
-| `check_anomalous` | `--fail-on-anomalous` | flag | true | Fail on anomalous sessions |
+| `vulnerability_detection` + `exit_on_vulnerability_findings` | `--fail-on-findings` | flag | true/true | Fail on active vulnerability findings |
 | `cancel_on_violation` | `--cancel-on-violation` | flag | false | Cancel CI on violations |
 | `include_local_traffic` | `--include-local-traffic` | flag | false | Include local traffic |
 | `agentic_mode` | `--agentic-mode` | string | "disabled" | AI assistant mode |
@@ -1854,13 +1857,13 @@ This section shows how GitHub Action inputs map to CLI flags.
 | `whitelist` | `--whitelist` | string | "" | Whitelist name |
 | `check_whitelist` | `--fail-on-whitelist` | flag | false | Fail on whitelist violations |
 | `check_blacklist` | `--fail-on-blacklist` | flag | true | Fail on blacklist matches |
-| `check_anomalous` | `--fail-on-anomalous` | flag | true | Fail on anomalous sessions |
+| `vulnerability_detection` + `exit_on_vulnerability_findings` | `--fail-on-findings` | flag | true/true | Fail on active vulnerability findings |
 | `cancel_on_violation` | `--cancel-on-violation` | flag | false | Cancel CI on violations |
 | `include_local_traffic` | `--include-local-traffic` | flag | false | Include local traffic |
 | `agentic_mode` | `--agentic-mode` | string | "disabled" | AI assistant mode |
 | `agentic_provider` | `--agentic-provider` | string | "none" | LLM provider: edamame, claude, openai, ollama |
 
-**Note:** `agentic_interval` is not supported in disconnected mode.
+**Note:** `agentic_interval` is supported in disconnected mode and is passed through as `--agentic-interval`.
 
 ### get-sessions Command
 
