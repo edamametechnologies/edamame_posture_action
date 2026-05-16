@@ -11,6 +11,8 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-05-16
+
 ### Changed
 
 - Live daemon cancellation now uses runtime vulnerability findings instead of
