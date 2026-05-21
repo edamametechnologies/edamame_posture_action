@@ -300,7 +300,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `auto_whitelist_artifact_name`: Name for GitHub artifact to store auto-whitelist state (default: "edamame-auto-whitelist")
 - `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
 - `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
-- `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "15")
+- `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "25")
 - `promote_exceptions`: Promote whitelist exceptions immediately without waiting for stability. When true, any non-conforming sessions are added to the whitelist regardless of stability state. Useful during releases to quickly update whitelists. (default: false)
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
@@ -1333,7 +1333,7 @@ jobs:
           # Optional tuning:
           # auto_whitelist_stability_threshold: "0"              # 0% = no new endpoints
           # auto_whitelist_stability_consecutive_runs: "3"       # 3 runs required
-          # auto_whitelist_max_iterations: "15"                  # Max learning iterations
+          # auto_whitelist_max_iterations: "25"                  # Max learning iterations
           # Note: Connected mode recommended for artifact access if IP allow lists are enabled
 
       # Step 2: Your Build/Test/Deploy Work
@@ -1389,7 +1389,7 @@ That's it! The action handles everything else automatically.
 | `auto_whitelist_artifact_name` | string | `edamame-auto-whitelist` | Name for GitHub artifact storage |
 | `auto_whitelist_stability_threshold` | string | `"0"` | Percentage change threshold (0 = no new endpoints) |
 | `auto_whitelist_stability_consecutive_runs` | string | `"3"` | Consecutive stable runs required |
-| `auto_whitelist_max_iterations` | string | `"15"` | Maximum learning iterations |
+| `auto_whitelist_max_iterations` | string | `"25"` | Maximum learning iterations |
 
 **Exception Promotion via Input:**
 
