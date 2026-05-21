@@ -148,21 +148,22 @@ jobs:
           disconnected_mode: true
           network_scan: true
           packet_capture: true
-          # We assert the expected detection ourselves below; do not let the
-          # action's enforcement layers cancel the job before we can verify.
+          # We assert the expected detection ourselves below, so disable the
+          # action's strict gate (which would also require EDAMAME_LLM_API_KEY
+          # at setup time). The deterministic detector alone is sufficient for
+          # the agent_security demo catalog -- those scenarios were chosen
+          # specifically to demonstrate deterministic detection.
           check_blacklist: false
           check_anomalous: false
           vulnerability_detection: true
           vulnerability_detection_interval: "15"
-          agentic_mode: analyze
-          agentic_provider: edamame
-          agentic_interval: 60
+          exit_on_vulnerability_findings: false
+          agentic_mode: disabled
+          agentic_provider: none
           file_monitoring: ${{ matrix.file_monitoring }}
           # On ubuntu-latest, $HOME is always /home/runner. The agent_security
           # triggers write to ~/.ssh/, ~/.aws/, ~/.env_*, and /tmp/.
           file_monitoring_paths: ${{ matrix.file_monitoring == true && '/home/runner/.ssh,/home/runner/.aws,/home/runner,/tmp' || '' }}
-        env:
-          EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
 
       - name: Download trigger scripts from agent_security
         run: |
