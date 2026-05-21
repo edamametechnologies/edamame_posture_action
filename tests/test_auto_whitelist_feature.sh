@@ -16,7 +16,7 @@ ARTIFACT_NAME_PREFIX="test-auto-whitelist-feature"
 BRANCH="${GITHUB_REF_NAME:-$(git branch --show-current 2>/dev/null || echo "main")}"
 ARTIFACT_NAME="$ARTIFACT_NAME_PREFIX-$BRANCH"
 STATE_ARTIFACT_NAME="$ARTIFACT_NAME_PREFIX-state-$BRANCH"
-MAX_ITERATIONS=20
+MAX_ITERATIONS=30
 STABILITY_REQUIRED=3
 
 # ─────────────────────────────────────────────────────────────────────────────

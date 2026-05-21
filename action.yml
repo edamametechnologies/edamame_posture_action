@@ -191,9 +191,9 @@ inputs:
     required: false
     default: "3"
   auto_whitelist_max_iterations:
-    description: "Maximum number of auto-whitelist iterations before declaring stable (default: 15)"
+    description: "Maximum number of auto-whitelist iterations before declaring stable (default: 25)"
     required: false
-    default: "15"
+    default: "25"
   auto_whitelist_state_artifact_name:
     description: "Name for the artifact storing auto-whitelist state (default: auto-whitelist-state)"
     required: false
