@@ -227,24 +227,39 @@ jobs:
 
       - name: Run attack trigger (${{ matrix.scenario }})
         run: |
-          # We DO NOT use `set -e` here: some triggers (notably the C-backed
-          # cve_sandbox_escape wrapper) have been observed to ignore their own
-          # --duration cap on github-hosted runners and run until SIGKILL. We
-          # wrap them in timeout(1) and want to continue to the verification
-          # step even when the wrapper was force-killed -- the C probe spent
-          # the full window emitting attack traffic, which is exactly what the
-          # detector needs.
+          # Disable errexit: some triggers (notably the C-backed
+          # cve_sandbox_escape wrapper) ignore their own --duration cap on
+          # github-hosted runners, so timeout(1) will kill them with a
+          # non-zero exit code. We want to continue to the verification step
+          # regardless -- the C probe spent the window emitting attack
+          # traffic, which is exactly what the detector consumes.
+          set +e
           set -uo pipefail
           TRIGGER_MAX=$(( ${{ matrix.duration }} + 60 ))
           echo "::group::Running ${{ matrix.trigger }} (--duration ${{ matrix.duration }}s, hard cap ${TRIGGER_MAX}s)"
-          timeout --preserve-status -k 5 ${TRIGGER_MAX} \
+          # IMPORTANT: do NOT pipe into `tee`. The python wrapper spawns a C
+          # probe subprocess that inherits python's stdout FD; when timeout(1)
+          # kills python the C probe survives in the same process group and
+          # keeps the pipe to tee open, so the pipeline (and step) hangs
+          # until the 25-min job-level timeout. Write to file directly.
+          timeout --foreground --preserve-status -k 5 ${TRIGGER_MAX} \
             python3 "$TRIGGERS_DIR/${{ matrix.trigger }}" \
-            --agent-type openclaw \
-            --duration ${{ matrix.duration }} \
-            2>&1 | tee ./trigger.log
-          TRIGGER_RC=${PIPESTATUS[0]}
+              --agent-type openclaw \
+              --duration ${{ matrix.duration }} \
+            > ./trigger.log 2>&1
+          TRIGGER_RC=$?
+          # Belt and braces: if the python wrapper was force-killed, its C
+          # probe descendant may still be alive (e.g. sandbox_probe sending
+          # UDP). Reap any leftover child by name so the next step starts
+          # from a quiet runner.
+          sudo -n pkill -KILL -f trigger_cve_sandbox_escape 2>/dev/null || true
+          sudo -n pkill -KILL -f sandbox_probe              2>/dev/null || true
+          sudo -n pkill -KILL -f sandbox_launcher           2>/dev/null || true
+          echo "----- trigger.log -----"
+          cat ./trigger.log || true
+          echo "----- end trigger.log -----"
           echo "::endgroup::"
-          if [[ "$TRIGGER_RC" -eq 124 || "$TRIGGER_RC" -eq 137 ]]; then
+          if [[ "$TRIGGER_RC" -eq 124 || "$TRIGGER_RC" -eq 137 || "$TRIGGER_RC" -eq 143 ]]; then
             echo "::warning::Trigger hit the ${TRIGGER_MAX}s hard cap (rc=$TRIGGER_RC); relying on detector evidence captured during the window."
           else
             echo "Trigger finished (rc=$TRIGGER_RC)."
