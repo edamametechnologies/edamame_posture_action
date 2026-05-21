@@ -238,6 +238,16 @@ jobs:
           echo "::group::vulnerability-status-after.json"
           cat ./vulnerability-status-after.json || true
           echo "::endgroup::"
+          # vulnerability-status returns counters only (active_findings,
+          # active_alertable_findings, ...). To inspect the per-finding
+          # `check` field we need the dedicated findings dump.
+          $EDAMAME_POSTURE_CMD background-vulnerability-findings --active-only \
+            > ./vulnerability-findings-after.json 2>&1
+          rc=$?
+          echo "background-vulnerability-findings exit code: $rc"
+          echo "::group::vulnerability-findings-after.json"
+          cat ./vulnerability-findings-after.json || true
+          echo "::endgroup::"
           exit 0
 
       - name: Capture sessions evidence
@@ -276,6 +286,10 @@ jobs:
           expected = os.environ["EXPECTED_CHECK"]
           scenario = os.environ["SCENARIO"]
 
+          # `vulnerability-status` returns counters only (active_findings,
+          # active_alertable_findings, running, adjudication_status, ...).
+          # The actual finding objects (with `check`, `severity`,
+          # `finding_key`) come from `background-vulnerability-findings`.
           try:
               with open("./vulnerability-status-after.json", "r", encoding="utf-8") as fh:
                   status = json.load(fh)
@@ -283,10 +297,29 @@ jobs:
               print(f"::warning::Could not parse vulnerability-status: {e}")
               status = {}
 
-          findings = status.get("findings") or []
           active = int(status.get("active_findings") or 0)
           alertable = int(status.get("active_alertable_findings") or 0)
-          checks = sorted({f.get("check") for f in findings if isinstance(f, dict)})
+
+          findings = []
+          try:
+              with open("./vulnerability-findings-after.json", "r", encoding="utf-8") as fh:
+                  data = json.load(fh)
+              if isinstance(data, list):
+                  findings = data
+              elif isinstance(data, dict):
+                  # The RPC has historically wrapped the list under various keys
+                  # depending on caller; try a couple before giving up.
+                  for key in ("findings", "active_findings", "items", "result"):
+                      val = data.get(key)
+                      if isinstance(val, list):
+                          findings = val
+                          break
+                  else:
+                      findings = []
+          except Exception as e:
+              print(f"::warning::Could not parse vulnerability-findings: {e}")
+
+          checks = sorted({f.get("check") for f in findings if isinstance(f, dict) and f.get("check")})
 
           print(f"active_findings          = {active}")
           print(f"active_alertable_findings = {alertable}")
@@ -335,6 +368,7 @@ jobs:
           path: |
             ./vulnerability-status-before.json
             ./vulnerability-status-after.json
+            ./vulnerability-findings-after.json
             ./sessions.log
             ./file-events.json
             ./trigger.log
