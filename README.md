@@ -287,9 +287,9 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true)
 - `exit_on_blacklisted_sessions`: Exit with error when blacklisted sessions are detected (default: false)
 - `exit_on_anomalous_sessions`: Exit with error when anomalous sessions are detected (default: false)
-- `vulnerability_detection`: Start the runtime vulnerability detector during setup (default: false). When combined with `exit_on_vulnerability_findings: true`, the action fails fast unless `agentic_mode` is `analyze` or `auto`, `agentic_provider` is set, and the provider credential env var is present.
+- `vulnerability_detection`: Start the runtime attack pattern detector during setup (default: false). When combined with `exit_on_vulnerability_findings: true`, the action fails fast unless `agentic_mode` is `analyze` or `auto`, `agentic_provider` is set, and the provider credential env var is present.
 - `vulnerability_detection_interval`: Detector tick interval in seconds (default: 60)
-- `dump_vulnerability_findings`: Print runtime vulnerability detector status/findings in a later action invocation (default: false)
+- `dump_vulnerability_findings`: Print runtime attack pattern detector status/findings in a later action invocation (default: false)
 - `exit_on_vulnerability_findings`: Exit with error when active runtime vulnerability findings are detected (default: true)
 - `report_email`: Send a compliance report to this email address (default: "")
 - `create_custom_whitelists`: Create custom whitelists from captured network sessions (default: false)
@@ -569,7 +569,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
     whitelist: github_ubuntu
     check_whitelist: true           # Enable real-time whitelist checking
     check_blacklist: true           # Enable real-time blacklist checking
-    vulnerability_detection: true   # Enable live vulnerability detection
+    vulnerability_detection: true   # Enable live attack pattern detection
     exit_on_vulnerability_findings: true # Enable live vulnerability gate
     cancel_on_violation: true       # Cancel pipeline on violation
     # cancel_pipeline_script: custom_path.sh  # Optional: custom cancellation script

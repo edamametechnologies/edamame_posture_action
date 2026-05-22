@@ -110,21 +110,47 @@ inputs:
     required: false
     default: "false"
   vulnerability_detection:
-    description: "Start the runtime vulnerability detector during setup"
+    description: "[Legacy alias of attack_pattern_detection] Start the runtime attack pattern detector during setup. Prefer attack_pattern_detection in new workflows; vulnerability_detection will be deprecated in a future major version."
     required: false
     default: "false"
   vulnerability_detection_interval:
-    description: "Runtime vulnerability detector tick interval in seconds"
+    description: "[Legacy alias of attack_pattern_detection_interval] Runtime attack pattern detector tick interval in seconds. Prefer attack_pattern_detection_interval."
     required: false
     default: "60"
   dump_vulnerability_findings:
-    description: "Dump runtime vulnerability detector status/findings during a later action invocation"
+    description: "[Legacy alias of dump_attack_pattern_findings] Dump runtime attack pattern detector status/findings during a later action invocation. Prefer dump_attack_pattern_findings."
     required: false
     default: "false"
   exit_on_vulnerability_findings:
-    description: "Exit with error when active runtime vulnerability findings are detected"
+    description: "[Legacy alias of exit_on_attack_pattern_findings] Exit with error when active runtime attack pattern findings are detected. Prefer exit_on_attack_pattern_findings."
     required: false
     default: "true"
+  # ---------------------------------------------------------------------------
+  # Attack Pattern Detector inputs (preferred names; transition surface).
+  # Defaults are empty strings so the alias fallback expression
+  # `(inputs.attack_pattern_X || inputs.vulnerability_X)` falls through to the
+  # legacy input when the new name is not explicitly set. The legacy
+  # `vulnerability_*` inputs above remain accepted for backward compatibility
+  # and will be deprecated in a future major version. See the workspace rules
+  # (Vulnerability -> Attack Pattern Detection Terminology Transition) for the
+  # full policy.
+  # ---------------------------------------------------------------------------
+  attack_pattern_detection:
+    description: "Start the runtime attack pattern detector during setup. Preferred name; supersedes vulnerability_detection."
+    required: false
+    default: ""
+  attack_pattern_detection_interval:
+    description: "Runtime attack pattern detector tick interval in seconds. Preferred name; supersedes vulnerability_detection_interval."
+    required: false
+    default: ""
+  dump_attack_pattern_findings:
+    description: "Dump runtime attack pattern detector status/findings during a later action invocation. Preferred name; supersedes dump_vulnerability_findings."
+    required: false
+    default: ""
+  exit_on_attack_pattern_findings:
+    description: "Exit with error when active runtime attack pattern findings are detected. Preferred name; supersedes exit_on_vulnerability_findings."
+    required: false
+    default: ""
   file_monitoring:
     description: "Enable file integrity monitoring during the workflow"
     required: false
@@ -566,7 +592,7 @@ runs:
         sudo chmod 1777 /var/log/edamame
 
     - name: Validate strict vulnerability gate configuration
-      if: ${{ inputs.vulnerability_detection == 'true' && inputs.exit_on_vulnerability_findings == 'true' && inputs.dump_sessions_log != 'true' && inputs.dump_vulnerability_findings != 'true' && inputs.stop != 'true' }}
+      if: ${{ (inputs.attack_pattern_detection || inputs.vulnerability_detection) == 'true' && (inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings) == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -621,7 +647,7 @@ runs:
       if: >
         inputs.stop != 'true' &&
         inputs.dump_sessions_log != 'true' &&
-        inputs.dump_vulnerability_findings != 'true' &&
+        (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' &&
         inputs.edamame_policy == '' &&
         inputs.edamame_minimum_score == '' &&
         inputs.create_custom_whitelists != 'true' &&
@@ -639,7 +665,7 @@ runs:
         IS_INITIAL_SETUP="true"
         if [[ "${{ inputs.stop }}" == "true" || \
               "${{ inputs.dump_sessions_log }}" == "true" || \
-              "${{ inputs.dump_vulnerability_findings }}" == "true" || \
+              "${{ inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings }}" == "true" || \
               -n "${{ inputs.edamame_policy }}" || \
               -n "${{ inputs.edamame_minimum_score }}" || \
               "${{ inputs.create_custom_whitelists }}" == "true" || \
@@ -687,7 +713,7 @@ runs:
         if [[ "${{ inputs.check_blacklist }}" == "true" ]]; then
           INSTALL_ARGS+=(--fail-on-blacklist)
         fi
-        if [[ "${{ inputs.vulnerability_detection }}" == "true" && "${{ inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
+        if [[ "${{ inputs.attack_pattern_detection || inputs.vulnerability_detection }}" == "true" && "${{ inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
           INSTALL_ARGS+=(--fail-on-findings)
         fi
         if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
@@ -1271,7 +1297,7 @@ runs:
       shell: bash
     
     - name: Start EDAMAME Posture in disconnected mode if requested
-      if: ${{ inputs.disconnected_mode == 'true' && inputs.dump_sessions_log != 'true' && inputs.dump_vulnerability_findings != 'true' && inputs.stop != 'true' }}
+      if: ${{ inputs.disconnected_mode == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
       run: |
         cd
         if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
@@ -1314,7 +1340,7 @@ runs:
             START_ARGS+=(--fail-on-blacklist)
           fi
 
-          if [[ "${{ inputs.vulnerability_detection }}" == "true" && "${{ inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
+          if [[ "${{ inputs.attack_pattern_detection || inputs.vulnerability_detection }}" == "true" && "${{ inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
             START_ARGS+=(--fail-on-findings)
           fi
 
@@ -1370,24 +1396,27 @@ runs:
         fi
       shell: bash
 
-    - name: Start vulnerability detector if requested
-      if: ${{ inputs.vulnerability_detection == 'true' && inputs.dump_sessions_log != 'true' && inputs.dump_vulnerability_findings != 'true' && inputs.stop != 'true' }}
+    - name: Start attack pattern detector if requested
+      if: ${{ (inputs.attack_pattern_detection || inputs.vulnerability_detection) == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
       run: |
         set -euo pipefail
         cd
-        interval="${{ inputs.vulnerability_detection_interval }}"
+        interval="${{ inputs.attack_pattern_detection_interval || inputs.vulnerability_detection_interval }}"
         if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval <= 0 )); then
-          echo "::error::vulnerability_detection_interval must be a positive integer"
+          echo "::error::attack_pattern_detection_interval (or legacy vulnerability_detection_interval) must be a positive integer"
           exit 1
         fi
-        echo "Starting runtime vulnerability detector with interval ${interval}s"
+        echo "Starting runtime attack pattern detector with interval ${interval}s"
+        # CLI uses legacy `vulnerability-*` names for backward compatibility
+        # with older edamame_posture binaries. Newer binaries also accept
+        # `attack-pattern-*` aliases.
         $EDAMAME_POSTURE_CMD vulnerability-start "$interval"
         $EDAMAME_POSTURE_CMD vulnerability-status || true
       shell: bash
 
     # We must wait here as we can use the API to download the whitelist artifact from the previous run
     - name: Wait for API access to be granted if requested
-      if: ${{ inputs.dump_sessions_log != 'true' && inputs.dump_vulnerability_findings != 'true' && inputs.stop != 'true' }}
+      if: ${{ inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
       run: |
         if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
           echo "Waiting for GitHub API access to be granted..."
@@ -1450,7 +1479,7 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
 
     - name: Wait for https access to the repo be granted if requested
-      if: ${{ inputs.dump_sessions_log != 'true' && inputs.dump_vulnerability_findings != 'true' && inputs.stop != 'true' }}
+      if: ${{ inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
       run: |
         if [[ "${{ inputs.wait_for_https }}" == "true" ]]; then
           echo "Waiting for HTTPS access to the repository..."
@@ -4218,8 +4247,8 @@ runs:
         AUTO_WHITELIST_MAX_ITER: ${{ env.AUTO_WHITELIST_MAX_ITER }}
         PROMOTE_EXCEPTIONS: ${{ inputs.promote_exceptions }}
 
-    - name: Dump vulnerability findings if requested
-      if: ${{ inputs.dump_vulnerability_findings == 'true' }}
+    - name: Dump attack pattern findings if requested
+      if: ${{ (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) == 'true' }}
       run: |
         set -euo pipefail
         cd
@@ -4228,14 +4257,18 @@ runs:
 
         # Dump per-finding details (finding_key, check, severity, description,
         # process_*, destination_*, open_files, detection_basis). The action
-        # requires posture binaries new enough to expose vulnerability-findings
-        # and vulnerability-status --fail-on-findings.
+        # requires posture binaries that expose `vulnerability-findings` and
+        # `vulnerability-status --fail-on-findings`. The newer
+        # `attack-pattern-*` CLI aliases are accepted by edamame_posture
+        # binaries that include them, but the legacy `vulnerability-*` CLI
+        # commands are kept here so the action stays compatible with the
+        # widest possible range of installed posture versions.
         echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-findings --active-only"
         $EDAMAME_POSTURE_CMD vulnerability-findings --active-only 2>&1 | tee "$FINDINGS_FILE"
 
         echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status"
         $EDAMAME_POSTURE_CMD vulnerability-status | tee "$STATUS_FILE"
-        if [[ "${{ inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
+        if [[ "${{ inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
           echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings"
           $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings
         fi
