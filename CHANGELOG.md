@@ -11,6 +11,28 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-05-22
+
+### Added
+
+- Preferred attack pattern detector inputs:
+  `attack_pattern_detection`, `attack_pattern_detection_interval`,
+  `dump_attack_pattern_findings`, and `exit_on_attack_pattern_findings`.
+  Each new input takes precedence when explicitly set; the legacy
+  `vulnerability_*` names remain accepted as wire-level aliases.
+- Agent Security Attack Detection Demo workflow
+  (`.github/workflows/agent_security_attacks.yml`) for end-to-end CVE
+  scenario validation against a Lima-hosted posture daemon.
+
+### Changed
+
+- User-facing docs and input descriptions now refer to "attack pattern
+  detection" while keeping legacy `vulnerability_*` input names for
+  backward compatibility.
+- `auto_whitelist_max_iterations` default raised from `15` to `25` so
+  longer auto-whitelist learning cycles can converge before declaring
+  stability.
+
 ## [1.1.3] - 2026-05-16
 
 ### Changed
