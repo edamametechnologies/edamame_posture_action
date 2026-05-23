@@ -297,7 +297,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
 - `augment_custom_whitelists`: When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true` with packet capture enabled.
 - `auto_whitelist`: Enable automated whitelist lifecycle management across workflow runs. Requires `network_scan: true` with packet capture enabled so traffic can be observed. See **Automated Whitelist Lifecycle** below (default: false)
-- `auto_whitelist_artifact_name`: Name for GitHub artifact to store auto-whitelist state (default: "edamame-auto-whitelist")
+- `auto_whitelist_artifact_name`: GitHub artifact name for persisted auto-whitelist state (default: `edamame-auto-whitelist`). Prefer `edamame-auto-whitelist-${{ matrix.runs-on }}` or a literal runs-on suffix — see **Artifact naming (runner pools)** under Automated Whitelist Lifecycle.
 - `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
 - `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
 - `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "25")
@@ -1329,7 +1329,8 @@ jobs:
           network_scan: true
           packet_capture: true
           auto_whitelist: true
-          auto_whitelist_artifact_name: my-project-whitelist
+          # One artifact bucket per runner pool (see "Artifact naming" below).
+          auto_whitelist_artifact_name: edamame-auto-whitelist-${{ matrix.runs-on }}
           # Optional tuning:
           # auto_whitelist_stability_threshold: "0"              # 0% = no new endpoints
           # auto_whitelist_stability_consecutive_runs: "3"       # 3 runs required
@@ -1386,10 +1387,72 @@ That's it! The action handles everything else automatically.
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `auto_whitelist` | boolean | `false` | Enable automated whitelist lifecycle |
-| `auto_whitelist_artifact_name` | string | `edamame-auto-whitelist` | Name for GitHub artifact storage |
+| `auto_whitelist_artifact_name` | string | `edamame-auto-whitelist` | GitHub artifact name for persisted whitelist state (see **Artifact naming** below) |
 | `auto_whitelist_stability_threshold` | string | `"0"` | Percentage change threshold (0 = no new endpoints) |
 | `auto_whitelist_stability_consecutive_runs` | string | `"3"` | Consecutive stable runs required |
 | `auto_whitelist_max_iterations` | string | `"25"` | Maximum learning iterations |
+
+### Artifact naming (runner pools)
+
+Auto-whitelist state is stored as a **GitHub Actions artifact** in the **current repository**. Each workflow run downloads the newest non-expired artifact with the configured name, augments it from captured traffic, and uploads an updated copy on teardown (`dump_sessions_log: true`).
+
+**Key by `runs-on`, not by OS.** The artifact name should identify the **runner pool** (the job's `runs-on` label), not the operating system alone. Self-hosted pools (`vm-runner-linux`, `vm-runner-windows`, `vm-runner-macos`) and GitHub-hosted pools (`ubuntu-latest`, `macos-latest`, `ubuntu-22.04-arm`, …) can all run Linux or macOS jobs but observe **different egress profiles**. Using `runner.os` merges those pools into one whitelist and mixes self-hosted with managed traffic.
+
+| Naming strategy | Expression | When to use |
+|-----------------|------------|-------------|
+| **Runner pool (recommended)** | `edamame-auto-whitelist-${{ matrix.runs-on }}` or `edamame-auto-whitelist-<literal-runs-on>` | Production release/test jobs; keeps self-hosted and managed separate |
+| **OS-wide (optional)** | `edamame-auto-whitelist-${{ runner.os }}` | Only when you *want* one shared whitelist for every pool on the same OS (e.g. all Linux runners share one file) |
+| **Default** | `edamame-auto-whitelist` | Single bucket per repo; **not recommended** when multiple workflows or runner types use auto-whitelist in the same repository |
+
+**Matrix jobs** — use the matrix label directly:
+
+```yaml
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runs-on: vm-runner-windows
+          - runs-on: macos-latest
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          auto_whitelist: true
+          auto_whitelist_artifact_name: edamame-auto-whitelist-${{ matrix.runs-on }}
+```
+
+**Fixed `runs-on` jobs** — GitHub Actions does not expose the job's `runs-on` value in step expressions for non-matrix jobs, so repeat the same label in the artifact name:
+
+```yaml
+jobs:
+  build:
+    runs-on: vm-runner-windows
+    steps:
+      - uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          auto_whitelist: true
+          auto_whitelist_artifact_name: edamame-auto-whitelist-vm-runner-windows
+```
+
+Example artifact names after a release cycle:
+
+| `runs-on` | Artifact name |
+|-----------|---------------|
+| `vm-runner-windows` | `edamame-auto-whitelist-vm-runner-windows` |
+| `vm-runner-linux` | `edamame-auto-whitelist-vm-runner-linux` |
+| `ubuntu-latest` | `edamame-auto-whitelist-ubuntu-latest` |
+| `ubuntu-22.04-arm` | `edamame-auto-whitelist-ubuntu-22.04-arm` |
+
+Multiple matrix rows that share the same `runs-on` value (for example several deb builds on `ubuntu-latest`) intentionally share one artifact — same pool, same egress baseline.
+
+**Scope and lifecycle notes:**
+
+- Artifacts are **per repository** — `edamame_app` and `edamame_cli` each maintain separate whitelist stores.
+- The action selects the **most recently created** non-expired artifact with the matching name (not necessarily from the same workflow file).
+- Renaming an artifact starts a **fresh learning cycle** for that pool; old artifacts under the previous name are ignored but remain until GitHub retention expires.
+- When migrating from the default `edamame-auto-whitelist` bucket to per-pool names, **delete the legacy artifacts** in each repository (GitHub → Actions → Artifacts, or `gh api -X DELETE repos/ORG/REPO/actions/artifacts/ID`). The new names will not download them anyway, but removing stale blended state avoids confusion and accidental reuse if a workflow is ever misconfigured back to the old name.
+- EDAMAME release workflows use the `edamame-auto-whitelist-<runs-on>` convention so Windows, Linux self-hosted, Linux github-hosted, and macOS pools do not cross-contaminate.
 
 **Exception Promotion via Input:**
 
@@ -1556,7 +1619,7 @@ Auto-whitelist works seamlessly with other EDAMAME features:
     network_scan: true
     packet_capture: true
     auto_whitelist: true                          # Automated whitelist
-    auto_whitelist_artifact_name: my-whitelist
+    auto_whitelist_artifact_name: edamame-auto-whitelist-${{ matrix.runs-on }}
     check_blacklist: true                         # Also check blacklists
     vulnerability_detection: true                 # Also check runtime vulnerabilities
     exit_on_vulnerability_findings: true          # Fail/cancel on active vuln findings

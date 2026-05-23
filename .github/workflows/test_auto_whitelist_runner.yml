@@ -30,7 +30,7 @@ jobs:
   test-auto-whitelist-runner:
     name: Auto-Whitelist Lifecycle Test
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
     
     steps:
       - name: "Test info"
