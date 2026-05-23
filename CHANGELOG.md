@@ -11,6 +11,14 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+### Changed
+
+- Documented recommended `auto_whitelist_artifact_name` naming: key artifacts by
+  `runs-on` runner pool (`edamame-auto-whitelist-${{ matrix.runs-on }}` or a
+  literal runs-on suffix), not `runner.os` or the default single-repo bucket.
+  Expanded README **Artifact naming (runner pools)** and the `action.yml` input
+  description.
+
 ## [1.1.4] - 2026-05-22
 
 ### Added

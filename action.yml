@@ -205,7 +205,16 @@ inputs:
     required: false
     default: "false"
   auto_whitelist_artifact_name:
-    description: "Name for the GitHub artifact to store auto-whitelist state (default: edamame-auto-whitelist)"
+    description: |
+      Name for the GitHub artifact that stores auto-whitelist state between workflow
+      runs in this repository (default: edamame-auto-whitelist).
+
+      Key artifacts by the job's runs-on runner pool, not runner.os alone, so
+      self-hosted and GitHub-hosted jobs do not share one learned whitelist.
+      Matrix jobs: edamame-auto-whitelist-${{ matrix.runs-on }}.
+      Fixed runs-on: edamame-auto-whitelist-<same-label-as-runs-on>.
+      Use runner.os in the name only when you intentionally want one whitelist
+      shared across every pool on that OS.
     required: false
     default: "edamame-auto-whitelist"
   auto_whitelist_stability_threshold:
