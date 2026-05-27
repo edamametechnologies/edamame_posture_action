@@ -151,6 +151,18 @@ inputs:
     description: "Exit with error when active runtime attack pattern findings are detected. Preferred name; supersedes exit_on_vulnerability_findings."
     required: false
     default: ""
+  dump_attack_pattern_trace:
+    description: |
+      Dump the latest VulnerabilityDebugTrace JSON during a later action invocation,
+      and upload it as the `edamame-fp-capture` GitHub artifact. The artifact is
+      the canonical CI input for `tools/ingest_ci_fp_corpus.sh`, which shapes
+      it into Shape A entries under `edamame_core/tests/fp_corpus/<FP-ID>/`
+      (FP replay corpus -- see `edamame_core/FPREPLAY.md`). Requires a posture
+      binary that exposes `vulnerability-debug-trace --latest` (edamame_posture
+      >= 1.3.18+); older binaries will print a clap usage error and the step
+      will fail soft -- inspect the runner log to confirm.
+    required: false
+    default: "false"
   file_monitoring:
     description: "Enable file integrity monitoring during the workflow"
     required: false
@@ -657,6 +669,7 @@ runs:
         inputs.stop != 'true' &&
         inputs.dump_sessions_log != 'true' &&
         (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' &&
+        inputs.dump_attack_pattern_trace != 'true' &&
         inputs.edamame_policy == '' &&
         inputs.edamame_minimum_score == '' &&
         inputs.create_custom_whitelists != 'true' &&
@@ -675,6 +688,7 @@ runs:
         if [[ "${{ inputs.stop }}" == "true" || \
               "${{ inputs.dump_sessions_log }}" == "true" || \
               "${{ inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings }}" == "true" || \
+              "${{ inputs.dump_attack_pattern_trace }}" == "true" || \
               -n "${{ inputs.edamame_policy }}" || \
               -n "${{ inputs.edamame_minimum_score }}" || \
               "${{ inputs.create_custom_whitelists }}" == "true" || \
@@ -1306,7 +1320,7 @@ runs:
       shell: bash
     
     - name: Start EDAMAME Posture in disconnected mode if requested
-      if: ${{ inputs.disconnected_mode == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
+      if: ${{ inputs.disconnected_mode == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.dump_attack_pattern_trace != 'true' && inputs.stop != 'true' }}
       run: |
         cd
         if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
@@ -1406,7 +1420,7 @@ runs:
       shell: bash
 
     - name: Start attack pattern detector if requested
-      if: ${{ (inputs.attack_pattern_detection || inputs.vulnerability_detection) == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
+      if: ${{ (inputs.attack_pattern_detection || inputs.vulnerability_detection) == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.dump_attack_pattern_trace != 'true' && inputs.stop != 'true' }}
       run: |
         set -euo pipefail
         cd
@@ -1425,7 +1439,7 @@ runs:
 
     # We must wait here as we can use the API to download the whitelist artifact from the previous run
     - name: Wait for API access to be granted if requested
-      if: ${{ inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
+      if: ${{ inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.dump_attack_pattern_trace != 'true' && inputs.stop != 'true' }}
       run: |
         if [[ "${{ inputs.wait_for_api }}" == "true" ]]; then
           echo "Waiting for GitHub API access to be granted..."
@@ -1488,7 +1502,7 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
 
     - name: Wait for https access to the repo be granted if requested
-      if: ${{ inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.stop != 'true' }}
+      if: ${{ inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.dump_attack_pattern_trace != 'true' && inputs.stop != 'true' }}
       run: |
         if [[ "${{ inputs.wait_for_https }}" == "true" ]]; then
           echo "Waiting for HTTPS access to the repository..."
@@ -4282,6 +4296,90 @@ runs:
           $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings
         fi
       shell: bash
+
+    - name: Dump attack pattern debug trace if requested
+      id: dump_attack_pattern_trace
+      if: ${{ inputs.dump_attack_pattern_trace == 'true' }}
+      run: |
+        set -euo pipefail
+        cd
+        # Canonical CI capture path for the FP replay corpus
+        # (see edamame_core/FPREPLAY.md). Dumps three artifacts the
+        # operator-side `tools/ingest_ci_fp_corpus.sh` shaper consumes:
+        #
+        #   trace.json     The full VulnerabilityDebugTrace JSON from
+        #                  the latest detector tick (`input_snapshot`,
+        #                  `deterministic_findings`, `llm_decision`,
+        #                  ...) -- this is the deterministic replay
+        #                  input for `cargo test --test fp_replay`.
+        #
+        #   findings.json  Active findings for cross-reference (a
+        #                  human picks which finding maps to which
+        #                  FP-ID).
+        #
+        #   meta.json      Workflow run provenance so the corpus
+        #                  envelope can record where the trace came
+        #                  from without the operator typing it.
+        #
+        # Requires a posture binary that exposes
+        # `vulnerability-debug-trace --latest`
+        # (edamame_posture >= 1.3.18+).
+        OUT_DIR="${RUNNER_TEMP:-/tmp}/edamame-fp-capture"
+        mkdir -p "$OUT_DIR"
+        TRACE_FILE="$OUT_DIR/trace.json"
+        FINDINGS_FILE="$OUT_DIR/findings.json"
+        META_FILE="$OUT_DIR/meta.json"
+
+        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-debug-trace --latest"
+        # Fail-soft on older posture binaries: emit a `{"error": ...}`
+        # envelope so the artifact still uploads and the ingestion
+        # script can surface a meaningful message.
+        if ! $EDAMAME_POSTURE_CMD vulnerability-debug-trace --latest > "$TRACE_FILE" 2>&1; then
+          echo "::warning::vulnerability-debug-trace failed (posture binary may predate 1.3.18). Captured stderr in trace.json."
+          # Re-wrap stderr as a JSON-readable error envelope.
+          err_msg="$(cat "$TRACE_FILE")"
+          jq -n --arg err "$err_msg" '{"error": $err}' > "$TRACE_FILE" || true
+        fi
+
+        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-findings --active-only"
+        $EDAMAME_POSTURE_CMD vulnerability-findings --active-only > "$FINDINGS_FILE" 2>&1 || true
+
+        # Provenance for the corpus envelope.
+        CORE_VERSION=""
+        if VINFO="$($EDAMAME_POSTURE_CMD --version 2>/dev/null)"; then
+          CORE_VERSION="$(echo "$VINFO" | awk 'NR==1 {print $NF}')"
+        fi
+        cat > "$META_FILE" <<META_EOF
+        {
+          "captured_at":          "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "captured_from_host":   "$(hostname -s 2>/dev/null || echo "ci-runner")",
+          "captured_from_runner": "${RUNNER_NAME:-unknown}",
+          "captured_from_os":     "${RUNNER_OS:-unknown}",
+          "captured_from_arch":   "${RUNNER_ARCH:-unknown}",
+          "captured_from_core_version": "${CORE_VERSION}",
+          "github_repository":    "${GITHUB_REPOSITORY:-}",
+          "github_workflow":      "${GITHUB_WORKFLOW:-}",
+          "github_run_id":        "${GITHUB_RUN_ID:-}",
+          "github_run_number":    "${GITHUB_RUN_NUMBER:-}",
+          "github_sha":           "${GITHUB_SHA:-}",
+          "github_ref":           "${GITHUB_REF:-}",
+          "github_job":           "${GITHUB_JOB:-}"
+        }
+        META_EOF
+        echo "Wrote FP-capture artifact to: $OUT_DIR"
+        ls -la "$OUT_DIR"
+        echo "fp_capture_dir=$OUT_DIR" >> "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Upload attack pattern debug trace artifact
+      if: ${{ inputs.dump_attack_pattern_trace == 'true' && always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: edamame-fp-capture-${{ github.run_id }}-${{ github.job }}-${{ strategy.job-index || '0' }}
+        path: ${{ steps.dump_attack_pattern_trace.outputs.fp_capture_dir }}
+        retention-days: 30
+        overwrite: true
+        if-no-files-found: warn
 
     - name: Dump sessions log if requested
       if: ${{ inputs.dump_sessions_log == 'true' }}
