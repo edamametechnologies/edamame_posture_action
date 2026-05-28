@@ -11,6 +11,33 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-05-28
+
+### Fixed
+
+- Installer bootstrap: avoid silent fallback to `v0.9.75` when the GitHub
+  releases API returns no data. The `Setup EDAMAME Posture` step used to
+  read the latest release tag with an **unauthenticated** API call. On
+  github-hosted runner pools (whose shared egress IPs frequently hit the
+  60 req/hr unauth rate limit), that call returned an empty body, the
+  resolver fell back to the hardcoded `INSTALL_SCRIPT_REF=v1.0.0` default,
+  and the v1.0.0 `install.sh` then fell back to its own
+  `FALLBACK_VERSION=0.9.75` and downloaded a 2024-era binary that lacks
+  modern CLI subcommands (e.g. `vulnerability-findings`). The action now:
+  - authenticates the GitHub releases API with `${{ inputs.token }}`
+    (defaults to the per-run `github.token`), eliminating the unauth
+    rate-limit drop;
+  - prefers `https://raw.githubusercontent.com/.../main/install.sh` as
+    the **primary** installer source (release-pinned `install.sh` is
+    frozen at release time and does not know how to install later
+    releases) and only falls back to the release-asset installer when
+    raw `main` is unreachable;
+  - bumps the hardcoded `INSTALL_SCRIPT_REF` default from `v1.0.0` to
+    `v1.3.18` so the last-resort fallback uses an installer whose
+    `FALLBACK_VERSION` and `LATEST_RELEASE_TAG_SECONDARY` retry logic
+    are current and whose CLI surface includes the modern subcommand
+    aliases (`vulnerability-findings`, etc.).
+
 ### Changed
 
 - Documented recommended `auto_whitelist_artifact_name` naming: key artifacts by

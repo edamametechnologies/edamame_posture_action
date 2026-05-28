@@ -820,13 +820,41 @@ runs:
         fi
         
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
-        INSTALL_SCRIPT_REF="v1.0.0"
+
+        # Resolve installer reference (used ONLY for the release-asset fallback path below).
+        # We authenticate the GH API call with GITHUB_TOKEN so github-hosted runner pools
+        # (which share unauth egress IPs) don't silently hit the 60 req/hr unauth rate limit
+        # and fall back to v1.0.0's install.sh -- whose hardcoded FALLBACK_VERSION=0.9.75
+        # downloads a 2024-era binary that lacks modern subcommands (e.g.
+        # `vulnerability-findings`), breaking every workflow that calls the new CLI surface.
+        # The hardcoded default below MUST point at a recent release whose install.sh
+        # contains the modern FALLBACK_VERSION / LATEST_RELEASE_TAG_SECONDARY logic and
+        # whose CLI surface includes the modern subcommand aliases. v1.3.18 is the
+        # earliest release that satisfies both constraints.
+        INSTALL_SCRIPT_REF="v1.3.18"
         RELEASE_API="https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases?per_page=2"
+        GH_TOKEN_VALUE="${{ inputs.token }}"
         echo "Determining latest installer release from: $RELEASE_API"
         if command -v curl >/dev/null 2>&1; then
-          LATEST_JSON=$(curl -fsSL "$RELEASE_API" 2>/dev/null || true)
+          if [[ -n "$GH_TOKEN_VALUE" ]]; then
+            LATEST_JSON=$(curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN_VALUE" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$RELEASE_API" 2>/dev/null || true)
+          else
+            LATEST_JSON=$(curl -fsSL "$RELEASE_API" 2>/dev/null || true)
+          fi
         elif command -v wget >/dev/null 2>&1; then
-          LATEST_JSON=$(wget -q -O - "$RELEASE_API" 2>/dev/null || true)
+          if [[ -n "$GH_TOKEN_VALUE" ]]; then
+            LATEST_JSON=$(wget -q \
+              --header="Accept: application/vnd.github+json" \
+              --header="Authorization: Bearer $GH_TOKEN_VALUE" \
+              --header="X-GitHub-Api-Version: 2022-11-28" \
+              -O - "$RELEASE_API" 2>/dev/null || true)
+          else
+            LATEST_JSON=$(wget -q -O - "$RELEASE_API" 2>/dev/null || true)
+          fi
         else
           LATEST_JSON=""
         fi
@@ -845,7 +873,7 @@ runs:
             INSTALL_SCRIPT_REF="$LATEST_TAG"
           fi
         fi
-        echo "Using installer reference: $INSTALL_SCRIPT_REF"
+        echo "Using installer reference for release-asset fallback: $INSTALL_SCRIPT_REF"
         
         # Download with retry logic for transient errors (502, 503, 504, 429, connection errors)
         download_file_with_retry() {
@@ -963,22 +991,28 @@ runs:
           fi
         }
         
-        RELEASE_INSTALL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
-        # Raw URL uses main branch (install.sh is not tagged with releases)
+        # Raw URL uses main branch (install.sh is not tagged with releases).
+        # We prefer raw/main as the PRIMARY source because the install.sh logic itself
+        # evolves between releases (FALLBACK_VERSION, retry/secondary-tag logic, new
+        # CLI subcommand handling). A release-pinned install.sh is the script as it
+        # existed at release time, NOT the script that knows how to install that
+        # release. Old release assets (e.g. v1.0.0/install.sh) bake in
+        # FALLBACK_VERSION=0.9.75 and silently degrade modern installs.
         RAW_INSTALL_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/main/install.sh"
         TMP_INSTALL_SCRIPT=$(mktemp)
         DOWNLOAD_SOURCE=""
-        
-        echo "Attempting to download installer from release asset: $RELEASE_INSTALL_URL"
-        if download_file_with_retry "$RELEASE_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
-          DOWNLOAD_SOURCE="release"
+
+        echo "Attempting to download installer from raw main: $RAW_INSTALL_URL"
+        if download_file_with_retry "$RAW_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
+          DOWNLOAD_SOURCE="raw"
         else
-          echo "[WARNING] Failed to download installer from release asset after retries. Falling back to raw source."
-          echo "Attempting to download from: $RAW_INSTALL_URL"
-          if download_file_with_retry "$RAW_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
-            DOWNLOAD_SOURCE="raw"
+          echo "[WARNING] Failed to download installer from raw main after retries."
+          RELEASE_INSTALL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
+          echo "Falling back to release-pinned installer: $RELEASE_INSTALL_URL"
+          if download_file_with_retry "$RELEASE_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
+            DOWNLOAD_SOURCE="release:${INSTALL_SCRIPT_REF}"
           else
-            echo "[ERROR] Unable to download installer from either release asset or raw source after retries."
+            echo "[ERROR] Unable to download installer from raw main or release asset after retries."
             rm -f "$TMP_INSTALL_SCRIPT"
             exit 1
           fi
