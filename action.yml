@@ -842,6 +842,10 @@ runs:
         # whose CLI surface includes the modern subcommand aliases. v1.3.18 is the
         # earliest release that satisfies both constraints.
         INSTALL_SCRIPT_REF="v1.3.18"
+        # Capture the GH token for the install.sh invocation later (belt-and-
+        # suspenders so older installer code paths that still call
+        # api.github.com authenticate at least). Used at the install.sh exec.
+        GH_TOKEN_VALUE="${{ inputs.token }}"
         LATEST_REDIRECT_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest"
         echo "Determining latest installer release via redirect: $LATEST_REDIRECT_URL"
         REDIRECT_LOCATION=""
