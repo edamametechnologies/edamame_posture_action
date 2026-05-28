@@ -822,69 +822,60 @@ runs:
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
 
         # Resolve installer reference (used ONLY for the release-asset fallback path below).
-        # We authenticate the GH API call with GITHUB_TOKEN so github-hosted runner pools
-        # (which share unauth egress IPs) don't silently hit the 60 req/hr unauth rate limit
-        # and fall back to v1.0.0's install.sh -- whose hardcoded FALLBACK_VERSION=0.9.75
-        # downloads a 2024-era binary that lacks modern subcommands (e.g.
-        # `vulnerability-findings`), breaking every workflow that calls the new CLI surface.
+        #
+        # IMPORTANT: do NOT use api.github.com here. The edamametechnologies org has
+        # an IP allow list enabled, and github-hosted runner pools (ubuntu-latest,
+        # macos-latest, windows-latest, ubuntu-24.04-arm, ...) are NOT in that
+        # allow list, so any api.github.com call returns HTTP 403. Even
+        # authenticating with $GITHUB_TOKEN does NOT bypass the org IP allow list.
+        # The standard "Setup EDAMAME Posture in connected mode" lift cannot help
+        # here -- the lift requires `edamame_posture` to already be installed,
+        # which is exactly what this step is trying to install (chicken-and-egg).
+        #
+        # The reliable cross-runner approach is the `github.com/<owner>/<repo>/
+        # releases/latest` HTML redirect, which is served by github.com (not the
+        # org-scoped api.github.com) and returns a 302 to the latest tag for any
+        # public repo without auth and without hitting the IP allow list.
+        #
         # The hardcoded default below MUST point at a recent release whose install.sh
         # contains the modern FALLBACK_VERSION / LATEST_RELEASE_TAG_SECONDARY logic and
         # whose CLI surface includes the modern subcommand aliases. v1.3.18 is the
         # earliest release that satisfies both constraints.
         INSTALL_SCRIPT_REF="v1.3.18"
-        RELEASE_API="https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases?per_page=2"
-        GH_TOKEN_VALUE="${{ inputs.token }}"
-        echo "Determining latest installer release from: $RELEASE_API"
-        LATEST_HTTP_CODE=""
+        LATEST_REDIRECT_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest"
+        echo "Determining latest installer release via redirect: $LATEST_REDIRECT_URL"
+        REDIRECT_LOCATION=""
+        REDIRECT_HTTP_CODE=""
         if command -v curl >/dev/null 2>&1; then
-          if [[ -n "$GH_TOKEN_VALUE" ]]; then
-            # Use both -w "%{http_code}" and -o <file> so we can distinguish
-            # success (200) from rate-limit (403/429) from no-token (401) without
-            # the call silently producing empty $LATEST_JSON.
-            LATEST_TMP=$(mktemp)
-            LATEST_HTTP_CODE=$(curl -sSL -o "$LATEST_TMP" -w "%{http_code}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN_VALUE" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$RELEASE_API" 2>/dev/null || echo "000")
-            if [[ "$LATEST_HTTP_CODE" == "200" ]]; then
-              LATEST_JSON=$(cat "$LATEST_TMP")
-            else
-              echo "[WARNING] Authenticated GH releases API call returned HTTP $LATEST_HTTP_CODE"
-              echo "[WARNING] Response head: $(head -c 200 "$LATEST_TMP" 2>/dev/null || true)"
-              LATEST_JSON=""
-            fi
-            rm -f "$LATEST_TMP"
-          else
-            LATEST_JSON=$(curl -fsSL "$RELEASE_API" 2>/dev/null || true)
-          fi
+          # -I HEAD-only, -s silent, -o /dev/null discard body, -w write status,
+          # capture the Location response header. Do NOT follow the redirect (-L)
+          # because we want the redirect target, not the followed page.
+          REDIRECT_TMP=$(mktemp)
+          REDIRECT_HTTP_CODE=$(curl -sI -o "$REDIRECT_TMP" -w "%{http_code}" \
+            "$LATEST_REDIRECT_URL" 2>/dev/null || echo "000")
+          REDIRECT_LOCATION=$(grep -i '^location:' "$REDIRECT_TMP" | tail -1 \
+            | sed -E 's/^[Ll]ocation:[[:space:]]*//' | tr -d '\r' || true)
+          rm -f "$REDIRECT_TMP"
         elif command -v wget >/dev/null 2>&1; then
-          if [[ -n "$GH_TOKEN_VALUE" ]]; then
-            LATEST_JSON=$(wget -q \
-              --header="Accept: application/vnd.github+json" \
-              --header="Authorization: Bearer $GH_TOKEN_VALUE" \
-              --header="X-GitHub-Api-Version: 2022-11-28" \
-              -O - "$RELEASE_API" 2>/dev/null || true)
-          else
-            LATEST_JSON=$(wget -q -O - "$RELEASE_API" 2>/dev/null || true)
-          fi
-        else
-          LATEST_JSON=""
+          # wget --server-response prints headers; --max-redirect=0 forces it to
+          # treat the 302 as success and emit the Location header.
+          REDIRECT_HEADERS=$(wget --max-redirect=0 --server-response -q -O /dev/null \
+            "$LATEST_REDIRECT_URL" 2>&1 || true)
+          REDIRECT_HTTP_CODE=$(echo "$REDIRECT_HEADERS" | awk '/HTTP\//{print $2}' | tail -1)
+          REDIRECT_LOCATION=$(echo "$REDIRECT_HEADERS" | awk '/[Ll]ocation:/{print $2}' | tail -1 | tr -d '\r')
         fi
-        if [[ -n "$LATEST_JSON" ]]; then
-          LATEST_TAG=$(awk -F\" '
-            /"tag_name"[[:space:]]*:/ {
-              tag=$4
-              gsub(/^v/, "", tag)
-              if (tag != "") {
-                print "v" tag
-                exit
-              }
-            }
-          ' <<< "$LATEST_JSON")
+        if [[ "$REDIRECT_HTTP_CODE" =~ ^30[0-9]$ ]] && [[ -n "$REDIRECT_LOCATION" ]]; then
+          # Extract the v<X.Y.Z> tag from the Location URL (e.g.
+          # `https://github.com/.../releases/tag/v1.3.19` -> `v1.3.19`).
+          LATEST_TAG=$(printf '%s\n' "$REDIRECT_LOCATION" | sed -nE 's@.*/releases/tag/(v[0-9][0-9.]*)/?$@\1@p')
           if [[ -n "$LATEST_TAG" ]]; then
             INSTALL_SCRIPT_REF="$LATEST_TAG"
+          else
+            echo "[WARNING] Could not parse tag from redirect Location: $REDIRECT_LOCATION"
           fi
+        else
+          echo "[WARNING] github.com /releases/latest redirect returned HTTP $REDIRECT_HTTP_CODE (location='$REDIRECT_LOCATION')"
+          echo "[WARNING] Falling back to hardcoded INSTALL_SCRIPT_REF=$INSTALL_SCRIPT_REF"
         fi
         echo "Using installer reference for release-asset fallback: $INSTALL_SCRIPT_REF"
         
