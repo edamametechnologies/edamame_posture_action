@@ -1018,7 +1018,14 @@ runs:
           fi
         fi
         echo "Installer downloaded from $DOWNLOAD_SOURCE source. Executing..."
-        sh "$TMP_INSTALL_SCRIPT" "${INSTALL_ARGS[@]}"
+        # Export GITHUB_TOKEN so install.sh's `fetch_latest_release_tag` and
+        # `fetch_release_feed` authenticate their api.github.com calls. Without
+        # this, those calls hit the 60 req/hr unauth rate limit on github-hosted
+        # runner pools, install.sh falls back to its hardcoded FALLBACK_VERSION
+        # (currently 1.2.0), and we install a 6-month-old binary that fails on
+        # macOS Gatekeeper (`Killed: 9`) and may lack modern CLI subcommands on
+        # other platforms.
+        GITHUB_TOKEN="$GH_TOKEN_VALUE" sh "$TMP_INSTALL_SCRIPT" "${INSTALL_ARGS[@]}"
         rm -f "$TMP_INSTALL_SCRIPT"
         if [[ ! -f "$STATE_FILE" ]]; then
           echo "[WARNING] Installer did not produce state file at $STATE_FILE; reconstructing from current system state."
