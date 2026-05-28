@@ -36,7 +36,13 @@ also published for reproducible pins; see the README "Pinning" section.
     `v1.3.18` so the last-resort fallback uses an installer whose
     `FALLBACK_VERSION` and `LATEST_RELEASE_TAG_SECONDARY` retry logic
     are current and whose CLI surface includes the modern subcommand
-    aliases (`vulnerability-findings`, etc.).
+    aliases (`vulnerability-findings`, etc.);
+  - exports `GITHUB_TOKEN` into the `install.sh` invocation so the
+    installer's own `fetch_latest_release_tag` / `fetch_release_feed`
+    calls also authenticate against api.github.com (otherwise the
+    installer falls back to its hardcoded `FALLBACK_VERSION=1.2.0` and
+    installs a 6-month-old macOS binary that gets killed by Gatekeeper
+    with `Killed: 9`).
 
 ### Changed
 
