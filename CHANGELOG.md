@@ -15,34 +15,61 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ### Fixed
 
-- Installer bootstrap: avoid silent fallback to `v0.9.75` when the GitHub
-  releases API returns no data. The `Setup EDAMAME Posture` step used to
-  read the latest release tag with an **unauthenticated** API call. On
-  github-hosted runner pools (whose shared egress IPs frequently hit the
-  60 req/hr unauth rate limit), that call returned an empty body, the
-  resolver fell back to the hardcoded `INSTALL_SCRIPT_REF=v1.0.0` default,
-  and the v1.0.0 `install.sh` then fell back to its own
-  `FALLBACK_VERSION=0.9.75` and downloaded a 2024-era binary that lacks
-  modern CLI subcommands (e.g. `vulnerability-findings`). The action now:
-  - authenticates the GitHub releases API with `${{ inputs.token }}`
-    (defaults to the per-run `github.token`), eliminating the unauth
-    rate-limit drop;
-  - prefers `https://raw.githubusercontent.com/.../main/install.sh` as
+- Installer bootstrap: avoid silent fallback to ancient binaries when the
+  GitHub releases API is unreachable from github-hosted runner pools.
+
+  Two compounding root causes, fixed together:
+
+  1. **Unauth rate limit / IP allow list on `api.github.com`.** The
+     `Setup EDAMAME Posture` step used to read the latest release tag
+     with an unauthenticated GitHub API call. On github-hosted runner
+     pools, that call returned an empty body (or HTTP 403 once the
+     `edamametechnologies` org enabled an IP allow list on the org-
+     scoped `api.github.com` endpoint -- the allow list rejects github-
+     hosted runner egress IPs even when the call is authenticated with
+     `$GITHUB_TOKEN`, because the allow list is enforced at the org
+     boundary, not at the auth layer). The resolver then fell back to
+     the hardcoded `INSTALL_SCRIPT_REF=v1.0.0`, and the v1.0.0
+     `install.sh` fell back to its own `FALLBACK_VERSION=0.9.75`,
+     installing a 2024-era binary that lacks modern CLI subcommands
+     (e.g. `vulnerability-findings`).
+
+  2. **`install.sh` itself uses `api.github.com`.** Even after the
+     action passed `$GITHUB_TOKEN` into `install.sh`, the installer's
+     own `fetch_latest_release_tag` / `fetch_release_feed` calls hit
+     the same blocked endpoint, fell back to the installer's hardcoded
+     `FALLBACK_VERSION=1.2.0`, and installed a 6-month-old macOS binary
+     that gets killed by Gatekeeper with `Killed: 9`.
+
+  The action and the latest `install.sh` now:
+  - resolve the latest release tag via the **`github.com/.../releases/
+    latest` HTTP 302 redirect**, which is served by github.com itself
+    (not the org-scoped `api.github.com`) and works without auth and
+    without hitting the IP allow list, instead of calling
+    `api.github.com/.../releases/latest`;
+  - prefer `https://raw.githubusercontent.com/.../main/install.sh` as
     the **primary** installer source (release-pinned `install.sh` is
     frozen at release time and does not know how to install later
-    releases) and only falls back to the release-asset installer when
+    releases), and only fall back to the release-asset installer when
     raw `main` is unreachable;
-  - bumps the hardcoded `INSTALL_SCRIPT_REF` default from `v1.0.0` to
+  - bump the hardcoded `INSTALL_SCRIPT_REF` default from `v1.0.0` to
     `v1.3.18` so the last-resort fallback uses an installer whose
     `FALLBACK_VERSION` and `LATEST_RELEASE_TAG_SECONDARY` retry logic
     are current and whose CLI surface includes the modern subcommand
     aliases (`vulnerability-findings`, etc.);
-  - exports `GITHUB_TOKEN` into the `install.sh` invocation so the
-    installer's own `fetch_latest_release_tag` / `fetch_release_feed`
-    calls also authenticate against api.github.com (otherwise the
-    installer falls back to its hardcoded `FALLBACK_VERSION=1.2.0` and
-    installs a 6-month-old macOS binary that gets killed by Gatekeeper
-    with `Killed: 9`).
+  - keep exporting `$GITHUB_TOKEN` into the `install.sh` invocation as
+    a belt-and-suspenders fallback for installer code paths that still
+    use `api.github.com` (the redirect path is now preferred, but the
+    token is still useful for non-org repos or for the rare runner
+    that can reach `api.github.com` but is being rate-limited).
+
+  The companion change in `edamame_posture/install.sh` adds the same
+  redirect-based resolver to `fetch_latest_version` and
+  `fetch_latest_release_tag`, and bumps `FALLBACK_VERSION` from
+  `1.2.0` to `1.3.18`. Released installers will keep the old fallback
+  until the next `edamame_posture` release, which is why the action's
+  `INSTALL_SCRIPT_REF=v1.3.18` default is the critical guard for the
+  transition window.
 
 ### Changed
 
