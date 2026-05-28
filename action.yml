@@ -835,13 +835,26 @@ runs:
         RELEASE_API="https://api.github.com/repos/edamametechnologies/edamame_posture_cli/releases?per_page=2"
         GH_TOKEN_VALUE="${{ inputs.token }}"
         echo "Determining latest installer release from: $RELEASE_API"
+        LATEST_HTTP_CODE=""
         if command -v curl >/dev/null 2>&1; then
           if [[ -n "$GH_TOKEN_VALUE" ]]; then
-            LATEST_JSON=$(curl -fsSL \
+            # Use both -w "%{http_code}" and -o <file> so we can distinguish
+            # success (200) from rate-limit (403/429) from no-token (401) without
+            # the call silently producing empty $LATEST_JSON.
+            LATEST_TMP=$(mktemp)
+            LATEST_HTTP_CODE=$(curl -sSL -o "$LATEST_TMP" -w "%{http_code}" \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer $GH_TOKEN_VALUE" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$RELEASE_API" 2>/dev/null || true)
+              "$RELEASE_API" 2>/dev/null || echo "000")
+            if [[ "$LATEST_HTTP_CODE" == "200" ]]; then
+              LATEST_JSON=$(cat "$LATEST_TMP")
+            else
+              echo "[WARNING] Authenticated GH releases API call returned HTTP $LATEST_HTTP_CODE"
+              echo "[WARNING] Response head: $(head -c 200 "$LATEST_TMP" 2>/dev/null || true)"
+              LATEST_JSON=""
+            fi
+            rm -f "$LATEST_TMP"
           else
             LATEST_JSON=$(curl -fsSL "$RELEASE_API" 2>/dev/null || true)
           fi
