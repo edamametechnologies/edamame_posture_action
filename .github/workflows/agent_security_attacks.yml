@@ -163,9 +163,6 @@ jobs:
           check_anomalous: false
           vulnerability_detection: true
           vulnerability_detection_interval: "15"
-          # LLM adjudication active -- matches workspace-wide policy for
-          # vulnerability gates (see workspace.mdc "Self-Hosted Runner
-          # Protection" / "Github-Hosted Runners (Enforced Gate)").
           agentic_mode: analyze
           agentic_provider: edamame
           agentic_interval: 60
