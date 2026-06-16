@@ -194,7 +194,7 @@ The action automatically detects the platform and attempts installation via the 
 
 | Platform | Package Manager | Command | Fallback |
 |----------|----------------|---------|----------|
-| **macOS** | Homebrew | `brew install edamame-posture` | Direct binary download |
+| **macOS** | Homebrew | `brew install --cask edamametechnologies/tap/edamame-posture` | Direct binary download |
 | **Windows** | Chocolatey | `choco install edamame-posture` | Direct binary download |
 | **Linux (Alpine)** | APK | `apk add edamame-posture` | Direct binary download (musl) |
 | **Linux (Debian/Ubuntu)** | APT | `apt install edamame-posture` | Direct binary download (glibc/musl) |
@@ -326,7 +326,7 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
 1. **Install or Update EDAMAME Posture**  
    - **Detection**: Checks if EDAMAME Posture is already installed
    - **Package Manager Priority**: 
-     - macOS: Attempts `brew install edamame-posture` (or `brew upgrade` if installed)
+     - macOS: Attempts `brew install --cask edamametechnologies/tap/edamame-posture` (or `brew upgrade` if installed)
      - Windows: Attempts `choco install edamame-posture` (or `choco upgrade` if installed)
      - Alpine Linux: Attempts `apk add edamame-posture` (or `apk upgrade` if installed)
      - Debian/Ubuntu: Attempts `apt install edamame-posture` (or `apt upgrade` if installed)
@@ -1653,8 +1653,8 @@ echo "deb [arch=amd64 signed-by=/usr/share/keyrings/edamame.gpg] https://edamame
 
 **macOS (Homebrew)**:
 ```bash
-# Automatically adds tap
-brew tap edamametechnologies/tap
+# Fully-qualified name self-trusts (and auto-taps) the EDAMAME tap (Homebrew 6.0.0 Tap Trust)
+brew install --cask edamametechnologies/tap/edamame-posture
 ```
 
 ### Upgrade Behavior
