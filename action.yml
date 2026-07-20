@@ -1325,8 +1325,12 @@ runs:
 
           wait_for_connection_with_retry() {
             local timeout_arg="${1:-}"
-            local max_attempts=6
-            local delay_seconds=10
+            # Hub can take minutes under load to make a freshly reported CI
+            # device visible (NonExistentDevice). Keep retrying longer than
+            # the previous 6x10s budget so Setup does not fail the job while
+            # the device is still propagating.
+            local max_attempts=12
+            local delay_seconds=20
             local attempt=1
 
             while [ "$attempt" -le "$max_attempts" ]; do

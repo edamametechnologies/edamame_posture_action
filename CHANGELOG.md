@@ -11,6 +11,16 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-07-20
+
+### Fixed
+
+- Setup wait-for-connection: raise the NonExistentDevice retry budget from
+  6x10s to 12x20s. Under Hub load, freshly reported CI devices can take
+  minutes to become visible to policy/connect lookups; the previous budget
+  failed Setup on Windows/github-hosted runners while the device was still
+  propagating.
+
 ## [1.1.5] - 2026-05-28
 
 ### Fixed
