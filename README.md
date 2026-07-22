@@ -1993,4 +1993,12 @@ The action automatically appends OS-specific suffixes (`_windows`, `_macos`, `_l
 
 #### device_id
 
-The action automatically appends a timestamp suffix to avoid conflicts in matrix jobs: `${device_id}_${timestamp}`
+The action automatically appends a timestamp suffix to avoid conflicts in matrix jobs: `${device_id}_${timestamp}`.
+
+On **shared multi-worker self-hosted hosts** (one systemd
+`edamame_posture.service` for several `actions-runner*` workers), a
+device-id-only mismatch must not restart the daemon when Hub user/domain
+already match. `edamame_posture/install.sh` soft-matches that case and
+reuses the connected unit so concurrent jobs do not thrash each other.
+See `edamame_app/CICD.md` ("Self-Hosted Linux: Shared Posture Daemon")
+and `self_hosted/linux/README.md`.
