@@ -301,6 +301,42 @@ runs:
   using: "composite"
 
   steps:
+    - name: Sync system clock (best-effort, prevents HMAC signature clock-skew failures)
+      shell: bash
+      run: |
+        # The EDAMAME Hub validates every request's HMAC signature within a
+        # +/-300s timestamp window. A drifted runner clock (common on long-lived
+        # self-hosted VMs whose time service paused, and on some container hosts)
+        # makes report_score fail with E01 -> InputValidationFailed, which then
+        # trips the connection / vulnerability-gate steps. Resync best-effort so
+        # this class of transient never reaches those steps. Never fail the job.
+        echo "System time before sync: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          powershell -NoProfile -Command '
+            try {
+              Set-Service -Name w32time -StartupType Manual -ErrorAction SilentlyContinue
+              Start-Service -Name w32time -ErrorAction SilentlyContinue
+              & w32tm /config /manualpeerlist:"time.windows.com,0x9 pool.ntp.org,0x9" /syncfromflags:manual /update 2>$null | Out-Null
+              & w32tm /resync /force 2>$null | Out-Null
+              Write-Host "w32tm resync attempted"
+            } catch { Write-Host "clock sync skipped: $($_.Exception.Message)" }
+          ' || true
+        elif [[ "$RUNNER_OS" == "Linux" ]]; then
+          if command -v timedatectl >/dev/null 2>&1; then
+            sudo timedatectl set-ntp true 2>/dev/null || true
+          fi
+          if command -v chronyc >/dev/null 2>&1; then
+            sudo chronyc makestep 2>/dev/null || true
+          elif command -v ntpdate >/dev/null 2>&1; then
+            sudo ntpdate -u pool.ntp.org 2>/dev/null || true
+          elif command -v sntp >/dev/null 2>&1; then
+            sudo sntp -sS pool.ntp.org 2>/dev/null || true
+          fi
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          sudo sntp -sS time.apple.com 2>/dev/null || true
+        fi
+        echo "System time after sync:  $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
     - name: Dependencies
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -444,38 +480,68 @@ runs:
             local delay_seconds=5
             local attempt=1
             local cmd=("$@")
-            
+            local refreshed="false"
+            local out_log
+            out_log=$(mktemp)
+
             while true; do
               echo "Running: ${cmd[*]} (attempt $attempt/$max_attempts)"
-              
+
               if ! wait_for_apt_locks; then
                 echo "Failed to acquire locks, retrying..."
                 sleep $delay_seconds
                 attempt=$((attempt + 1))
                 if (( attempt > max_attempts )); then
                   echo "Command failed after $max_attempts attempts: ${cmd[*]}"
+                  rm -f "$out_log"
                   return 1
                 fi
                 continue
               fi
-              
-              if "${cmd[@]}"; then
+
+              # Capture combined output so the failure can be classified while still
+              # streaming it live. PIPESTATUS[0] holds the apt command's real exit code.
+              if "${cmd[@]}" 2>&1 | tee "$out_log"; then
+                rm -f "$out_log"
                 return 0
               fi
-              
-              local exit_code=$?
-              
-              # Check if dpkg was interrupted
-              if [ $exit_code -eq 100 ]; then
+              local exit_code=${PIPESTATUS[0]}
+
+              # dpkg interrupted -> repair before retry.
+              if [ "$exit_code" -eq 100 ]; then
                 echo "dpkg was interrupted, running dpkg --configure -a..."
                 sudo dpkg --configure -a || true
               fi
-              
+
+              # Transient index/staleness class: a stale or partially-fetched local
+              # package index cannot be fixed by re-running the SAME command against
+              # it (this is the recurring container-apt "papered over with retries"
+              # failure). Clean + re-fetch the index, then retry. "Unable to locate
+              # package" on the well-known packages this action installs is almost
+              # always a stale index, so it is treated as an index-refresh trigger
+              # rather than a permanent error -- unless it survives a SUCCESSFUL
+              # refresh (below), at which point it is genuinely missing.
+              if grep -qE 'Hash Sum mismatch|Failed to fetch|Unable to fetch some archives|is not signed|GPG error|NO_PUBKEY|The following signatures were invalid|File has unexpected size|404( +| +Not Found|  Not Found)|Could not resolve|Temporary failure resolving|Undetermined error|Mirror sync in progress|Unable to locate package|has no installation candidate' "$out_log"; then
+                if [ "$refreshed" == "true" ] && grep -qE 'Unable to locate package|has no installation candidate' "$out_log"; then
+                  echo "Package still not found after a successful index refresh; treating as permanent (not retrying): ${cmd[*]}"
+                  rm -f "$out_log"
+                  return "$exit_code"
+                fi
+                echo "Transient apt index issue detected; cleaning and refreshing package index before retry..."
+                sudo apt-get clean || true
+                sudo rm -rf /var/lib/apt/lists/* || true
+                wait_for_apt_locks || true
+                if sudo -E apt-get update -y; then
+                  refreshed="true"
+                fi
+              fi
+
               if (( attempt >= max_attempts )); then
                 echo "Command failed after $max_attempts attempts: ${cmd[*]}"
-                return $exit_code
+                rm -f "$out_log"
+                return "$exit_code"
               fi
-              
+
               echo "Command failed with exit code $exit_code (attempt $attempt/$max_attempts). Retrying in $delay_seconds seconds..."
               sleep $delay_seconds
               attempt=$((attempt + 1))
@@ -1351,11 +1417,16 @@ runs:
                 return 0
               fi
 
-              # The backend can briefly report NonExistentDevice immediately
-              # after report_score succeeds, before policy lookup sees the new
-              # CI device. Retry this propagation race instead of failing setup.
-              if grep -q "NonExistentDevice" "$WAIT_LOG" && [ "$attempt" -lt "$max_attempts" ]; then
-                echo "[WARN] Transient NonExistentDevice while waiting for connection; retrying in ${delay_seconds}s..."
+              # Transient Hub-side classes on the report/connection path, retried
+              # instead of failing setup:
+              #   NonExistentDevice / InvalidSignature -> DynamoDB history-stream
+              #     propagation race (device reported but policy/history lookup has
+              #     not caught up yet).
+              #   InputValidationFailed (E01) -> report HMAC timestamp outside the
+              #     Hub's +/-300s window (runner clock drift; the clock-sync step
+              #     above fixes the common case, this retry covers residual skew).
+              if grep -qE "NonExistentDevice|InvalidSignature|InputValidationFailed" "$WAIT_LOG" && [ "$attempt" -lt "$max_attempts" ]; then
+                echo "[WARN] Transient backend error while waiting for connection; retrying in ${delay_seconds}s..."
                 sleep "$delay_seconds"
                 attempt=$((attempt + 1))
                 continue
