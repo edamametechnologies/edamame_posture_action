@@ -11,6 +11,34 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-07-23
+
+### Fixed
+
+- Setup: resync the runner system clock (best-effort, all OSes) before the
+  posture daemon starts. The EDAMAME Hub validates every request HMAC within
+  a +/-300s timestamp window; a drifted runner clock made `report_score` fail
+  with E01 (`InputValidationFailed`), which then tripped the connection and
+  vulnerability-gate steps. This is the root cause of the recurring
+  "InputValidationFailed" Setup failures on Windows/long-lived VM runners --
+  previously papered over by re-running the whole job.
+
+- Setup wait-for-connection: also treat `InputValidationFailed` and
+  `InvalidSignature` as transient Hub-side classes (retry within the budget),
+  alongside the existing `NonExistentDevice` retry. These share the same
+  root cause family (clock skew for E01; async DynamoDB history-stream
+  propagation for NonExistentDevice/InvalidSignature) and must not fatally
+  abort Setup.
+
+- `apt` retry: on a transient index failure (`Hash Sum mismatch`,
+  `Failed to fetch`, `404`, `Could not resolve`, stale `Unable to locate
+  package`, ...), clean the local package cache and re-run `apt-get update`
+  before retrying instead of re-running the same command against the same
+  stale index. A package that is still unlocatable after a *successful*
+  index refresh is now treated as genuinely missing (fast-fail) rather than
+  retried to exhaustion. This is the root cause of the recurring
+  container-apt flakiness previously papered over by blind retries.
+
 ## [1.1.6] - 2026-07-20
 
 ### Fixed
