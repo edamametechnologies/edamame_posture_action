@@ -79,6 +79,16 @@ jobs:
           ' tests/adversarial_scenarios.json)"
           echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
 
+      - name: Slack alerts
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: 'C072J0U9TH7'
+          slack-message: "Adversarial matrix generation in ${{ github.workflow }} for ${{ github.repository }} on branch ${{ github.ref }} failed (no evasion scenario will run): see https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        continue-on-error: true
+
   adversarial-core:
     name: Scenario (${{ matrix.scenario }})
     runs-on: ubuntu-latest
@@ -245,6 +255,16 @@ jobs:
         uses: ./
         with:
           stop: true
+        continue-on-error: true
+
+      - name: Slack alerts
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: 'C072J0U9TH7'
+          slack-message: "Adversarial scenario ${{ matrix.scenario }} in ${{ github.workflow }} for ${{ github.repository }} on branch ${{ github.ref }} failed: see https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         continue-on-error: true
 
   # allowed_domain_exfil is included in the matrix when requested via workflow_dispatch.

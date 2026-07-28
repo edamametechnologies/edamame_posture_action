@@ -138,3 +138,13 @@ jobs:
             ${{ env.marker }}
           if-no-files-found: warn
 
+      - name: Slack alerts
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: 'C072J0U9TH7'
+          slack-message: "Cancellation hook (${{ matrix.mode }}) in ${{ github.workflow }} for ${{ github.repository }} on branch ${{ github.ref }} failed: see https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        continue-on-error: true
+
