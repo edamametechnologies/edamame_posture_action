@@ -178,7 +178,7 @@ jobs:
           set -euo pipefail
           TRIGGERS_DIR="${RUNNER_TEMP:-/tmp}/agent_security_triggers"
           mkdir -p "$TRIGGERS_DIR"
-          BASE_URL="https://raw.githubusercontent.com/edamametechnologies/agent_security/main/tests/e2e/triggers"
+          BASE_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture/main/tests/security/triggers"
           # Required helpers + the matrix-specific trigger.
           FILES=(_common.py cleanup.py _native_udp_probe.py _edamame_cli.py "${{ matrix.trigger }}")
           for f in "${FILES[@]}"; do
