@@ -1569,6 +1569,34 @@ runs:
         # CLI uses legacy `vulnerability-*` names for backward compatibility
         # with older edamame_posture binaries. Newer binaries also accept
         # `attack-pattern-*` aliases.
+        #
+        # Wait for the daemon's RPC socket before issuing the command. This
+        # step used to fire immediately after daemon start and intermittently
+        # lost the race:
+        #
+        #   Error starting vulnerability detector: transport error
+        #   Caused by: tcp connect error / Connection refused (os error 111)
+        #
+        # which failed the whole job before any attack scenario ran. That is
+        # why the Attack Detection Demo alternated pass/fail on an UNCHANGED
+        # action SHA (failures 08-19, 08-21, 08-25, 08-27 with successes in
+        # between) -- it was never the detector, only daemon readiness.
+        #
+        # `vulnerability-status` is a read-only probe, so polling it is safe
+        # and it succeeds exactly when the RPC endpoint is accepting calls.
+        vuln_started=false
+        for attempt in $(seq 1 30); do
+          if $EDAMAME_POSTURE_CMD vulnerability-status >/dev/null 2>&1; then
+            vuln_started=true
+            break
+          fi
+          echo "  daemon RPC not ready yet (attempt ${attempt}/30); waiting 2s..."
+          sleep 2
+        done
+        if [ "$vuln_started" != "true" ]; then
+          echo "::error::Daemon RPC never became reachable; cannot start the attack pattern detector."
+          exit 1
+        fi
         $EDAMAME_POSTURE_CMD vulnerability-start "$interval"
         $EDAMAME_POSTURE_CMD vulnerability-status || true
       shell: bash
