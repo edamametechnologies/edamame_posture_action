@@ -313,7 +313,9 @@ jobs:
           steps.test-display-logs-assert.outcome != 'success' ||
           steps.test-stop.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success'
+          steps.test-sessions-disconnected.outcome != 'success' ||
+          (runner.os != 'Windows' && steps.test-verify-whitelist-before-augment.outcome != 'success') ||
+          (runner.os != 'Windows' && steps.test-auto-whitelist.outcome != 'success')
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
@@ -682,7 +684,9 @@ jobs:
           steps.test-augment-whitelist.outcome != 'success' ||
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-stop.outcome != 'success'
+          steps.test-stop.outcome != 'success' ||
+          steps.test-verify-whitelist-before-augment.outcome != 'success' ||
+          steps.test-auto-whitelist.outcome != 'success'
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
