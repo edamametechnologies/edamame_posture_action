@@ -240,9 +240,15 @@ jobs:
           stop: true
         continue-on-error: true
 
-      # Test auto-whitelist feature
-      - name: Test auto-whitelist feature
-        id: test-auto-whitelist
+      # Test auto-whitelist feature. Two invocations, per the documented
+      # lifecycle: dump_sessions_log=true is a "second invocation" against the
+      # daemon the first invocation started (the composite's start steps are
+      # gated on dump_sessions_log != 'true'). The previous single combined
+      # invocation never started the daemon, so the dump always failed on a
+      # dead socket -- hidden by continue-on-error until the job gate started
+      # reading these outcomes (TESTAUDIT-2026-09 T-L3-5).
+      - name: Test auto-whitelist feature (start)
+        id: test-auto-whitelist-start
         uses: ./
         with:
           disconnected_mode: true
@@ -253,7 +259,28 @@ jobs:
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
+        continue-on-error: true
+
+      - name: Generate traffic for auto-whitelist
+        shell: bash
+        run: |
+          sleep 10
+          (curl -s -o /dev/null https://api.github.com || wget -q -O /dev/null https://api.github.com || true)
+          (curl -s -o /dev/null https://www.edamame.tech || true)
+          sleep 20
+
+      - name: Test auto-whitelist feature (dump and augment)
+        id: test-auto-whitelist
+        uses: ./
+        with:
           dump_sessions_log: true
+        continue-on-error: true
+
+      - name: Stop posture after auto-whitelist test
+        id: test-auto-whitelist-stop
+        uses: ./
+        with:
+          stop: true
         continue-on-error: true
         
       - name: Slack alerts
@@ -315,6 +342,7 @@ jobs:
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           (runner.os != 'Windows' && steps.test-verify-whitelist-before-augment.outcome != 'success') ||
+          (runner.os != 'Windows' && steps.test-auto-whitelist-start.outcome != 'success') ||
           (runner.os != 'Windows' && steps.test-auto-whitelist.outcome != 'success')
         run: |
           echo "## Test Results Summary"
@@ -610,9 +638,15 @@ jobs:
           stop: true
         continue-on-error: true
 
-      # Test auto-whitelist feature
-      - name: Test auto-whitelist feature
-        id: test-auto-whitelist
+      # Test auto-whitelist feature. Two invocations, per the documented
+      # lifecycle: dump_sessions_log=true is a "second invocation" against the
+      # daemon the first invocation started (the composite's start steps are
+      # gated on dump_sessions_log != 'true'). The previous single combined
+      # invocation never started the daemon, so the dump always failed on a
+      # dead socket -- hidden by continue-on-error until the job gate started
+      # reading these outcomes (TESTAUDIT-2026-09 T-L3-5).
+      - name: Test auto-whitelist feature (start)
+        id: test-auto-whitelist-start
         uses: ./
         with:
           disconnected_mode: true
@@ -623,7 +657,28 @@ jobs:
           auto_whitelist_stability_threshold: "0"
           auto_whitelist_stability_consecutive_runs: "3"
           auto_whitelist_max_iterations: "10"
+        continue-on-error: true
+
+      - name: Generate traffic for auto-whitelist
+        shell: bash
+        run: |
+          sleep 10
+          (curl -s -o /dev/null https://api.github.com || wget -q -O /dev/null https://api.github.com || true)
+          (curl -s -o /dev/null https://www.edamame.tech || true)
+          sleep 20
+
+      - name: Test auto-whitelist feature (dump and augment)
+        id: test-auto-whitelist
+        uses: ./
+        with:
           dump_sessions_log: true
+        continue-on-error: true
+
+      - name: Stop posture after auto-whitelist test
+        id: test-auto-whitelist-stop
+        uses: ./
+        with:
+          stop: true
         continue-on-error: true
 
       - name: Slack alerts
@@ -686,6 +741,7 @@ jobs:
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success' ||
           steps.test-verify-whitelist-before-augment.outcome != 'success' ||
+          steps.test-auto-whitelist-start.outcome != 'success' ||
           steps.test-auto-whitelist.outcome != 'success'
         run: |
           echo "## Test Results Summary"
