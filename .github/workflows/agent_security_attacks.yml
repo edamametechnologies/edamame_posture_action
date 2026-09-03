@@ -17,6 +17,13 @@ name: Agent Security Attack Detection Demo
 #
 # Linux-only, github-hosted (managed) runner. Matches the shape of
 # CVE-2025-30066.yml but covers the full agent_security demo surface.
+#
+# Coverage mirrors the release gate's CVE corpus
+# (edamame_posture/tests/security/run_cve_detection.sh SCENARIOS_CSV) minus
+# `skill_supply_chain`, which is the `blacklist_comm` trigger verified under a
+# second name and is already exercised by the blacklist_comm leg here. When a
+# scenario is added to the gate, add its leg below and its row to
+# agent_security/tests/e2e/DEMO.md.
 
 on:
   schedule:
@@ -133,6 +140,44 @@ jobs:
             reference: Adversarial scenario 4 (graduated to deterministic)
             file_monitoring: false
             duration: 180
+            settle: 90
+          - scenario: pgserve_postinstall
+            trigger: trigger_pgserve_postinstall.py
+            expected_check: credential_harvest
+            # See credential_sprawl: < 3 distinct credential files open at
+            # detector tick may land as token_exfiltration / sensitive_material_egress.
+            acceptable_checks: credential_harvest,token_exfiltration,sensitive_material_egress
+            attack: npm postinstall stealer reading npm/ssh/aws/cloud/wallet secrets + POST to an ICP canister
+            reference: pgserve 1.1.11-1.1.13 npm compromise (April 2026)
+            file_monitoring: false
+            duration: 180
+            settle: 90
+          - scenario: agent_config_tamper
+            trigger: trigger_agent_config_tamper.py
+            expected_check: file_system_tampering
+            attack: Temp-dir writer injecting hostile hooks / rules / MCP entries into the coding agent's config
+            reference: IronWorm, SANDWORM_MODE, Mitiga rogue-MCP-server shape
+            file_monitoring: true
+            duration: 120
+            settle: 60
+          - scenario: agent_cred_harvest
+            trigger: trigger_agent_cred_harvest.py
+            expected_check: credential_harvest
+            # See credential_sprawl: < 3 distinct credential files open at
+            # detector tick may land as token_exfiltration / sensitive_material_egress.
+            acceptable_checks: credential_harvest,token_exfiltration,sensitive_material_egress
+            attack: One process holding the agent's own credential stores (claude, codex, cursor MCP) + SSH/AWS open while POSTing out
+            reference: IronWorm / Bitwarden CLI hijack / Djinn Stealer / codexui-android
+            file_monitoring: false
+            duration: 180
+            settle: 90
+          - scenario: agent_denylist_bypass
+            trigger: trigger_agent_denylist_bypass.py
+            expected_check: agent_denylist_bypass
+            attack: Agent re-spells a permission-denied command (curl -> /usr/bin/curl, bash -c) to walk around its own denylist
+            reference: Ona report "How Claude Code escapes its own denylist and sandbox"
+            file_monitoring: false
+            duration: 120
             settle: 90
 
     steps:
