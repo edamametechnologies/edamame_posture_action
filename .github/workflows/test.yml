@@ -725,11 +725,17 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
       - name: Fail job if tests failed
-        # eBPF test failure is ignored on Ubuntu 18.04 (doesn't support eBPF well)
+        # eBPF test failure is ignored on Ubuntu 18.04 (doesn't support eBPF well).
+        # The auto-whitelist lifecycle persists its state through
+        # actions/upload-artifact, a Node 24 JavaScript action that cannot run in
+        # the Ubuntu 18.04 container (glibc 2.28 missing) nor in an Alpine
+        # container on an arm64 runner (JS actions are x64-only there), so those
+        # two containers cannot gate on it; the other containers and every native
+        # job still do.
         if: |
-          steps.test-start.outcome != 'success' || 
+          steps.test-start.outcome != 'success' ||
           (steps.test-ebpf-check.outcome == 'failure' && !contains(matrix.container_name, '18.04')) ||
-          steps.test-check-policy-local.outcome != 'success' || 
+          steps.test-check-policy-local.outcome != 'success' ||
           steps.test-check-policy-for-domain.outcome != 'success' ||
           steps.test-check-policy-local-error.outcome == 'success' ||
           steps.test-check-policy-for-domain-error.outcome == 'success' ||
@@ -740,9 +746,9 @@ jobs:
           steps.test-disconnected-mode.outcome != 'success' ||
           steps.test-sessions-disconnected.outcome != 'success' ||
           steps.test-stop.outcome != 'success' ||
-          steps.test-verify-whitelist-before-augment.outcome != 'success' ||
-          steps.test-auto-whitelist-start.outcome != 'success' ||
-          steps.test-auto-whitelist.outcome != 'success'
+          (!contains(matrix.container_name, '18.04') && !contains(matrix.container_name, 'aarch64') && steps.test-verify-whitelist-before-augment.outcome != 'success') ||
+          (!contains(matrix.container_name, '18.04') && !contains(matrix.container_name, 'aarch64') && steps.test-auto-whitelist-start.outcome != 'success') ||
+          (!contains(matrix.container_name, '18.04') && !contains(matrix.container_name, 'aarch64') && steps.test-auto-whitelist.outcome != 'success')
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
