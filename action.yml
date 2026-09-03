@@ -1853,10 +1853,19 @@ runs:
         STATE_EXIT=$?
         if [[ $STATE_EXIT -ne 0 ]]; then
           if echo "$STATE_INFO" | grep -q "IP allow list enabled"; then
-            echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
-            echo "Response:"
-            echo "$STATE_INFO"
-            exit 1
+            if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+              # Disconnected mode has no Hub to lift the runner IP into the org
+              # allow list, so a 403 here is expected on github-hosted pools.
+              # Continue as a first iteration (no prior state) instead of
+              # failing the whole action; connected mode keeps the hard failure.
+              echo "[WARNING]  GitHub API call blocked by organization IP allow list while fetching state artifact; disconnected mode cannot request access, continuing without prior state"
+              STATE_INFO=""
+            else
+              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
+              echo "Response:"
+              echo "$STATE_INFO"
+              exit 1
+            fi
           else
             echo "[WARNING]  Failed to query state artifacts: $STATE_INFO"
             STATE_INFO=""
@@ -1946,10 +1955,18 @@ runs:
           API_EXIT=$?
           if [[ $API_EXIT -ne 0 ]]; then
             if echo "$ARTIFACT_INFO" | grep -q "IP allow list enabled"; then
-              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
-              echo "Response:"
-              echo "$ARTIFACT_INFO"
-              exit 1
+              if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+                # Same rule as the state lookup above: disconnected mode cannot
+                # obtain an allow-list grant, so treat the 403 as "no previous
+                # artifact" and keep going; connected mode still fails hard.
+                echo "[WARNING]  GitHub API call blocked by organization IP allow list while listing artifacts; disconnected mode cannot request access, continuing without a previous artifact"
+                ARTIFACT_INFO=""
+              else
+                echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
+                echo "Response:"
+                echo "$ARTIFACT_INFO"
+                exit 1
+              fi
             else
               echo "[WARNING]  Failed to query artifacts: $ARTIFACT_INFO"
               ARTIFACT_INFO=""
@@ -2446,10 +2463,19 @@ runs:
         STATE_EXIT=$?
         if [[ $STATE_EXIT -ne 0 ]]; then
           if echo "$STATE_INFO" | grep -q "IP allow list enabled"; then
-            echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
-            echo "Response:"
-            echo "$STATE_INFO"
-            exit 1
+            if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+              # Disconnected mode has no Hub to lift the runner IP into the org
+              # allow list, so a 403 here is expected on github-hosted pools.
+              # Continue as a first iteration (no prior state) instead of
+              # failing the whole action; connected mode keeps the hard failure.
+              echo "[WARNING]  GitHub API call blocked by organization IP allow list while fetching state artifact; disconnected mode cannot request access, continuing without prior state"
+              STATE_INFO=""
+            else
+              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
+              echo "Response:"
+              echo "$STATE_INFO"
+              exit 1
+            fi
           else
             echo "[WARNING]  Failed to query state artifacts: $STATE_INFO"
             STATE_INFO=""
@@ -2539,10 +2565,18 @@ runs:
           API_EXIT=$?
           if [[ $API_EXIT -ne 0 ]]; then
             if echo "$ARTIFACT_INFO" | grep -q "IP allow list enabled"; then
-              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
-              echo "Response:"
-              echo "$ARTIFACT_INFO"
-              exit 1
+              if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+                # Same rule as the state lookup above: disconnected mode cannot
+                # obtain an allow-list grant, so treat the 403 as "no previous
+                # artifact" and keep going; connected mode still fails hard.
+                echo "[WARNING]  GitHub API call blocked by organization IP allow list while listing artifacts; disconnected mode cannot request access, continuing without a previous artifact"
+                ARTIFACT_INFO=""
+              else
+                echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
+                echo "Response:"
+                echo "$ARTIFACT_INFO"
+                exit 1
+              fi
             else
               echo "[WARNING]  Failed to query artifacts: $ARTIFACT_INFO"
               ARTIFACT_INFO=""
@@ -3040,10 +3074,19 @@ runs:
         STATE_EXIT=$?
         if [[ $STATE_EXIT -ne 0 ]]; then
           if echo "$STATE_INFO" | grep -q "IP allow list enabled"; then
-            echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
-            echo "Response:"
-            echo "$STATE_INFO"
-            exit 1
+            if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+              # Disconnected mode has no Hub to lift the runner IP into the org
+              # allow list, so a 403 here is expected on github-hosted pools.
+              # Continue as a first iteration (no prior state) instead of
+              # failing the whole action; connected mode keeps the hard failure.
+              echo "[WARNING]  GitHub API call blocked by organization IP allow list while fetching state artifact; disconnected mode cannot request access, continuing without prior state"
+              STATE_INFO=""
+            else
+              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
+              echo "Response:"
+              echo "$STATE_INFO"
+              exit 1
+            fi
           else
             echo "[WARNING]  Failed to query state artifacts: $STATE_INFO"
             STATE_INFO=""
@@ -3133,10 +3176,18 @@ runs:
           API_EXIT=$?
           if [[ $API_EXIT -ne 0 ]]; then
             if echo "$ARTIFACT_INFO" | grep -q "IP allow list enabled"; then
-              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
-              echo "Response:"
-              echo "$ARTIFACT_INFO"
-              exit 1
+              if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+                # Same rule as the state lookup above: disconnected mode cannot
+                # obtain an allow-list grant, so treat the 403 as "no previous
+                # artifact" and keep going; connected mode still fails hard.
+                echo "[WARNING]  GitHub API call blocked by organization IP allow list while listing artifacts; disconnected mode cannot request access, continuing without a previous artifact"
+                ARTIFACT_INFO=""
+              else
+                echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
+                echo "Response:"
+                echo "$ARTIFACT_INFO"
+                exit 1
+              fi
             else
               echo "[WARNING]  Failed to query artifacts: $ARTIFACT_INFO"
               ARTIFACT_INFO=""
@@ -3381,10 +3432,19 @@ runs:
         STATE_EXIT=$?
         if [[ $STATE_EXIT -ne 0 ]]; then
           if echo "$STATE_INFO" | grep -q "IP allow list enabled"; then
-            echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
-            echo "Response:"
-            echo "$STATE_INFO"
-            exit 1
+            if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+              # Disconnected mode has no Hub to lift the runner IP into the org
+              # allow list, so a 403 here is expected on github-hosted pools.
+              # Continue as a first iteration (no prior state) instead of
+              # failing the whole action; connected mode keeps the hard failure.
+              echo "[WARNING]  GitHub API call blocked by organization IP allow list while fetching state artifact; disconnected mode cannot request access, continuing without prior state"
+              STATE_INFO=""
+            else
+              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while fetching state artifact"
+              echo "Response:"
+              echo "$STATE_INFO"
+              exit 1
+            fi
           else
             echo "[WARNING]  Failed to query state artifacts: $STATE_INFO"
             STATE_INFO=""
@@ -3474,10 +3534,18 @@ runs:
           API_EXIT=$?
           if [[ $API_EXIT -ne 0 ]]; then
             if echo "$ARTIFACT_INFO" | grep -q "IP allow list enabled"; then
-              echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
-              echo "Response:"
-              echo "$ARTIFACT_INFO"
-              exit 1
+              if [[ "${{ inputs.disconnected_mode }}" == "true" ]]; then
+                # Same rule as the state lookup above: disconnected mode cannot
+                # obtain an allow-list grant, so treat the 403 as "no previous
+                # artifact" and keep going; connected mode still fails hard.
+                echo "[WARNING]  GitHub API call blocked by organization IP allow list while listing artifacts; disconnected mode cannot request access, continuing without a previous artifact"
+                ARTIFACT_INFO=""
+              else
+                echo "[ERROR] ERROR: GitHub API call blocked by organization IP allow list while listing artifacts"
+                echo "Response:"
+                echo "$ARTIFACT_INFO"
+                exit 1
+              fi
             else
               echo "[WARNING]  Failed to query artifacts: $ARTIFACT_INFO"
               ARTIFACT_INFO=""
