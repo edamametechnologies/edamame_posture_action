@@ -174,6 +174,11 @@ jobs:
           - scenario: agent_denylist_bypass
             trigger: trigger_agent_denylist_bypass.py
             expected_check: agent_denylist_bypass
+            # The check (core detector + foundation transcript decoder) shipped
+            # in 1.8.4. This demo installs the latest PUBLISHED edamame_posture,
+            # so until that release is out the leg soft-passes with a warning
+            # instead of paging on a check the installed daemon cannot emit.
+            min_posture_version: "1.8.4"
             attack: Agent re-spells a permission-denied command (curl -> /usr/bin/curl, bash -c) to walk around its own denylist
             reference: Ona report "How Claude Code escapes its own denylist and sandbox"
             file_monitoring: false
@@ -363,14 +368,27 @@ jobs:
           # credential-class files were open at the detector tick.
           ACCEPTABLE_CHECKS: ${{ matrix.acceptable_checks || '' }}
           SCENARIO: ${{ matrix.scenario }}
+          MIN_POSTURE_VERSION: ${{ matrix.min_posture_version || '' }}
         run: |
           set -euo pipefail
+          INSTALLED_POSTURE_VERSION="$($EDAMAME_POSTURE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          export INSTALLED_POSTURE_VERSION
           python3 - <<'PY'
           import json
           import os
           import sys
 
           expected = os.environ["EXPECTED_CHECK"]
+          min_version = os.environ.get("MIN_POSTURE_VERSION", "").strip()
+          installed = os.environ.get("INSTALLED_POSTURE_VERSION", "").strip()
+          def vtuple(v):
+              return tuple(int(x) for x in v.split("."))
+          if min_version and installed and vtuple(installed) < vtuple(min_version):
+              print(
+                  f"::warning::scenario '{os.environ['SCENARIO']}' needs edamame_posture >= {min_version} "
+                  f"(installed {installed}); the '{expected}' check does not exist in this release yet -- soft-pass"
+              )
+              sys.exit(0)
           extra = [c.strip() for c in os.environ.get("ACCEPTABLE_CHECKS", "").split(",") if c.strip()]
           acceptable = sorted({expected, *extra})
           scenario = os.environ["SCENARIO"]
