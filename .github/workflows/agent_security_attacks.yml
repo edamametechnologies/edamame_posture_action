@@ -112,6 +112,12 @@ jobs:
           - scenario: npm_rat_beacon
             trigger: trigger_npm_rat_beacon.py
             expected_check: token_exfiltration
+            # The same beacon is also caught as sensitive_material_egress
+            # (npm credentials open + egress) and, when the trigger is staged
+            # from a temp path, as sandbox_exploitation; which check lands
+            # first is timing-dependent (seen 2026-09-03: 3 HIGH findings,
+            # none of them token_exfiltration, on an otherwise correct run).
+            acceptable_checks: token_exfiltration,sensitive_material_egress,sandbox_exploitation
             attack: Base64 JSON beacon + legacy IE UA + npm credentials open
             reference: axios 1.14.1/0.30.4 npm supply-chain RAT (March 2026)
             file_monitoring: false
