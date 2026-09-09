@@ -8,7 +8,8 @@ name: Agent Security Attack Detection Demo
 #   1. Starts the EDAMAME Posture daemon in disconnected mode with the
 #      runtime vulnerability detector + LLM adjudication enabled.
 #   2. Downloads the canonical trigger script from
-#      raw.githubusercontent.com/edamametechnologies/agent_security/main/...
+#      raw.githubusercontent.com/edamametechnologies/edamame_posture/<POSTURE_TRIGGERS_REF>/...
+#      (pinned to a posture release tag, see the env block below).
 #   3. Runs the trigger against the github-hosted ubuntu-latest runner.
 #   4. Polls `vulnerability-status` (and `get-sessions` for blacklist_comm)
 #      to confirm EDAMAME emitted the expected finding.
@@ -40,6 +41,13 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+# Trigger scripts are fetched from edamame_posture at a RELEASE TAG, not `main`,
+# so a trigger rewrite on main cannot silently change what this workflow runs.
+# Bump POSTURE_TRIGGERS_REF together with the posture release the action tracks
+# (latest: v1.8.5 as of 2026-09-09).
+env:
+  POSTURE_TRIGGERS_REF: v1.8.5
 
 permissions:
   contents: read
@@ -234,7 +242,7 @@ jobs:
           set -euo pipefail
           TRIGGERS_DIR="${RUNNER_TEMP:-/tmp}/agent_security_triggers"
           mkdir -p "$TRIGGERS_DIR"
-          BASE_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture/main/tests/security/triggers"
+          BASE_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture/${POSTURE_TRIGGERS_REF}/tests/security/triggers"
           # Required helpers + the matrix-specific trigger.
           FILES=(_common.py cleanup.py _native_udp_probe.py _edamame_cli.py "${{ matrix.trigger }}")
           for f in "${FILES[@]}"; do
@@ -243,7 +251,7 @@ jobs:
               test -s "$TRIGGERS_DIR/$f"
               echo "  downloaded $f"
             else
-              echo "  skipped $f (not present on main; non-fatal)"
+              echo "  skipped $f (not present at $POSTURE_TRIGGERS_REF; non-fatal)"
               rm -f "$TRIGGERS_DIR/$f" || true
             fi
           done
