@@ -268,6 +268,10 @@ inputs:
     description: "Interval in seconds for automated AI assistant todo processing"
     required: false
     default: "3600"
+  adjudication_mode:
+    description: "How the attack pattern detector publishes when the LLM adjudicator is absent: llm (default: a tick the LLM did not answer is withheld), advisory (publish the deterministic result when the LLM fails or is not configured), deterministic (never consult the LLM; strict gating then needs no LLM provider or key). Requires edamame_posture >= the release carrying vulnerability-adjudication-mode; the default value issues no command."
+    required: false
+    default: "llm"
   stop:
     description: "Stop the EDAMAME Posture process"
     required: false
@@ -685,9 +689,18 @@ runs:
         set -euo pipefail
         mode="${{ inputs.agentic_mode }}"
         provider="${{ inputs.agentic_provider }}"
+        adjudication_mode="${{ inputs.adjudication_mode }}"
+
+        # advisory / deterministic publish the deterministic result without an
+        # adjudicator, so the gate has findings to read whether or not an LLM
+        # is reachable; the LLM prerequisites below are for `llm` only.
+        if [[ -n "$adjudication_mode" && "$adjudication_mode" != "llm" ]]; then
+          echo "[OK] Strict vulnerability gate runs on deterministic publication (adjudication_mode=$adjudication_mode); no LLM prerequisite."
+          exit 0
+        fi
 
         if [[ -z "$mode" || "$mode" == "disabled" ]]; then
-          echo "::error::Strict vulnerability gating requires agentic_mode=analyze or agentic_mode=auto so LLM adjudication is active."
+          echo "::error::Strict vulnerability gating requires agentic_mode=analyze or agentic_mode=auto so LLM adjudication is active (or set adjudication_mode to advisory/deterministic)."
           exit 1
         fi
 
@@ -1615,6 +1628,13 @@ runs:
           exit 1
         fi
         $EDAMAME_POSTURE_CMD vulnerability-start "$interval"
+        # Publication without the LLM adjudicator. The default (`llm`) is the
+        # daemon's own default and issues no command, so binaries that predate
+        # the subcommand keep working; the other two values require it.
+        adjudication_mode="${{ inputs.adjudication_mode }}"
+        if [[ -n "$adjudication_mode" && "$adjudication_mode" != "llm" ]]; then
+          $EDAMAME_POSTURE_CMD vulnerability-adjudication-mode "$adjudication_mode"
+        fi
         $EDAMAME_POSTURE_CMD vulnerability-status || true
       shell: bash
 

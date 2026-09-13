@@ -1909,6 +1909,7 @@ This section shows how GitHub Action inputs map to CLI flags.
 | `agentic_mode` | `--agentic-mode` | string | "disabled" | AI assistant mode |
 | `agentic_provider` | `--agentic-provider` | string | "none" | LLM provider: edamame, claude, openai, ollama |
 | `agentic_interval` | `--agentic-interval` | number | 3600 | Processing interval (seconds) |
+| `adjudication_mode` | `vulnerability-adjudication-mode` | string | "llm" | Detector publication without the LLM: `llm` (withhold), `advisory` (deterministic fallback), `deterministic` (never consult the LLM; strict gating needs no LLM key) |
 
 ### background-start-disconnected Command
 
