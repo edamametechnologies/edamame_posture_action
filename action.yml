@@ -158,7 +158,7 @@ inputs:
       the canonical CI input for `tools/ingest_ci_fp_corpus.sh`, which shapes
       it into Shape A entries under `edamame_core/tests/fp_corpus/<FP-ID>/`
       (FP replay corpus -- see `edamame_core/FPREPLAY.md`). Requires a posture
-      binary that exposes `vulnerability-debug-trace --latest` (edamame_posture
+      binary that exposes `attack-pattern-debug-trace --latest` (edamame_posture
       >= 1.3.18+); older binaries will print a clap usage error and the step
       will fail soft -- inspect the runner log to confirm.
     required: false
@@ -1612,11 +1612,11 @@ runs:
         # action SHA (failures 08-19, 08-21, 08-25, 08-27 with successes in
         # between) -- it was never the detector, only daemon readiness.
         #
-        # `vulnerability-status` is a read-only probe, so polling it is safe
+        # `attack-pattern-status` is a read-only probe, so polling it is safe
         # and it succeeds exactly when the RPC endpoint is accepting calls.
         vuln_started=false
         for attempt in $(seq 1 30); do
-          if $EDAMAME_POSTURE_CMD vulnerability-status >/dev/null 2>&1; then
+          if $EDAMAME_POSTURE_CMD attack-pattern-status >/dev/null 2>&1; then
             vuln_started=true
             break
           fi
@@ -1635,7 +1635,7 @@ runs:
         if [[ -n "$adjudication_mode" && "$adjudication_mode" != "llm" ]]; then
           $EDAMAME_POSTURE_CMD vulnerability-adjudication-mode "$adjudication_mode"
         fi
-        $EDAMAME_POSTURE_CMD vulnerability-status || true
+        $EDAMAME_POSTURE_CMD attack-pattern-status || true
       shell: bash
 
     # We must wait here as we can use the API to download the whitelist artifact from the previous run
@@ -4549,20 +4549,20 @@ runs:
 
         # Dump per-finding details (finding_key, check, severity, description,
         # process_*, destination_*, open_files, detection_basis). The action
-        # requires posture binaries that expose `vulnerability-findings` and
-        # `vulnerability-status --fail-on-findings`. The newer
+        # requires posture binaries that expose `attack-pattern-findings` and
+        # `attack-pattern-status --fail-on-findings`. The newer
         # `attack-pattern-*` CLI aliases are accepted by edamame_posture
         # binaries that include them, but the legacy `vulnerability-*` CLI
         # commands are kept here so the action stays compatible with the
         # widest possible range of installed posture versions.
-        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-findings --active-only"
-        $EDAMAME_POSTURE_CMD vulnerability-findings --active-only 2>&1 | tee "$FINDINGS_FILE"
+        echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-findings --active-only"
+        $EDAMAME_POSTURE_CMD attack-pattern-findings --active-only 2>&1 | tee "$FINDINGS_FILE"
 
-        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status"
-        $EDAMAME_POSTURE_CMD vulnerability-status | tee "$STATUS_FILE"
+        echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-status"
+        $EDAMAME_POSTURE_CMD attack-pattern-status | tee "$STATUS_FILE"
         if [[ "${{ inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
-          echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings"
-          $EDAMAME_POSTURE_CMD vulnerability-status --fail-on-findings
+          echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings"
+          $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings
         fi
       shell: bash
 
@@ -4591,7 +4591,7 @@ runs:
         #                  from without the operator typing it.
         #
         # Requires a posture binary that exposes
-        # `vulnerability-debug-trace --latest`
+        # `attack-pattern-debug-trace --latest`
         # (edamame_posture >= 1.3.18+).
         OUT_DIR="${RUNNER_TEMP:-/tmp}/edamame-fp-capture"
         mkdir -p "$OUT_DIR"
@@ -4599,19 +4599,19 @@ runs:
         FINDINGS_FILE="$OUT_DIR/findings.json"
         META_FILE="$OUT_DIR/meta.json"
 
-        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-debug-trace --latest"
+        echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-debug-trace --latest"
         # Fail-soft on older posture binaries: emit a `{"error": ...}`
         # envelope so the artifact still uploads and the ingestion
         # script can surface a meaningful message.
-        if ! $EDAMAME_POSTURE_CMD vulnerability-debug-trace --latest > "$TRACE_FILE" 2>&1; then
-          echo "::warning::vulnerability-debug-trace failed (posture binary may predate 1.3.18). Captured stderr in trace.json."
+        if ! $EDAMAME_POSTURE_CMD attack-pattern-debug-trace --latest > "$TRACE_FILE" 2>&1; then
+          echo "::warning::attack-pattern-debug-trace failed (posture binary may predate 1.3.18). Captured stderr in trace.json."
           # Re-wrap stderr as a JSON-readable error envelope.
           err_msg="$(cat "$TRACE_FILE")"
           jq -n --arg err "$err_msg" '{"error": $err}' > "$TRACE_FILE" || true
         fi
 
-        echo "Executing: $EDAMAME_POSTURE_CMD vulnerability-findings --active-only"
-        $EDAMAME_POSTURE_CMD vulnerability-findings --active-only > "$FINDINGS_FILE" 2>&1 || true
+        echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-findings --active-only"
+        $EDAMAME_POSTURE_CMD attack-pattern-findings --active-only > "$FINDINGS_FILE" 2>&1 || true
 
         # Provenance for the corpus envelope.
         CORE_VERSION=""
