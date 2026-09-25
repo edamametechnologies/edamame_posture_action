@@ -11,6 +11,18 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-09-25
+
+### Fixed
+
+- `wait_for_api` / `wait_for_https` probed the workflow's own repository.
+  A public repository answers at once whatever the organization IP allow
+  list says, so the waits reported access after 0 s and a later clone of
+  a private or internal repository failed with 403 before the runner was
+  admitted. New input `wait_repository` names the repository to probe
+  (default: the workflow's repository, unchanged for existing callers),
+  and both waits now try 20 times (~19 min) instead of 10.
+
 ## [1.1.7] - 2026-09-25
 
 ### Removed
@@ -19,33 +31,16 @@ also published for reproducible pins; see the README "Pinning" section.
   `w32tm /resync` (no timeout) blocked the setup for over an hour; a
   skewed clock now surfaces as a plain Hub E01 in the connection step.
 
-## [1.1.7] - 2026-07-23
+### Fixed (on the moving v1 tag since 2026-07-23, first numbered here)
 
-### Fixed
-
-- Setup: resync the runner system clock (best-effort, all OSes) before the
-  posture daemon starts. The EDAMAME Hub validates every request HMAC within
-  a +/-300s timestamp window; a drifted runner clock made `report_score` fail
-  with E01 (`InputValidationFailed`), which then tripped the connection and
-  vulnerability-gate steps. This is the root cause of the recurring
-  "InputValidationFailed" Setup failures on Windows/long-lived VM runners --
-  previously papered over by re-running the whole job.
-
-- Setup wait-for-connection: also treat `InputValidationFailed` and
-  `InvalidSignature` as transient Hub-side classes (retry within the budget),
-  alongside the existing `NonExistentDevice` retry. These share the same
-  root cause family (clock skew for E01; async DynamoDB history-stream
-  propagation for NonExistentDevice/InvalidSignature) and must not fatally
-  abort Setup.
-
+- Setup wait-for-connection: `InputValidationFailed` and `InvalidSignature`
+  are retried within the budget as transient Hub-side classes, alongside
+  `NonExistentDevice`, instead of fatally aborting Setup.
 - `apt` retry: on a transient index failure (`Hash Sum mismatch`,
   `Failed to fetch`, `404`, `Could not resolve`, stale `Unable to locate
-  package`, ...), clean the local package cache and re-run `apt-get update`
-  before retrying instead of re-running the same command against the same
-  stale index. A package that is still unlocatable after a *successful*
-  index refresh is now treated as genuinely missing (fast-fail) rather than
-  retried to exhaustion. This is the root cause of the recurring
-  container-apt flakiness previously papered over by blind retries.
+  package`, ...), clean the package cache and re-run `apt-get update` before
+  retrying; a package still unlocatable after a successful refresh fails
+  fast as genuinely missing.
 
 ## [1.1.6] - 2026-07-20
 
