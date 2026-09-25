@@ -305,42 +305,6 @@ runs:
   using: "composite"
 
   steps:
-    - name: Sync system clock (best-effort, prevents HMAC signature clock-skew failures)
-      shell: bash
-      run: |
-        # The EDAMAME Hub validates every request's HMAC signature within a
-        # +/-300s timestamp window. A drifted runner clock (common on long-lived
-        # self-hosted VMs whose time service paused, and on some container hosts)
-        # makes report_score fail with E01 -> InputValidationFailed, which then
-        # trips the connection / vulnerability-gate steps. Resync best-effort so
-        # this class of transient never reaches those steps. Never fail the job.
-        echo "System time before sync: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          powershell -NoProfile -Command '
-            try {
-              Set-Service -Name w32time -StartupType Manual -ErrorAction SilentlyContinue
-              Start-Service -Name w32time -ErrorAction SilentlyContinue
-              & w32tm /config /manualpeerlist:"time.windows.com,0x9 pool.ntp.org,0x9" /syncfromflags:manual /update 2>$null | Out-Null
-              & w32tm /resync /force 2>$null | Out-Null
-              Write-Host "w32tm resync attempted"
-            } catch { Write-Host "clock sync skipped: $($_.Exception.Message)" }
-          ' || true
-        elif [[ "$RUNNER_OS" == "Linux" ]]; then
-          if command -v timedatectl >/dev/null 2>&1; then
-            sudo timedatectl set-ntp true 2>/dev/null || true
-          fi
-          if command -v chronyc >/dev/null 2>&1; then
-            sudo chronyc makestep 2>/dev/null || true
-          elif command -v ntpdate >/dev/null 2>&1; then
-            sudo ntpdate -u pool.ntp.org 2>/dev/null || true
-          elif command -v sntp >/dev/null 2>&1; then
-            sudo sntp -sS pool.ntp.org 2>/dev/null || true
-          fi
-        elif [[ "$RUNNER_OS" == "macOS" ]]; then
-          sudo sntp -sS time.apple.com 2>/dev/null || true
-        fi
-        echo "System time after sync:  $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-
     - name: Dependencies
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
