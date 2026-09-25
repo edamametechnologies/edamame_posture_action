@@ -89,6 +89,10 @@ inputs:
     description: "Wait for API access to be granted"
     required: false
     default: "false"
+  wait_repository:
+    description: "Repository (owner/name) whose access wait_for_api and wait_for_https probe; defaults to the workflow's repository. Set it to a private or internal repository the job needs when the workflow's own repository is public: the organization IP allow list only guards private and internal repositories, so probing a public one returns at once and proves nothing."
+    required: false
+    default: ""
   token:
     description: "GitHub token to checkout the repo"
     required: false
@@ -1613,15 +1617,25 @@ runs:
           attempts=0
           timeout=true
           last_error=""
-          
-          for i in {1..10}; do
+          # A public repository is readable whatever the IP allow list says,
+          # so the probe targets wait_repository when set (the private or
+          # internal repository the job needs). The Hub can take over ten
+          # minutes to admit a hosted runner, hence 20 attempts (~19 min).
+          if [[ -n "${{ inputs.wait_repository }}" ]]; then
+            probe_endpoint="repos/${{ inputs.wait_repository }}"
+          else
+            probe_endpoint="repos/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          echo "Probing: $probe_endpoint"
+
+          for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Testing API access..."
             
             # We use the GitHub token to access the run details API, which tests org-level IP allowlist access
             # This endpoint requires authentication even for public repos and is blocked by IP allowlists
             # Capture both stdout and stderr to see what's actually happening
-            if output=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }} 2>&1); then
+            if output=$(gh api "$probe_endpoint" 2>&1); then
               timeout=false
               echo "[OK] API access granted!"
               break
@@ -1631,7 +1645,7 @@ runs:
               echo "[WARNING] API call failed with exit code $exit_code"
               echo "Error output: $last_error"
               
-              if [ $attempts -lt 10 ]; then
+              if [ $attempts -lt 20 ]; then
                 echo "Waiting 60 seconds before retry..."
                 sleep 60
               fi
@@ -1675,10 +1689,13 @@ runs:
           echo "      so the daemon can whitelist the runner IP via EDAMAME backend"
           attempts=0
           timeout=true
-          repo_url="https://github.com/${{ github.repository }}.git"
+          # See the API wait: probe the repository the job needs, not a
+          # public one the allow list does not guard.
+          repo_url="https://github.com/${{ inputs.wait_repository || github.repository }}.git"
+          echo "Probing: $repo_url"
           last_status=""
 
-          for i in {1..10}; do
+          for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking HTTPS access to the repo..."
             status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${{ inputs.token }}" $repo_url)
@@ -1690,7 +1707,7 @@ runs:
               break
             else
               echo "[WARNING] HTTPS access not yet granted. Status Code: $status_code"
-              if [ $attempts -lt 10 ]; then
+              if [ $attempts -lt 20 ]; then
                 echo "Waiting 60 seconds before retry..."
                 sleep 60
               fi
