@@ -46,6 +46,14 @@ also published for reproducible pins; see the README "Pinning" section.
   now installs `/etc/needrestart/conf.d/50-edamame-posture.conf`, which
   makes needrestart list the daemon instead of restarting it.
 
+## [1.1.7] - 2026-09-25
+
+### Removed
+
+- The "Sync system clock" setup step. On a self-hosted Windows runner its
+  `w32tm /resync` (no timeout) blocked the setup for over an hour; a
+  skewed clock now surfaces as a plain Hub E01 in the connection step.
+
 ## [1.1.7] - 2026-07-23
 
 ### Fixed
