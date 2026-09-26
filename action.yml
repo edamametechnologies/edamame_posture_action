@@ -1115,6 +1115,32 @@ runs:
         echo "install_method=${install_method:-binary}" >> "$GITHUB_OUTPUT"
         echo "binary_path=${binary_path:-}" >> "$GITHUB_OUTPUT"
 
+    - name: Keep package installs from restarting the posture daemon (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # needrestart, Ubuntu's apt hook, restarts every service linked against
+        # a library apt has just upgraded. A job that installs packages after
+        # this action restarted edamame_posture (libpcap-dev pulled
+        # libpcap0.8t64 1.10.4-4.1ubuntu3.1 from noble-updates, 2026-09-25):
+        # the stop reports a disconnect, so the Hub revokes the runner's access,
+        # the organization IP allow list included, until the daemon reconnects
+        # about 8 s later, and the daemon's sessions and detection state start
+        # over mid-job. The daemon has to outlive the job, so needrestart lists
+        # it instead of restarting it.
+        if [ ! -d /etc/needrestart ]; then
+          echo "needrestart not installed; nothing to configure"
+          exit 0
+        fi
+        SUDO=""
+        if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+          SUDO="sudo"
+        fi
+        $SUDO mkdir -p /etc/needrestart/conf.d
+        echo '$nrconf{override_rc}{qr(^edamame_posture)} = 0;' \
+          | $SUDO tee /etc/needrestart/conf.d/50-edamame-posture.conf >/dev/null
+        echo "needrestart will list edamame_posture instead of restarting it"
+
     - name: Set EDAMAME_POSTURE_CMD variable
       shell: bash
       run: |
