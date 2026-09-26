@@ -11,6 +11,19 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-09-26
+
+### Fixed
+
+- Linux: a package install later in the job no longer restarts the posture
+  daemon. needrestart restarted `edamame_posture` whenever apt upgraded a
+  library it links (libpcap0.8t64 from noble-updates on 2026-09-25); the
+  daemon's stop reported a disconnect, the Hub revoked the runner's access,
+  the organization IP allow list included, for the ~8 s until it
+  reconnected, and a `git clone` in that window failed with 403. The action
+  now installs `/etc/needrestart/conf.d/50-edamame-posture.conf`, which
+  makes needrestart list the daemon instead of restarting it.
+
 ## [1.1.8] - 2026-09-25
 
 ### Fixed
