@@ -35,6 +35,8 @@ also published for reproducible pins; see the README "Pinning" section.
   pattern detection, divergence detection; edamame_posture >= 2.0.2). The
   strict vulnerability gate treats it like `disabled`.
 
+## [1.1.9] - 2026-09-26
+
 ### Fixed
 
 - Linux: a package install later in the job no longer restarts the posture
