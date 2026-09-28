@@ -19,6 +19,8 @@ also published for reproducible pins; see the README "Pinning" section.
   refused until EDAMAME Hub lists the runner. `token` is also the probe's
   token.
 
+## [1.1.10] - 2026-09-29
+
 ### Security
 
 - The Hub PIN reaches the installer (and through it the daemon) in the
