@@ -256,7 +256,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 
 - `edamame_user`: EDAMAME Posture user (required to start the process in the background)  
 - `edamame_domain`: EDAMAME Posture domain (required to start the process in the background)  
-- `edamame_pin`: EDAMAME Posture PIN (required to start the process in the background)  
+- `edamame_pin`: EDAMAME Posture PIN (required to start the process in the background). Pass it from a secret; the action hands it to the installer and the daemon in the `EDAMAME_PIN` environment variable, never on a command line (installers older than 2.0.2 still get `--pin`)  
 - `edamame_id`: EDAMAME identifier suffix (required when starting the process in the background)  
 - `edamame_policy`: EDAMAME policy name that the device must comply with (the action will fail if the device does not comply)  
 - `edamame_minimum_score`: Minimum score that the device must achieve (the action will fail if the device does not achieve the minimum score)  
@@ -303,7 +303,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "25")
 - `promote_exceptions`: Promote whitelist exceptions immediately without waiting for stability. When true, any non-conforming sessions are added to the whitelist regardless of stability state. Useful during releases to quickly update whitelists. (default: false)
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
-- `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), or `disabled` (default: disabled)
+- `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), `disabled` (leave the daemon's persisted agentic state as it is; default), or `off` (turn agentic protection off: the Assistant, attack pattern detection and divergence detection; requires edamame_posture >= 2.0.2). Strict vulnerability gating needs `analyze` or `auto` unless `adjudication_mode` is `advisory` or `deterministic`
 - `agentic_provider`: LLM provider for AI assistant: `edamame` (recommended), `claude`, `openai` (all use `EDAMAME_LLM_API_KEY` env), `ollama` (uses `EDAMAME_LLM_BASE_URL` env), or `none` (default: "none")
 - `agentic_interval`: Interval in seconds for automated AI assistant todo processing (default: 3600)
 - `stop`: Stop the background process  (default: false)
@@ -509,7 +509,8 @@ This GitHub Action provides multiple automation capabilities that can be combine
 **Modes**:
 - **`auto`**: Automatically resolves safe/low-risk items; escalates high-risk items
 - **`analyze`**: Provides recommendations without executing actions
-- **`disabled`**: No AI processing (default)
+- **`disabled`**: No AI processing requested; the daemon's persisted agentic state is left as it is (default)
+- **`off`**: Turn agentic protection off (the Assistant and both detection engines); requires edamame_posture >= 2.0.2
 
 **Best for**:
 - Long-running workflows that need adaptive security
@@ -1795,7 +1796,8 @@ For public repos that need access to private repos (or other restricted endpoint
 ```
 
 **AI Assistant Modes:**
-- `disabled`: No AI assistance (default)
+- `disabled`: No AI assistance requested (default; the persisted agentic state is left as it is)
+- `off`: Turn agentic protection off (requires edamame_posture >= 2.0.2)
 - `analyze`: AI analyzes security todos and provides recommendations without executing actions
 - `auto`: AI automatically executes low-risk security actions and escalates high-risk items
 

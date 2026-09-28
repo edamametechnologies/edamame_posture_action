@@ -261,7 +261,7 @@ inputs:
     required: false
     default: "false"
   agentic_mode:
-    description: "AI assistant mode for automated security todo processing: auto (execute), analyze (recommendations only), or disabled"
+    description: "AI assistant mode for automated security todo processing: auto (execute), analyze (recommendations only), disabled (leave the daemon's persisted agentic state as it is), or off (turn agentic protection off: the Assistant, attack pattern detection and divergence detection; requires edamame_posture >= 2.0.2)"
     required: false
     default: "disabled"
   agentic_provider:
@@ -667,7 +667,7 @@ runs:
           exit 0
         fi
 
-        if [[ -z "$mode" || "$mode" == "disabled" ]]; then
+        if [[ -z "$mode" || "$mode" == "disabled" || "$mode" == "off" ]]; then
           echo "::error::Strict vulnerability gating requires agentic_mode=analyze or agentic_mode=auto so LLM adjudication is active (or set adjudication_mode to advisory/deterministic)."
           exit 1
         fi
@@ -724,10 +724,16 @@ runs:
       shell: bash
       env:
         INSTALL_STATE_FILE: ${{ runner.temp }}/edamame_install_state
+        # Secrets reach the script through the environment, never through
+        # `${{ }}` interpolation into the script text (script injection) nor
+        # the installer's argv (process list).
+        EDAMAME_PIN_INPUT: ${{ inputs.edamame_pin }}
+        ACTION_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
         STATE_FILE="$INSTALL_STATE_FILE"
         INSTALL_ARGS=(--state-file "$STATE_FILE")
+        PASS_PIN="false"
         
         # Only pass connection parameters on initial setup, not on subsequent operations
         # This prevents unnecessary daemon restarts when action is called for policy checks, etc.
@@ -754,8 +760,10 @@ runs:
           if [[ -n "${{ inputs.edamame_domain }}" ]]; then
             INSTALL_ARGS+=(--domain "${{ inputs.edamame_domain }}")
           fi
-          if [[ -n "${{ inputs.edamame_pin }}" ]]; then
-            INSTALL_ARGS+=(--pin "${{ inputs.edamame_pin }}")
+          # The PIN goes to the installer in EDAMAME_PIN (set at its exec
+          # below), not in INSTALL_ARGS: argv is visible in the process list.
+          if [[ -n "${EDAMAME_PIN_INPUT:-}" ]]; then
+            PASS_PIN="true"
           fi
           
           # Add device ID with timestamp suffix for uniqueness
@@ -810,7 +818,7 @@ runs:
           CAPTURED_GITHUB_ACTIONS="${GITHUB_ACTIONS:-}"
           CAPTURED_GITHUB_RUN_ID="${GITHUB_RUN_ID:-}"
           CAPTURED_GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
-          CAPTURED_GITHUB_TOKEN="${{ inputs.token }}"
+          CAPTURED_GITHUB_TOKEN="${ACTION_TOKEN:-}"
           CAPTURED_GITLAB_CI="${GITLAB_CI:-}"
           CAPTURED_CI_PROJECT_ID="${CI_PROJECT_ID:-}"
           CAPTURED_CI_PIPELINE_ID="${CI_PIPELINE_ID:-}"
@@ -892,7 +900,7 @@ runs:
         # Capture the GH token for the install.sh invocation later (belt-and-
         # suspenders so older installer code paths that still call
         # api.github.com authenticate at least). Used at the install.sh exec.
-        GH_TOKEN_VALUE="${{ inputs.token }}"
+        GH_TOKEN_VALUE="${ACTION_TOKEN:-}"
         LATEST_REDIRECT_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest"
         echo "Determining latest installer release via redirect: $LATEST_REDIRECT_URL"
         REDIRECT_LOCATION=""
@@ -1080,7 +1088,20 @@ runs:
         # (currently 1.2.0), and we install a 6-month-old binary that fails on
         # macOS Gatekeeper (`Killed: 9`) and may lack modern CLI subcommands on
         # other platforms.
-        GITHUB_TOKEN="$GH_TOKEN_VALUE" sh "$TMP_INSTALL_SCRIPT" "${INSTALL_ARGS[@]}"
+        #
+        # The PIN: installers since 2.0.2 read EDAMAME_PIN. A release-pinned
+        # installer from before (the fallback path above, or raw main before
+        # the 2.0.2 release) only knows --pin, so it gets that, the old shape.
+        INSTALL_PIN=""
+        if [[ "$PASS_PIN" == "true" ]]; then
+          if grep -q 'EDAMAME_PIN' "$TMP_INSTALL_SCRIPT"; then
+            INSTALL_PIN="$EDAMAME_PIN_INPUT"
+          else
+            echo "[INFO] This installer predates EDAMAME_PIN; passing the PIN with --pin"
+            INSTALL_ARGS+=(--pin "$EDAMAME_PIN_INPUT")
+          fi
+        fi
+        EDAMAME_PIN="$INSTALL_PIN" GITHUB_TOKEN="$GH_TOKEN_VALUE" sh "$TMP_INSTALL_SCRIPT" "${INSTALL_ARGS[@]}"
         rm -f "$TMP_INSTALL_SCRIPT"
         if [[ ! -f "$STATE_FILE" ]]; then
           echo "[WARNING] Installer did not produce state file at $STATE_FILE; reconstructing from current system state."
@@ -1375,7 +1396,7 @@ runs:
         # This step only waits for connection when credentials are provided
         
         echo "Waiting for EDAMAME Posture to connect..."
-        if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${{ inputs.edamame_pin }}" ]]; then
+        if [[ -n "${{ inputs.edamame_user }}" && -n "${{ inputs.edamame_domain }}" && -n "${EDAMAME_PIN_INPUT:-}" ]]; then
           dump_posture_logs() {
             # Prefer the systemd/package log dir. Never walk $HOME recursively:
             # cargo color-eyre fixtures and unrelated *_panic_*.txt files drown
@@ -1461,6 +1482,8 @@ runs:
           echo "No connection parameters provided, skipping connection wait"
         fi
       shell: bash
+      env:
+        EDAMAME_PIN_INPUT: ${{ inputs.edamame_pin }}
     
     - name: Start EDAMAME Posture in disconnected mode if requested
       if: ${{ inputs.disconnected_mode == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.dump_attack_pattern_trace != 'true' && inputs.stop != 'true' }}
@@ -1724,7 +1747,7 @@ runs:
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking HTTPS access to the repo..."
-            status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${{ inputs.token }}" $repo_url)
+            status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${ACTION_TOKEN:-}" "$repo_url")
             last_status="$status_code"
 
             if [[ "$status_code" == "301" || "$status_code" == "200" ]]; then
@@ -1765,6 +1788,8 @@ runs:
           fi
         fi
       shell: bash
+      env:
+        ACTION_TOKEN: ${{ inputs.token }}
 
     - name: Wait for a while if requested
       run: |
@@ -4024,7 +4049,7 @@ runs:
             server_scheme="https"
             server_host_path="$server_url"
           fi
-          remote_url="${server_scheme}://x-access-token:${{ inputs.token }}@${server_host_path}/${{ github.repository }}.git"
+          remote_url="${server_scheme}://x-access-token:${ACTION_TOKEN:-}@${server_host_path}/${{ github.repository }}.git"
           if git remote | grep -q '^origin$'; then
             git remote set-url origin "$remote_url" || true
           else
@@ -4073,6 +4098,8 @@ runs:
           fi
         fi
       shell: bash
+      env:
+        ACTION_TOKEN: ${{ inputs.token }}
 
     - name: Create custom whitelists from network sessions if requested
       run: |

@@ -11,6 +11,22 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+### Security
+
+- The Hub PIN reaches the installer (and through it the daemon) in the
+  `EDAMAME_PIN` environment variable instead of `--pin` on its command line,
+  where any local process could read it. A release-pinned installer from
+  before 2.0.2, which only knows `--pin`, still gets the flag.
+- `edamame_pin` and `token` are no longer interpolated into step scripts with
+  `${{ }}`: they reach the scripts as environment variables, so a value can
+  never be parsed as shell code.
+
+### Added
+
+- `agentic_mode: off` turns agentic protection off (the Assistant, attack
+  pattern detection, divergence detection; edamame_posture >= 2.0.2). The
+  strict vulnerability gate treats it like `disabled`.
+
 ### Fixed
 
 - Linux: a package install later in the job no longer restarts the posture
