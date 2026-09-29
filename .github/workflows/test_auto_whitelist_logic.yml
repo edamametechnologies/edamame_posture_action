@@ -1,0 +1,99 @@
+name: Test Auto-Whitelist Logic
+
+# Deterministic tests of scripts/auto_whitelist.sh (tests/test_auto_whitelist_logic.sh):
+# artifact selection by branch, workflow, event and fork, one artifact per
+# pool/OS/architecture, the mode decided from the saved state (a stable
+# whitelist fails a new endpoint and does not learn it), promotion, learning
+# and stability counting, and every download/listing failure failing the job.
+# `gh` and the posture CLI are stubs, so the legs run anywhere bash and jq
+# run, including Windows (where `sort` can resolve to sort.exe) and a
+# container without unzip.
+
+on:
+  schedule:
+    - cron: '30 1 * * *'  # Daily at 01:30 UTC
+  workflow_dispatch:
+  push:
+    branches:
+      - 'dev'
+      - 'main'
+    paths:
+      - 'scripts/auto_whitelist.sh'
+      - 'tests/test_auto_whitelist_logic.sh'
+      - '.github/workflows/test_auto_whitelist_logic.yml'
+      - 'action.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hosted:
+    name: Logic (${{ matrix.runs-on }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the auto-whitelist logic tests
+        shell: bash
+        run: bash tests/test_auto_whitelist_logic.sh
+
+  container:
+    name: Logic (${{ matrix.image }})
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:20.04', 'alpine:3.20']
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.image }}
+    timeout-minutes: 20
+    steps:
+      # JavaScript actions (actions/checkout) do not run in every container
+      # (the Alpine one); fetch the sources with git. Only bash and jq are
+      # installed: no unzip.
+      - name: Install bash, git and jq
+        shell: sh
+        run: |
+          if command -v apk >/dev/null 2>&1; then
+            apk add --no-cache bash git jq coreutils
+          else
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends bash git jq ca-certificates
+          fi
+          if command -v unzip >/dev/null 2>&1; then
+            echo "unzip is present in this image; removing it so the test proves it is not needed"
+            rm -f "$(command -v unzip)"
+          fi
+      - name: Checkout
+        shell: bash
+        run: |
+          git config --global --add safe.directory '*'
+          git clone --depth 1 --branch "${GITHUB_REF_NAME}" "https://github.com/${GITHUB_REPOSITORY}.git" src
+      - name: Run the auto-whitelist logic tests
+        shell: bash
+        run: bash src/tests/test_auto_whitelist_logic.sh
+
+  # A self-hosted Windows runner: the script runs under the runner's own Git
+  # Bash and PATH. Not on push: a self-hosted runner only takes trusted,
+  # deliberate runs.
+  windows-self-hosted:
+    name: Logic (vm-runner-windows)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: vm-runner-windows
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the auto-whitelist logic tests
+        shell: bash
+        run: |
+          echo "sort on PATH: $(command -v sort || echo none)"
+          bash tests/test_auto_whitelist_logic.sh
