@@ -68,8 +68,8 @@ jobs:
 - `edamame_user`, `edamame_domain`, `edamame_pin`, `edamame_id`: Connected-mode credentials (recommended for artifact access and auto-whitelist).
 - `network_scan` / `packet_capture`: Enable monitoring and capture (set both to `true` for full visibility).
 - `auto_remediate`: Apply safe fixes before your build.
-- `whitelist`: Default list to enforce (e.g., `github`, auto-suffixed per OS).
-- `auto_whitelist`: Automate learning → augmentation → enforcement lifecycle.
+- `whitelist`: Named list to enforce (`github_ubuntu`, `github_macos`, `github_windows`, `github`, `builder`, `edamame`); an unknown name fails the setup.
+- `auto_whitelist`: Learn the runner pool's egress whitelist across runs, then enforce it (a new endpoint fails the job).
 - `dump_sessions_log` + `exit_on_*`: Fail the workflow on violations at teardown.
 - `vulnerability_detection` + `dump_vulnerability_findings`: Start the runtime CVE-style detector and fail later if active findings exist.
 
@@ -299,8 +299,8 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `debug`: Enable debug mode - downloads debug version of binary and sets log level to debug (default: false)  
 - `get_device_info`: Display device info including eBPF support status. Linux only (default: false)
 - `verify_ebpf`: Verify eBPF is properly embedded in the binary. Fails if eBPF was not compiled in (build failure). Runtime restrictions (kernel settings, containers) are acceptable and won't fail. Implies `get_device_info=true`. Linux only (default: false)
-- `whitelist`: Whitelist to use for the network scan (default: ""). The action forwards the value exactly as provided—set this when you want EDAMAME to enforce a named whitelist.
-- `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true)
+- `whitelist`: Named whitelist to enforce (default: ""): `github_ubuntu`, `github_macos`, `github_windows`, `github`, `builder` or `edamame`. The action applies it to the daemon explicitly (a daemon reused from an earlier job on a persistent runner keeps its own otherwise) and fails the setup on a name that does not exist.
+- `exit_on_whitelist_exceptions`: Exit with error when whitelist exceptions are detected (default: true). It checks the whitelist this job set up; a job that set none has nothing to check (a whitelist an earlier job left on a persistent daemon is not used), and a whitelist that cannot be checked (capture not running) fails the job
 - `exit_on_blacklisted_sessions`: Exit with error when blacklisted sessions are detected (default: false)
 - `exit_on_anomalous_sessions`: Exit with error when anomalous sessions are detected (default: false)
 - `vulnerability_detection`: Start the runtime attack pattern detector during setup (default: false). When combined with `exit_on_vulnerability_findings: true`, the action fails fast unless `agentic_mode` is `analyze` or `auto`, `agentic_provider` is set, and the provider credential env var is present.
@@ -312,12 +312,12 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
 - `set_custom_whitelists`: Apply custom whitelists from a file specified in custom_whitelists_path (default: false)
 - `augment_custom_whitelists`: When `true`, runs `augment-custom-whitelists` and writes the result to the file specified by `custom_whitelists_path` (overwriting it). Requires `network_scan: true` with packet capture enabled.
-- `auto_whitelist`: Enable automated whitelist lifecycle management across workflow runs. Requires `network_scan: true` with packet capture enabled so traffic can be observed. See **Automated Whitelist Lifecycle** below (default: false)
-- `auto_whitelist_artifact_name`: GitHub artifact name for persisted auto-whitelist state (default: `edamame-auto-whitelist`). Prefer `edamame-auto-whitelist-${{ matrix.runs-on }}` or a literal runs-on suffix — see **Artifact naming (runner pools)** under Automated Whitelist Lifecycle.
-- `auto_whitelist_stability_threshold`: Percentage change threshold for declaring stability (default: "0")
+- `auto_whitelist`: Learn the runner pool's egress whitelist across workflow runs, then enforce it. Requires packet capture (`network_scan: true`). See **Automated Whitelist Lifecycle** below (default: false)
+- `auto_whitelist_artifact_name`: Name of the runner pool's whitelist artifact (default: `edamame-auto-whitelist`); the action appends the runner OS and architecture. Use `edamame-auto-whitelist-${{ matrix.runs-on }}` or a literal runs-on suffix — see **Artifact naming (runner pools)** under Automated Whitelist Lifecycle.
+- `auto_whitelist_stability_threshold`: A learning run counts as stable when it saw no endpoint outside the whitelist (default: "0"); above 0, also when what it added stays at or under that percentage of the entries
 - `auto_whitelist_stability_consecutive_runs`: Number of consecutive stable runs required (default: "3")
-- `auto_whitelist_max_iterations`: Maximum learning iterations before declaring stable (default: "25")
-- `promote_exceptions`: Promote whitelist exceptions immediately without waiting for stability. When true, any non-conforming sessions are added to the whitelist regardless of stability state. Useful during releases to quickly update whitelists. (default: false)
+- `auto_whitelist_max_iterations`: Learning runs after which the whitelist is enforced as it stands, with a warning (default: "25")
+- `promote_exceptions`: At the teardown of an enforcing auto-whitelist run, add the endpoints outside the whitelist instead of failing the job. They are added without review: the job warns, lists them, and keeps them in `auto_whitelist_added.json` in the artifact. A deliberate one-off; left on, it turns enforcement off (default: false)
 - `include_local_traffic`: Include local traffic in network capture and session logs (default: false)
 - `agentic_mode`: AI assistant mode for automated security todo processing: `auto` (execute actions), `analyze` (recommendations only), `disabled` (leave the daemon's persisted agentic state as it is; default), or `off` (turn agentic protection off: the Assistant, attack pattern detection and divergence detection; requires edamame_posture >= 2.0.2). Strict vulnerability gating needs `analyze` or `auto` unless `adjudication_mode` is `advisory` or `deterministic`
 - `agentic_provider`: LLM provider for AI assistant: `edamame` (recommended), `claude`, `openai` (all use `EDAMAME_LLM_API_KEY` env), `ollama` (uses `EDAMAME_LLM_BASE_URL` env), or `none` (default: "none")
@@ -435,14 +435,18 @@ A job that only reads public repositories needs neither. In a private repository
    - Waits for connection to EDAMAME backend (connected mode only)
    - Records the attack pattern findings the daemon already reports (first setup of the job, `EDAMAME_POSTURE_GATE_BASELINE`), so the gate can tell them from this job's
 
-1. **Download auto-whitelist artifacts**  
-   - Downloads previous whitelist from GitHub artifacts (if `auto_whitelist` is true)
-   - Files saved to $HOME for daemon to load
+1. **Apply this job's whitelist**  
+   - Applies the `whitelist` input to the daemon explicitly (a daemon an earlier job started on a persistent runner is reused as it is); an unknown name fails the setup
+   - Records which whitelist this job asked for, so the teardown checks that one and never a whitelist an earlier job left behind
 
-1. **Apply custom whitelists to daemon**  
-   - Loads whitelist into daemon memory from auto_whitelist.json or custom file
-   - Daemon uses this for real-time network traffic enforcement
-   - Runs immediately after startup to ensure subsequent steps are monitored
+1. **Set up the auto-whitelist** (if `auto_whitelist` is true)  
+   - Takes the runner pool's whitelist from the newest artifact of an earlier run of the same workflow on the same branch (never a fork or an untrusted trigger); any listing or download failure fails the job
+   - Decides this run's mode from the state saved with it: learning, or enforcing
+   - Keeps the files in `$RUNNER_TEMP/edamame-auto-whitelist` (exported as `EDAMAME_AUTO_WHITELIST_DIR`) and loads the whitelist into the daemon
+
+1. **Apply custom whitelists** (if `set_custom_whitelists` is true)  
+   - Loads the whitelist from `custom_whitelists_path`; a file the daemon refuses (malformed JSON, an unknown field, no `custom_whitelist`) fails the step
+   - An empty whitelist is loaded as it is: it allows nothing
 
 1. **Wait for API access**  
    - If `wait_for_api` is true, periodically tests API access using `gh api` until granted or timeout (20 attempts, one minute apart)
@@ -457,18 +461,22 @@ A job that only reads public repositories needs neither. In a private repository
 1. **Checkout the repo through the git CLI**  
    - If `checkout` is true, tries up to 10 times to fetch and check out the specified branch
 
-1. **Create or augment auto-whitelist**  
-   - If `dump_sessions_log` is true and auto-whitelist enabled, augments whitelist with captured traffic
-   - Compares with baseline to detect stability
+1. **Check and learn the auto-whitelist** (teardown, if the auto-whitelist was set up in this job)  
+   - Checks this job's egress sessions (active since its setup) against the whitelist file it downloaded, not against whatever the daemon holds
+   - Enforcing run: anything outside the whitelist is a violation and is not learned (unless `promote_exceptions` is true); learning run: the traffic is added and a run that saw nothing new counts toward stability
+   - Records the verdict in `auto_whitelist_verdict.json`
 
 1. **Dump sessions log**  
    - If `dump_sessions_log` is true, retrieves network sessions from daemon
    - Sessions include L7 process attribution (process name, path, parent chain, open files, temp-origin detection)
-   - Enforces violations if whitelist is stable
+   - Outside auto-whitelist mode, `exit_on_whitelist_exceptions` checks the whitelist this job set up
    - See [EDAMAME Core API MCP Reference](https://github.com/edamametechnologies/edamame_core_api/blob/main/MCP.md#l7-session-enrichment-fields) for complete session field documentation
 
-1. **Upload artifacts**  
-   - Uploads auto-whitelist files to GitHub artifacts for next run
+1. **Upload the auto-whitelist artifact**  
+   - Saves the whitelist, its state, the verdict and the endpoints added this run for the next run, including after a violation (the whitelist is then unchanged)
+
+1. **Fail on an auto-whitelist violation**  
+   - Fails the job, after the artifact is saved, when an enforcing run saw an endpoint outside the whitelist or when the traffic could not be checked
 
 1. **Collect EDAMAME daemon logs**  
    - If `display_logs` is true, dumps the daemon's rolling logs (`/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD` on Unix, beside the binary on Windows) to the job log
@@ -1219,36 +1227,40 @@ Create separate whitelists for each runner OS:
 
 ### Whitelist JSON Format
 
-Custom whitelists are stored as JSON files with the following structure:
+Custom whitelists are JSON files with this structure (the enforced list is the one named `custom_whitelist`):
 
 ```json
 {
-  "version": "1.0",
-  "generated_at": "2025-11-12T10:30:00Z",
-  "platform": "linux",
-  "entries": [
+  "date": "September 29th 2026",
+  "signature": null,
+  "whitelists": [
     {
-      "domain": "github.com",
-      "ip": "140.82.112.3",
-      "port": 443,
-      "protocol": "https",
-      "first_seen": "2025-11-12T10:30:00Z"
-    },
-    {
-      "domain": "registry.npmjs.org",
-      "ip": "104.16.16.35",
-      "port": 443,
-      "protocol": "https",
-      "first_seen": "2025-11-12T10:31:15Z"
+      "name": "custom_whitelist",
+      "extends": null,
+      "endpoints": [
+        { "domain": "github.com", "ip": "140.82.112.3", "port": 443, "protocol": "TCP" },
+        { "domain": "registry.npmjs.org", "port": 443, "protocol": "TCP" },
+        { "domains": ["*.actions.githubusercontent.com"], "ports": [443], "protocol": "TCP" },
+        { "ip": "203.0.113.10", "port": 8443, "protocol": "TCP", "description": "artifact server" },
+        { "as_number": 8075, "as_owner": "MICROSOFT-CORP-MSN-AS-BLOCK", "port": 443, "protocol": "TCP", "unresolved_only": true }
+      ]
     }
   ]
 }
 ```
 
+How an entry matches a session (protocol, port and process are always checked first):
+
+- **An entry with a domain** matches a session whose destination has a name (a DNS answer or TLS SNI) only by that name. Its addresses are a stand-in for sessions that have no name.
+- **An address-only entry** matches by address, except a named destination on shared infrastructure (a CDN or cloud front end), which only a domain entry covers: many sites answer on those addresses.
+- **An AS-only entry** matches on its AS fields. With `"unresolved_only": true` it covers sessions without a name only (the auto-whitelist learns these for unnamed traffic to shared infrastructure).
+
+A file the daemon refuses (malformed JSON, an unknown field, no `custom_whitelist`, an `extends` it does not define) fails the load: the whitelist already in force stays.
+
 You can manually edit these files to:
 - Remove entries you want to exclude
-- Add comments explaining why specific endpoints are needed
-- Merge whitelists from different sources
+- Document entries with `description`
+- Merge whitelists from different sources (`merge-custom-whitelists-from-files`)
 
 ### Troubleshooting
 
@@ -1338,22 +1350,27 @@ Machine learning-based anomaly detection complements whitelist enforcement:
 | `exit_on_whitelist_exceptions` | boolean | true | Fail workflow on violations (end-of-run) |
 | `check_whitelist` | boolean | false | Enable real-time whitelist checking |
 | `cancel_on_violation` | boolean | false | Cancel workflow immediately on violation |
-| `whitelist` | string | "github" | Default whitelist name (platform suffix auto-added) |
+| `whitelist` | string | "" | Named whitelist (`github_ubuntu`, `github_macos`, `github_windows`, ...); an unknown name fails the setup |
 
 ## Automated Whitelist Lifecycle (Auto-Whitelist Mode)
 
-For teams that want a fully automated approach to whitelist management, the **auto-whitelist feature** handles the entire learning → augmentation → enforcement lifecycle automatically across multiple workflow runs.
+The auto-whitelist learns the egress endpoints of a runner pool across workflow runs, then enforces them: once the whitelist has settled, a job that contacts an endpoint outside it fails, and that endpoint is **not** learned.
 
-> **Important**: Auto-whitelist **works best in connected mode**. It becomes **required** only when your org’s GitHub API / Artifacts access is blocked by IP allow lists (otherwise artifact download/upload can fail with `403`). See [Requirements](#requirements-1) below.
+> **Important**: Auto-whitelist reads and writes GitHub artifacts. In an organization with an IP allow list, use connected mode with `wait_for_api: true` so EDAMAME Hub allows the runner first. A disconnected daemon cannot, and the job then fails rather than start a new whitelist. See [Requirements](#requirements-1).
 
 ### How Auto-Whitelist Works
 
-Instead of manually managing whitelist files through download/upload artifacts, the action automatically:
+Each run starts in the mode its saved state says, decided **before** the run:
 
-1. **First Run**: Captures all network traffic and creates initial whitelist
-2. **Subsequent Runs**: Downloads previous whitelist, applies it, captures new traffic, augments with any new endpoints
-3. **Stability Detection**: Tracks consecutive runs with no changes
-4. **Enforcement**: Once stable (N runs with 0% change), automatically enforces the whitelist and fails on violations
+1. **First run**: no artifact yet. The job's egress traffic becomes the whitelist.
+2. **Learning runs**: the whitelist is checked against the job's traffic; what is outside it is added. A run that saw nothing new counts as stable.
+3. **Enforcing runs**: after `auto_whitelist_stability_consecutive_runs` stable runs in a row (default 3), or after `auto_whitelist_max_iterations` learning runs (default 25, with a warning that the whitelist did not settle), every run checks the job's traffic against the whitelist. Anything outside it fails the job and is not added. `promote_exceptions: true` adds it instead, without review (see below).
+
+What is checked and learned:
+
+- **Only this job's traffic**: the sessions active since the job's setup. On a persistent self-hosted runner, the daemon's history from earlier jobs is not counted.
+- **Against the whitelist file the job downloaded**, not against whatever the daemon holds: another job on a shared daemon, or a build step, cannot change what this job is checked against or what gets saved.
+- **By name first**: a destination with a name (DNS answer or TLS SNI) is matched by name. A learned entry's addresses only stand in for sessions without a name, and addresses on shared infrastructure (CDNs, cloud front ends) are never learned: `gist.githubusercontent.com` does not pass because `raw.githubusercontent.com`, on the same Fastly addresses, is in the whitelist. Unnamed traffic to shared infrastructure (connections opened before the capture started, for instance) is learned by network (AS) for unnamed sessions only.
 
 ### Usage Pattern
 
@@ -1374,14 +1391,13 @@ jobs:
           edamame_id: ${{ github.run_id }}
           network_scan: true
           packet_capture: true
+          wait_for_api: true
           auto_whitelist: true
-          # One artifact bucket per runner pool (see "Artifact naming" below).
-          auto_whitelist_artifact_name: edamame-auto-whitelist-${{ matrix.runs-on }}
+          # One whitelist per runner pool (see "Artifact naming" below).
+          auto_whitelist_artifact_name: edamame-auto-whitelist-ubuntu-latest
           # Optional tuning:
-          # auto_whitelist_stability_threshold: "0"              # 0% = no new endpoints
-          # auto_whitelist_stability_consecutive_runs: "3"       # 3 runs required
-          # auto_whitelist_max_iterations: "25"                  # Max learning iterations
-          # Note: Connected mode recommended for artifact access if IP allow lists are enabled
+          # auto_whitelist_stability_consecutive_runs: "3"   # clean runs before enforcing
+          # auto_whitelist_max_iterations: "25"              # learning runs at most
 
       # Step 2: Your Build/Test/Deploy Work
       - name: Build Application
@@ -1392,65 +1408,41 @@ jobs:
 
       # Step 3: Teardown Phase
       - name: Dump EDAMAME Posture Sessions
+        if: always()
         uses: edamametechnologies/edamame_posture_action@v1
         with:
           dump_sessions_log: true
 ```
 
-That's it! The action handles everything else automatically.
-
 ### What Happens Across Workflow Runs
 
-**Run 1 (Initial Learning)**:
-- No whitelist exists → Listen-only mode
-- Captures: `github.com`, `npmjs.org` (2 endpoints)
-- Creates whitelist with 2 endpoints
-- Status: Learning
+**Run 1 (first run)**: no whitelist exists. The job's egress traffic (`github.com`, `registry.npmjs.org`) becomes the whitelist. Nothing fails.
 
-**Run 2-N (Augmentation)**:
-- Downloads whitelist (2 endpoints) → Applies to daemon
-- Captures: `github.com`, `npmjs.org`, `cdn.jsdelivr.net` (NEW!)
-- Augments whitelist → Now 3 endpoints
-- Change: 33% (1 new out of 3 total)
-- Status: Evolving
+**Run 2 (learning)**: the job also contacts `cdn.jsdelivr.net`. It is outside the whitelist, so it is added; the run is not stable.
 
-**Run N+1 (Stability Detection)**:
-- Downloads whitelist (3 endpoints) → Applies
-- Captures: Same 3 endpoints (no new)
-- Augments whitelist → Still 3 endpoints
-- Change: 0%
-- Stability counter: 1/3
-- Status: Confirming
+**Runs 3-5 (learning)**: nothing outside the whitelist. Each run counts: 1/3, 2/3, 3/3. After run 5, the state says the next run enforces.
 
-**Run N+3 (Enforcement)**:
-- Three consecutive runs with 0% change
-- **Whitelist is now STABLE!**
-- Future runs will **FAIL** if unauthorized endpoints are contacted
-- Status: Enforcing
+**Run 6 and later (enforcing)**: a run whose traffic stays inside the whitelist passes. A run that contacts anything else **fails**, lists the endpoints, and leaves the whitelist unchanged, so the next run fails on them too until someone decides.
 
 ### Configuration Options
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `auto_whitelist` | boolean | `false` | Enable automated whitelist lifecycle |
-| `auto_whitelist_artifact_name` | string | `edamame-auto-whitelist` | GitHub artifact name for persisted whitelist state (see **Artifact naming** below) |
-| `auto_whitelist_stability_threshold` | string | `"0"` | Percentage change threshold (0 = no new endpoints) |
-| `auto_whitelist_stability_consecutive_runs` | string | `"3"` | Consecutive stable runs required |
-| `auto_whitelist_max_iterations` | string | `"25"` | Maximum learning iterations |
+| `auto_whitelist` | boolean | `false` | Enable the auto-whitelist |
+| `auto_whitelist_artifact_name` | string | `edamame-auto-whitelist` | Runner pool's artifact name; the OS and architecture are appended (see **Artifact naming** below) |
+| `auto_whitelist_stability_threshold` | string | `"0"` | A learning run is stable when it saw nothing outside the whitelist; above 0, also when its additions stay at or under this percentage |
+| `auto_whitelist_stability_consecutive_runs` | string | `"3"` | Consecutive stable learning runs before the whitelist is enforced |
+| `auto_whitelist_max_iterations` | string | `"25"` | Learning runs after which the whitelist is enforced as it stands |
+| `promote_exceptions` | boolean | `false` | Add the endpoints outside the whitelist instead of failing (unreviewed; see below) |
 
 ### Artifact naming (runner pools)
 
-Auto-whitelist state is stored as a **GitHub Actions artifact** in the **current repository**. Each workflow run downloads the newest non-expired artifact with the configured name, augments it from captured traffic, and uploads an updated copy on teardown (`dump_sessions_log: true`).
+The whitelist and its state travel in one GitHub artifact, per runner pool, OS and architecture:
 
-**Key by `runs-on`, not by OS.** The artifact name should identify the **runner pool** (the job's `runs-on` label), not the operating system alone. Self-hosted pools (`vm-runner-linux`, `vm-runner-windows`, `vm-runner-macos`) and GitHub-hosted pools (`ubuntu-latest`, `macos-latest`, `ubuntu-22.04-arm`, …) can all run Linux or macOS jobs but observe **different egress profiles**. Using `runner.os` merges those pools into one whitelist and mixes self-hosted with managed traffic.
-
-| Naming strategy | Expression | When to use |
-|-----------------|------------|-------------|
-| **Runner pool (recommended)** | `edamame-auto-whitelist-${{ matrix.runs-on }}` or `edamame-auto-whitelist-<literal-runs-on>` | Production release/test jobs; keeps self-hosted and managed separate |
-| **OS-wide (optional)** | `edamame-auto-whitelist-${{ runner.os }}` | Only when you *want* one shared whitelist for every pool on the same OS (e.g. all Linux runners share one file) |
-| **Default** | `edamame-auto-whitelist` | Single bucket per repo; **not recommended** when multiple workflows or runner types use auto-whitelist in the same repository |
-
-**Matrix jobs** — use the matrix label directly:
+- **Name it after the pool** (the job's `runs-on` label): `edamame-auto-whitelist-${{ matrix.runs-on }}`, or the literal label for a fixed `runs-on`. The action appends the runner OS and architecture: `edamame-auto-whitelist-ubuntu-latest` is stored as `edamame-auto-whitelist-ubuntu-latest-linux-x64`. A pool label shared across operating systems can therefore never mix their whitelists.
+- **Only trusted earlier runs feed it**: the artifact is taken from the newest run of the **same workflow file**, on the **same branch**, in this repository (never a fork), triggered by `push`, `workflow_dispatch`, `schedule`, `merge_group`, `release` or `repository_dispatch` (a `pull_request` run feeds only other `pull_request` runs of its branch). `pull_request_target`, `workflow_run` and other triggers never feed a whitelist. Another workflow using the same name keeps its own whitelist.
+- **Failures fail**: if the artifacts cannot be listed or downloaded (IP allow list, API error), or the artifact is incomplete, the job fails. Only a listing that answered with no eligible artifact starts a new whitelist.
+- **Files**: `auto_whitelist.json` (the whitelist), `auto_whitelist_state.json` (iteration, consecutive stable runs, next mode), `auto_whitelist_verdict.json` (this run's result: mode, endpoints outside the whitelist, endpoints added) and `auto_whitelist_added.json`. During the job they are in `$RUNNER_TEMP/edamame-auto-whitelist` (`EDAMAME_AUTO_WHITELIST_DIR`).
 
 ```yaml
 jobs:
@@ -1468,191 +1460,110 @@ jobs:
           auto_whitelist_artifact_name: edamame-auto-whitelist-${{ matrix.runs-on }}
 ```
 
-**Fixed `runs-on` jobs** — GitHub Actions does not expose the job's `runs-on` value in step expressions for non-matrix jobs, so repeat the same label in the artifact name:
+Matrix legs of one workflow that share a `runs-on` label, OS and architecture share one artifact: the last leg to finish writes it.
 
-```yaml
-jobs:
-  build:
-    runs-on: vm-runner-windows
-    steps:
-      - uses: edamametechnologies/edamame_posture_action@v1
-        with:
-          auto_whitelist: true
-          auto_whitelist_artifact_name: edamame-auto-whitelist-vm-runner-windows
+**Migrating from action versions before 1.2**: artifacts named without the OS and architecture suffix, and the repository-wide `auto-whitelist-state` artifact, are not read, so every pool learns its whitelist again under the new name. `auto_whitelist_state_artifact_name` is ignored. Delete the old artifacts once the new ones exist:
+
+```bash
+gh api "repos/OWNER/REPO/actions/artifacts?name=edamame-auto-whitelist-ubuntu-latest" --paginate \
+  --jq '.artifacts[].id' | xargs -I {} gh api -X DELETE repos/OWNER/REPO/actions/artifacts/{}
 ```
 
-Example artifact names after a release cycle:
+### Promoting endpoints (`promote_exceptions`)
 
-| `runs-on` | Artifact name |
-|-----------|---------------|
-| `vm-runner-windows` | `edamame-auto-whitelist-vm-runner-windows` |
-| `vm-runner-linux` | `edamame-auto-whitelist-vm-runner-linux` |
-| `ubuntu-latest` | `edamame-auto-whitelist-ubuntu-latest` |
-| `ubuntu-22.04-arm` | `edamame-auto-whitelist-ubuntu-22.04-arm` |
+When an enforcing run fails on an endpoint you have reviewed and want to allow, rerun with `promote_exceptions: true`: the endpoints outside the whitelist are added instead of failing the job. They are added **without further review**: the job warns, lists them, and keeps them in `auto_whitelist_added.json` in the artifact. Pass it from a repository variable and reset the variable right after:
 
-Multiple matrix rows that share the same `runs-on` value (for example several deb builds on `ubuntu-latest`) intentionally share one artifact — same pool, same egress baseline.
+```bash
+gh variable set EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --body "true" --repo OWNER/REPO
+gh workflow run <workflow-file> --repo OWNER/REPO
+# after that run:
+gh variable set EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --body "false" --repo OWNER/REPO
+```
 
-**Scope and lifecycle notes:**
+```yaml
+- name: Dump EDAMAME Posture sessions
+  if: always()
+  uses: edamametechnologies/edamame_posture_action@v1
+  with:
+    dump_sessions_log: true
+    promote_exceptions: ${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}
+```
 
-- Artifacts are **per repository** — `edamame_app` and `edamame_cli` each maintain separate whitelist stores.
-- The action selects the **most recently created** non-expired artifact with the matching name (not necessarily from the same workflow file).
-- Renaming an artifact starts a **fresh learning cycle** for that pool; old artifacts under the previous name are ignored but remain until GitHub retention expires.
-- When migrating from the default `edamame-auto-whitelist` bucket to per-pool names, **delete the legacy artifacts** in each repository (GitHub → Actions → Artifacts, or `gh api -X DELETE repos/ORG/REPO/actions/artifacts/ID`). The new names will not download them anyway, but removing stale blended state avoids confusion and accidental reuse if a workflow is ever misconfigured back to the old name.
-- EDAMAME release workflows use the `edamame-auto-whitelist-<runs-on>` convention so Windows, Linux self-hosted, Linux github-hosted, and macOS pools do not cross-contaminate.
-
-**Exception Promotion via Input:**
-
-To promote whitelist violations to legitimate entries after stabilization:
-1. Set the repository variable: `gh variable set EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --body "true" --repo OWNER/REPO`
-2. Pass it to the action as `promote_exceptions: ${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}`
-
-See Troubleshooting section for detailed instructions.
+Left on, promotion adds everything and enforces nothing.
 
 ### When to Use Auto-Whitelist
 
-**Perfect for:**
-- New projects starting from scratch
-- Projects with stable dependencies
-- Teams wanting hands-off security
-- CI/CD pipelines with consistent network patterns
+**Good fit:**
+- Pipelines with a stable set of dependencies and services
+- A runner pool that runs the same workflow regularly
 
-**Not recommended for:**
-- Projects with frequently changing dependencies
-- Workflows that contact different endpoints on different branches
-- When you need fine-grained control over whitelist entries
-- Legacy projects with complex network requirements (use manual whitelist management instead)
+**Not a good fit:**
+- Pipelines that contact different endpoints on every run (the whitelist does not settle, and is then enforced as it stands)
+- Endpoints with rotating names (numbered hosts, regional names): each new name is a new endpoint
+- When you need to review every entry: use a custom whitelist (`custom_whitelists_path`) under version control
 
 ### Requirements
 
-**Connected mode for reliable artifact access**
+**Connected mode for artifact access**
 
-Auto-whitelist mode may require connected mode depending on your GitHub org settings. This is because:
+The auto-whitelist lists, downloads and uploads GitHub artifacts. In an organization with an IP allow list:
 
-1. **Artifact Download/Upload**: The feature uses GitHub Artifacts to persist whitelist state between workflow runs
-2. **IP Allow Lists**: Organizations with IP restrictions block unauthenticated artifact API access
-3. **EDAMAME Authentication**: Connected mode authenticates the runner through EDAMAME, bypassing IP allow lists
+1. The runner's IP must be allowed first: connected mode (`edamame_user`, `edamame_domain`, `edamame_pin`, `edamame_id`) lets EDAMAME Hub add it, and `wait_for_api: true` waits for that.
+2. Without it, the artifact API answers `403` and the job **fails**: a whitelist that cannot be read is never replaced by a new one.
 
-**How to enable connected mode** - provide these credentials in your setup step:
-
-```yaml
-- name: Setup EDAMAME Posture
-  uses: edamametechnologies/edamame_posture_action@v1
-  with:
-    edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
-    edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
-    edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
-    edamame_id: ${{ github.run_id }}
-    auto_whitelist: true
-    # ... other options
-```
-
-**What can happen without connected mode (IP allow list orgs):**
-- ❌ Artifact download fails with `403 Forbidden` (IP allow list blocked)
-- ❌ Whitelist not applied to daemon
-- ❌ Augmentation creates fresh whitelists instead of adding to baseline
-- ❌ Endpoint counts fluctuate instead of increasing
-- ❌ Auto-whitelist lifecycle breaks
-
-**Required for:**
--Organizations with IP allow lists enabled (most production environments)
--Private repositories
--Reliable artifact operations
-
-**Optional (disconnected mode might work) for:**
-- Public repositories with no IP restrictions
-- Test environments with unrestricted API access
-- Local runners with full GitHub access
-
-**Note**: Connected mode also provides access control, compliance reporting, and centralized policy management beyond just artifact access.
+A public repository without IP restrictions can use disconnected mode.
 
 ### Monitoring Progress
 
-The action provides clear status updates in workflow logs:
+The setup reports the mode:
 
 ```
-=== Iteration 5 ===
-Whitelist difference: 0.00%
-✅ Whitelist is STABLE for this run (diff: 0.00% <= threshold: 0%)
-   Consecutive stable runs: 1 / 3 required
-🔄 Whitelist is stable for this run, but need more consecutive confirmations
+Mode: LEARNING (iteration 4, 2/3 consecutive runs without a new endpoint, 42 endpoints). Nothing fails on new endpoints yet.
 ```
 
 ```
-=== Iteration 7 ===
-Whitelist difference: 0.00%
-✅ Whitelist is STABLE for this run (diff: 0.00% <= threshold: 0%)
-   Consecutive stable runs: 3 / 3 required
-🎉 Whitelist is FULLY STABLE (3 consecutive runs with no changes)
+Mode: ENFORCING (3 consecutive runs saw nothing new; 44 endpoints). A new endpoint fails this job and is not learned.
+```
 
-✅ Whitelist has stabilized!
-   Future runs will enforce this whitelist and fail on violations.
+The teardown reports what it checked, and writes the same to the job summary:
+
+```
+=== Auto-whitelist (edamame-auto-whitelist-ubuntu-latest-linux-x64) ===
+Started: enforcing. Egress sessions checked: 57. Not in the whitelist: 1.
+  TCP gist.githubusercontent.com 185.199.110.133:443 process=python3 AS54113 FASTLY
+Result: VIOLATION. The endpoints above are not learned; the job fails at the end of this step list.
 ```
 
 ### Troubleshooting
 
-**Problem**: Whitelist never stabilizes
+**Problem**: An enforcing run fails on an endpoint
 
-**Solutions**:
-- Increase `auto_whitelist_stability_threshold` from `0` to `5` (allow 5% variance)
-- Check if dependencies are non-deterministic (different CDNs per run)
-- Review logs to see which endpoints are changing between runs
+1. Review the endpoints listed in the job log and the job summary. An unexpected endpoint can be a compromised dependency or build step.
+2. If it is legitimate, promote it once (`promote_exceptions`, above), or delete the artifact to learn the pool's whitelist again.
 
----
+**Problem**: The whitelist never settles
 
-**Problem**: Whitelist stabilized too quickly with missing endpoints
+- The job contacts new endpoints on every run (often rotating names). It is enforced after `auto_whitelist_max_iterations` learning runs anyway, with a warning, and then fails on each new name.
+- Review the `added` list in `auto_whitelist_verdict.json` of the learning runs to see what keeps changing.
+- A `auto_whitelist_stability_threshold` above 0 tolerates small additions; a custom whitelist with wildcards (`*.example.com`) is the precise alternative.
 
-**Solutions**:
-- Run more diverse scenarios before it stabilizes (different branches, test suites)
-- Temporarily reset by deleting the artifact
-- Use manual whitelist management for complex cases
+**Problem**: The setup fails listing or downloading the artifact
 
----
+- `IP allow list`: use connected mode with `wait_for_api: true`.
+- Other API errors: rerun; the job does not start a new whitelist in place of one it could not read.
 
-**Problem**: Need to add new endpoint after stabilization (whitelist violation detected)
+**Delete the artifact to restart learning**:
 
-**Solutions**:
+```bash
+gh api "repos/OWNER/REPO/actions/artifacts?name=ARTIFACT_NAME" --paginate --jq '.artifacts[].id' \
+  | xargs -I {} gh api -X DELETE repos/OWNER/REPO/actions/artifacts/{}
+```
 
-1. **Use promotion mode (recommended)** - Set a repository variable and ensure workflows pass it as the `promote_exceptions` input:
-   ```bash
-   # Enable promotion for next run
-   gh variable set EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --body "true" --repo OWNER/REPO
-
-   # Re-run the workflow (or wait for next scheduled run)
-   gh workflow run <workflow-file> --repo OWNER/REPO
-
-   # After success, disable promotion
-   gh variable delete EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS --repo OWNER/REPO
-   ```
-   
-   Your workflow should pass this variable to the action:
-   ```yaml
-   - name: Dump EDAMAME Posture sessions
-     uses: edamametechnologies/edamame_posture_action@v1
-     with:
-       dump_sessions_log: true
-       promote_exceptions: ${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}
-   ```
-   This will add any non-conforming sessions to the whitelist while keeping it stable.
-
-2. **Manual augmentation** - Run a workflow with:
-   ```yaml
-   - name: Augment whitelist
-     uses: edamametechnologies/edamame_posture_action@v1
-     with:
-       augment_custom_whitelists: true
-       custom_whitelists_path: ~/auto_whitelist.json
-   ```
-
-3. **Delete artifact to restart learning** - Use the GitHub CLI:
-   ```bash
-   gh api repos/OWNER/REPO/actions/artifacts \
-     --jq '.artifacts[] | select(.name=="YOUR_ARTIFACT_NAME") | .id' \
-     | xargs -I {} gh api -X DELETE repos/OWNER/REPO/actions/artifacts/{}
-   ```
+(`ARTIFACT_NAME` includes the OS and architecture suffix, for example `edamame-auto-whitelist-ubuntu-latest-linux-x64`.)
 
 ### Combining with Other Features
 
-Auto-whitelist works seamlessly with other EDAMAME features:
+Auto-whitelist works with the other EDAMAME features:
 
 ```yaml
 - name: Setup EDAMAME Posture
@@ -1664,6 +1575,7 @@ Auto-whitelist works seamlessly with other EDAMAME features:
     edamame_id: ${{ github.run_id }}
     network_scan: true
     packet_capture: true
+    wait_for_api: true
     auto_whitelist: true                          # Automated whitelist
     auto_whitelist_artifact_name: edamame-auto-whitelist-${{ matrix.runs-on }}
     check_blacklist: true                         # Also check blacklists
@@ -1947,7 +1859,7 @@ This section shows how GitHub Action inputs map to CLI flags.
 | `edamame_id` | `--device-id` | string | - | Optional suffix for device ID |
 | `network_scan` | `--network-scan` | flag | false | Enable LAN scanning |
 | `packet_capture` | `--packet-capture` | flag | auto | Enable packet capture |
-| `whitelist` | `--whitelist` | string | "github" | Whitelist name |
+| `whitelist` | `--whitelist` | string | "" | Whitelist name (also applied with `set-whitelist`) |
 | `check_whitelist` | `--fail-on-whitelist` | flag | false | Fail on whitelist violations |
 | `check_blacklist` | `--fail-on-blacklist` | flag | true | Fail on blacklist matches |
 | `vulnerability_detection` + `exit_on_vulnerability_findings` | `--fail-on-findings` | flag | true/true | Fail on active vulnerability findings |
@@ -2037,7 +1949,7 @@ This is translated to `--packet-capture` flag when enabled.
 
 #### whitelist
 
-The action automatically appends OS-specific suffixes (`_windows`, `_macos`, `_linux`) to the whitelist name based on the runner OS, unless the input is empty.
+The action passes the name as given (no OS suffix is added): use `github_ubuntu`, `github_macos` or `github_windows` for the runner's OS. It applies the name to the daemon at setup and fails the setup on a name that does not exist.
 
 #### device_id
 
