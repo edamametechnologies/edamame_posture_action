@@ -90,7 +90,7 @@ inputs:
     required: false
     default: "false"
   wait_repository:
-    description: "Repository (owner/name) whose access wait_for_api and wait_for_https probe; defaults to the workflow's repository. Set it to a private or internal repository the job needs when the workflow's own repository is public: the organization IP allow list only guards private and internal repositories, so probing a public one returns at once and proves nothing."
+    description: "Repository (owner/name) whose access wait_for_api and wait_for_https probe; defaults to the workflow's repository. Set it to a private or internal repository the job needs when the workflow's own repository is public: public reads are not restricted, so probing a public repository returns at once and proves nothing, while pushes, token-created pull requests and releases, and private repositories stay refused until the runner is listed."
     required: false
     default: ""
   token:
@@ -1681,9 +1681,10 @@ runs:
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Testing API access..."
             
-            # We use the GitHub token to access the run details API, which tests org-level IP allowlist access
-            # This endpoint requires authentication even for public repos and is blocked by IP allowlists
-            # Capture both stdout and stderr to see what's actually happening
+            # Probes with the action's token. In a private repository the run
+            # details API is blocked until the runner is listed; in a public one
+            # it answers at once (public reads are not restricted), which is why
+            # wait_repository exists. Capture stdout and stderr for the log.
             if output=$(gh api "$probe_endpoint" 2>&1); then
               timeout=false
               echo "[OK] API access granted!"

@@ -278,7 +278,8 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `wait_for_https`: Wait for https access to the repo to be granted (default: false)  
 - `wait`: Wait for a while (180 seconds) (default: false)  
 - `wait_for_api`: Wait for API access via the GitHub CLI (default: false)  
-- `token`: GitHub token to checkout the repo (default: ${{ github.token }})  
+- `wait_repository`: Repository (`owner/name`) that `wait_for_api` and `wait_for_https` probe (default: the workflow's own repository). Set it to a private or internal repository when the workflow's repository is public: see [Connected Mode and IP Allow Lists](#connected-mode-and-ip-allow-lists) (default: "")  
+- `token`: GitHub token used to checkout the repo and by the `wait_for_api` / `wait_for_https` probes; it must be able to read `wait_repository` (default: ${{ github.token }}, which can read only the workflow's own repository)  
 - `display_logs`: Dump the EDAMAME daemon's rolling log files (`/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD` on Unix, beside the binary on Windows) to the job log AND copy them to `$RUNNER_TEMP/edamame-daemon-logs/`. The path is exported as `EDAMAME_DAEMON_LOGS_PATH` for downstream `actions/upload-artifact` steps. See [Daemon log collection](#daemon-log-collection) for an upload example. (default: false)  
 - `debug`: Enable debug mode - downloads debug version of binary and sets log level to debug (default: false)  
 - `get_device_info`: Display device info including eBPF support status. Linux only (default: false)
@@ -311,6 +312,24 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 ### Connected Mode and IP Allow Lists
 
 Some GitHub organizations enforce IP allow lists that block unauthenticated artifact and API access. In those environments, provide connected-mode credentials (`edamame_user`, `edamame_domain`, `edamame_pin`, `edamame_id`) so EDAMAME can authenticate the runner before it downloads or uploads artifacts (for example, while using auto-whitelist or other artifact-dependent features). Disconnected runners without IP restrictions can continue using the action—including auto-whitelist—without those credentials.
+
+A GitHub-hosted runner starts outside the allow list. Once the daemon connects, EDAMAME Hub adds the runner's IP, which can take more than ten minutes. `wait_for_api` (or `wait_for_https`) holds the job until access is granted: 20 attempts, one minute apart (about 19 minutes).
+
+**Which repository the wait probes matters.** By default it probes the workflow's own repository. In a **public** repository that probe succeeds immediately, because public reads are not restricted, while everything the allow list guards is still refused: `git push`, pull requests and releases created with a token, and any private or internal repository. A job in a public repository that does any of those after the action must set `wait_repository` to a private or internal repository and pass a `token` that can read it:
+
+```yaml
+      - uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}
+          wait_for_api: true
+          wait_repository: your-org/a-private-repo      # a repository the token can read
+          token: ${{ secrets.YOUR_ORG_TOKEN }}           # the token the job uses later
+```
+
+A job that only reads public repositories needs neither. In a private repository the default probe already proves access.
 
 ## Steps
 
@@ -401,7 +420,8 @@ Some GitHub organizations enforce IP allow lists that block unauthenticated arti
    - Runs immediately after startup to ensure subsequent steps are monitored
 
 1. **Wait for API access**  
-   - If `wait_for_api` is true, periodically tests API access using `gh api` until granted or timeout
+   - If `wait_for_api` is true, periodically tests API access using `gh api` until granted or timeout (20 attempts, one minute apart)
+   - Probes `wait_repository` when set, else the workflow's own repository (in a public repository, set `wait_repository`: see [Connected Mode and IP Allow Lists](#connected-mode-and-ip-allow-lists))
    - Runs AFTER daemon has started and connected (daemon can whitelist runner IP via EDAMAME backend)
    - Required for organizations with IP allow lists enabled
 

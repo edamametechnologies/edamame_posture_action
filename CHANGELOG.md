@@ -11,6 +11,14 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+### Documentation
+
+- `wait_repository` is documented: in a public repository the default
+  `wait_for_api` / `wait_for_https` probe succeeds at once, while pushes,
+  token-created pull requests and releases, and private repositories stay
+  refused until EDAMAME Hub lists the runner. `token` is also the probe's
+  token.
+
 ### Security
 
 - The Hub PIN reaches the installer (and through it the daemon) in the
