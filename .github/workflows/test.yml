@@ -217,7 +217,9 @@ jobs:
         with:
           disconnected_mode: true
           network_scan: true
-          whitelist: github_${{ runner.os }}
+          # The named list for the runner's OS (github_ubuntu / github_macos);
+          # the action fails the setup on an unknown name.
+          whitelist: github_${{ matrix.os }}
           edamame_minimum_score: 1.0
           edamame_mandatory_threats: "encrypted disk disabled"
         continue-on-error: true
@@ -274,6 +276,22 @@ jobs:
         uses: ./
         with:
           dump_sessions_log: true
+        continue-on-error: true
+
+      # The first run of a fresh pool must learn, from traffic the capture
+      # actually saw, and record it.
+      - name: Assert auto-whitelist learning run
+        id: test-auto-whitelist-assert
+        if: steps.test-auto-whitelist.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          verdict="${EDAMAME_AUTO_WHITELIST_DIR:?the auto-whitelist setup did not run}/auto_whitelist_verdict.json"
+          jq '{start_mode, start_reason, verdict, evaluated, added: (.added | length), next_mode}' "$verdict"
+          jq -e '.start_mode == "learning" and .start_reason == "first_run" and .verdict == "learning"' "$verdict" >/dev/null
+          jq -e '.evaluated > 0' "$verdict" >/dev/null || { echo "::error::no egress session was checked"; exit 1; }
+          jq -e '[.whitelists[] | select(.name == "custom_whitelist") | .endpoints | length] | add > 0' "$EDAMAME_AUTO_WHITELIST_DIR/auto_whitelist.json" >/dev/null ||
+            { echo "::error::nothing was learned"; exit 1; }
         continue-on-error: true
 
       - name: Stop posture after auto-whitelist test
@@ -343,7 +361,8 @@ jobs:
           steps.test-sessions-disconnected.outcome != 'success' ||
           (runner.os != 'Windows' && steps.test-verify-whitelist-before-augment.outcome != 'success') ||
           (runner.os != 'Windows' && steps.test-auto-whitelist-start.outcome != 'success') ||
-          (runner.os != 'Windows' && steps.test-auto-whitelist.outcome != 'success')
+          (runner.os != 'Windows' && steps.test-auto-whitelist.outcome != 'success') ||
+          (runner.os != 'Windows' && steps.test-auto-whitelist-assert.outcome != 'success')
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
@@ -615,7 +634,9 @@ jobs:
         with:
           disconnected_mode: true
           network_scan: true
-          whitelist: github_${{ runner.os }}
+          # The named list for the runner's OS (github_ubuntu / github_macos);
+          # the action fails the setup on an unknown name.
+          whitelist: github_${{ matrix.os }}
           edamame_minimum_score: 1.0
           edamame_mandatory_threats: "encrypted disk disabled"
         continue-on-error: true
@@ -672,6 +693,22 @@ jobs:
         uses: ./
         with:
           dump_sessions_log: true
+        continue-on-error: true
+
+      # The first run of a fresh pool must learn, from traffic the capture
+      # actually saw, and record it.
+      - name: Assert auto-whitelist learning run
+        id: test-auto-whitelist-assert
+        if: steps.test-auto-whitelist.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          verdict="${EDAMAME_AUTO_WHITELIST_DIR:?the auto-whitelist setup did not run}/auto_whitelist_verdict.json"
+          jq '{start_mode, start_reason, verdict, evaluated, added: (.added | length), next_mode}' "$verdict"
+          jq -e '.start_mode == "learning" and .start_reason == "first_run" and .verdict == "learning"' "$verdict" >/dev/null
+          jq -e '.evaluated > 0' "$verdict" >/dev/null || { echo "::error::no egress session was checked"; exit 1; }
+          jq -e '[.whitelists[] | select(.name == "custom_whitelist") | .endpoints | length] | add > 0' "$EDAMAME_AUTO_WHITELIST_DIR/auto_whitelist.json" >/dev/null ||
+            { echo "::error::nothing was learned"; exit 1; }
         continue-on-error: true
 
       - name: Stop posture after auto-whitelist test
@@ -748,7 +785,8 @@ jobs:
           steps.test-stop.outcome != 'success' ||
           (!contains(matrix.container_name, '18.04') && !contains(matrix.container_name, 'aarch64') && steps.test-verify-whitelist-before-augment.outcome != 'success') ||
           (!contains(matrix.container_name, '18.04') && !contains(matrix.container_name, 'aarch64') && steps.test-auto-whitelist-start.outcome != 'success') ||
-          (!contains(matrix.container_name, '18.04') && !contains(matrix.container_name, 'aarch64') && steps.test-auto-whitelist.outcome != 'success')
+          (!contains(matrix.container_name, '18.04') && !contains(matrix.container_name, 'aarch64') && steps.test-auto-whitelist.outcome != 'success') ||
+          (!contains(matrix.container_name, '18.04') && !contains(matrix.container_name, 'aarch64') && steps.test-auto-whitelist-assert.outcome != 'success')
         run: |
           echo "## Test Results Summary"
           echo "- Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}"
