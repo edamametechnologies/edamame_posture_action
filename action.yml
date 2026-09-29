@@ -126,7 +126,7 @@ inputs:
     required: false
     default: "false"
   exit_on_vulnerability_findings:
-    description: "[Legacy alias of exit_on_attack_pattern_findings] Exit with error when active runtime attack pattern findings are detected. Prefer exit_on_attack_pattern_findings."
+    description: "[Legacy alias of exit_on_attack_pattern_findings] Exit with error when active HIGH/CRITICAL runtime attack pattern findings first seen after this job's setup are detected. Prefer exit_on_attack_pattern_findings."
     required: false
     default: "true"
   # ---------------------------------------------------------------------------
@@ -152,7 +152,7 @@ inputs:
     required: false
     default: ""
   exit_on_attack_pattern_findings:
-    description: "Exit with error when active runtime attack pattern findings are detected. Preferred name; supersedes exit_on_vulnerability_findings."
+    description: "Exit with error when active HIGH/CRITICAL runtime attack pattern findings first seen after this job's setup are detected; findings an earlier job left active (a persistent self-hosted runner) are printed as warnings. Preferred name; supersedes exit_on_vulnerability_findings."
     required: false
     default: ""
   dump_attack_pattern_trace:
@@ -309,6 +309,27 @@ runs:
   using: "composite"
 
   steps:
+    # The attack pattern gate of this job fails only on findings first seen
+    # after its setup. Recorded once per job, at the first setup invocation.
+    - name: Record this job's setup time
+      id: setup_scope
+      if: >
+        env.EDAMAME_POSTURE_SETUP_TIME == '' &&
+        inputs.stop != 'true' &&
+        inputs.dump_sessions_log != 'true' &&
+        (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' &&
+        inputs.dump_attack_pattern_trace != 'true' &&
+        inputs.edamame_policy == '' &&
+        inputs.edamame_minimum_score == '' &&
+        inputs.create_custom_whitelists != 'true' &&
+        inputs.augment_custom_whitelists != 'true'
+      shell: bash
+      run: |
+        SETUP_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        echo "EDAMAME_POSTURE_SETUP_TIME=$SETUP_TIME" >> "$GITHUB_ENV"
+        echo "first_setup=true" >> "$GITHUB_OUTPUT"
+        echo "This job's setup started at $SETUP_TIME"
+
     - name: Dependencies
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -1241,6 +1262,74 @@ runs:
         fi
         echo "EDAMAME_POSTURE_CMD set to: $EDAMAME_POSTURE_CMD"
 
+    # The findings the attack pattern detector already reports when this job's
+    # setup runs: on a persistent self-hosted runner, the ones earlier jobs left
+    # active (the daemon and its finding history outlive the job). This job's
+    # gate reports them as warnings and fails only on findings first seen after
+    # the setup. Recorded as soon as the daemon answers (a connected setup has
+    # just started it); retried after a disconnected start.
+    - name: Record the attack pattern findings present at setup
+      id: gate_baseline
+      if: steps.setup_scope.outputs.first_setup == 'true'
+      shell: bash
+      env:
+        GATE_BASELINE_ATTEMPTS: ${{ (inputs.disconnected_mode != 'true' && inputs.edamame_user != '' && inputs.edamame_domain != '') && '15' || '1' }}
+      run: |
+        HELPER="${RUNNER_TEMP:-/tmp}/edamame_gate_baseline.sh"
+        cat > "$HELPER" <<'HELPER_EOF'
+        # record_gate_baseline ATTEMPTS: ask the daemon for its findings (2 s
+        # apart) and keep their keys in the file EDAMAME_POSTURE_GATE_BASELINE
+        # names. The keys are trusted only when no finding was first seen after
+        # this job's setup started ("usable"): a finding the daemon reported
+        # during the setup itself is not an earlier job's.
+        record_gate_baseline() {
+          local attempts="$1" attempt out raw count
+          out="${RUNNER_TEMP:-/tmp}/edamame_gate_baseline.json"
+          raw="${RUNNER_TEMP:-/tmp}/edamame_gate_baseline_raw.txt"
+          for attempt in $(seq 1 "$attempts"); do
+            if $EDAMAME_POSTURE_CMD attack-pattern-findings > "$raw" 2>/dev/null \
+              && sed -n '/^{/,$p' "$raw" | jq -e \
+                --arg setup_time "${EDAMAME_POSTURE_SETUP_TIME:-}" \
+                --arg recorded_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+                def utc_second: if type == "string"
+                  then ((capture("^(?<t>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})([.][0-9]+)?(Z|[+]00:00)$") | .t) // null)
+                  else null end;
+                ($setup_time | utc_second) as $setup
+                | (.timestamp | utc_second) as $newest
+                | {setup_time: $setup_time,
+                   recorded_at: $recorded_at,
+                   report_timestamp: (.timestamp // null),
+                   usable: ($setup != null and ($newest == null or $newest < $setup)),
+                   findings: [(.findings // [])[] | select((.finding_key // "") != "")
+                     | {finding_key, check, severity, dismissed}]}' > "$out"; then
+              rm -f "$raw"
+              echo "EDAMAME_POSTURE_GATE_BASELINE=$out" >> "$GITHUB_ENV"
+              echo "recorded=true" >> "$GITHUB_OUTPUT"
+              count=$(jq '.findings | length' "$out" | tr -d '\r')
+              if [[ "$(jq -r '.usable' "$out" | tr -d '\r')" != "true" ]]; then
+                echo "The detector already reports a finding first seen during this job's setup (newest detection $(jq -r '.report_timestamp' "$out" | tr -d '\r'), setup $EDAMAME_POSTURE_SETUP_TIME): the gate will not treat the findings present now as older ones."
+              elif [[ "$count" -gt 0 ]]; then
+                echo "$count attack pattern finding(s) were active before this job's setup ($EDAMAME_POSTURE_SETUP_TIME). This job's gate reports them as warnings and fails only on findings first seen after the setup:"
+                jq -r '.findings[] | "  \(.severity // "?") \(.check // "?") \(.finding_key)\(if .dismissed == true then " (dismissed)" else "" end)"' "$out"
+              else
+                echo "No attack pattern finding was active before this job's setup."
+              fi
+              return 0
+            fi
+            if [[ "$attempt" -lt "$attempts" ]]; then
+              sleep 2
+            fi
+          done
+          rm -f "$raw"
+          return 1
+        }
+        HELPER_EOF
+        # shellcheck disable=SC1090
+        source "$HELPER"
+        if ! record_gate_baseline "$GATE_BASELINE_ATTEMPTS"; then
+          echo "No posture daemon answers yet; the findings present at setup are recorded once this setup has started one (if it starts one)."
+        fi
+
     - name: Inspect edamame_posture service (if present)
       if: runner.os == 'Linux'
       shell: bash
@@ -1630,6 +1719,23 @@ runs:
           fi
         fi
       shell: bash
+
+    - name: Record the attack pattern findings present at setup (after the daemon start)
+      if: >
+        steps.setup_scope.outputs.first_setup == 'true' &&
+        steps.gate_baseline.outputs.recorded != 'true' &&
+        (inputs.disconnected_mode == 'true' || (inputs.edamame_user != '' && inputs.edamame_domain != ''))
+      shell: bash
+      run: |
+        HELPER="${RUNNER_TEMP:-/tmp}/edamame_gate_baseline.sh"
+        if [[ ! -f "$HELPER" ]]; then
+          exit 0
+        fi
+        # shellcheck disable=SC1090
+        source "$HELPER"
+        if ! record_gate_baseline 30; then
+          echo "::warning::The posture daemon did not answer during setup: no findings were recorded for this job's gate, so a finding an earlier job left active still fails it whenever any finding is first seen after the setup."
+        fi
 
     - name: Start attack pattern detector if requested
       if: ${{ (inputs.attack_pattern_detection || inputs.vulnerability_detection) == 'true' && inputs.dump_sessions_log != 'true' && (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' && inputs.dump_attack_pattern_trace != 'true' && inputs.stop != 'true' }}
@@ -4614,11 +4720,8 @@ runs:
         # Dump per-finding details (finding_key, check, severity, description,
         # process_*, destination_*, open_files, detection_basis). The action
         # requires posture binaries that expose `attack-pattern-findings` and
-        # `attack-pattern-status --fail-on-findings`. The newer
-        # `attack-pattern-*` CLI aliases are accepted by edamame_posture
-        # binaries that include them, but the legacy `vulnerability-*` CLI
-        # commands are kept here so the action stays compatible with the
-        # widest possible range of installed posture versions.
+        # `attack-pattern-status --fail-on-findings` (edamame_posture >= 1.3.18
+        # has these names; the legacy `vulnerability-*` ones go in 3.0).
         echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-findings --active-only"
         $EDAMAME_POSTURE_CMD attack-pattern-findings --active-only 2>&1 | tee "$FINDINGS_FILE"
 
@@ -4626,7 +4729,102 @@ runs:
         $EDAMAME_POSTURE_CMD attack-pattern-status | tee "$STATUS_FILE"
         if [[ "${{ inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
           echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings"
-          $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings
+          gate_rc=0
+          $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings || gate_rc=$?
+          if [[ "$gate_rc" -ne 1 ]]; then
+            # 0: no active HIGH/CRITICAL finding. 2 and up: the detector is off
+            # or stalled, its adjudication stays withheld, or the daemon did not
+            # answer. None of that depends on when a finding was first seen.
+            exit "$gate_rc"
+          fi
+
+          # Exit 1: active HIGH/CRITICAL findings. On a persistent self-hosted
+          # runner the daemon and its finding history outlive the job, so a
+          # finding an earlier job left active would fail every later job. This
+          # job's gate fails only on findings first seen after its setup
+          # (EDAMAME_POSTURE_SETUP_TIME); the older ones are printed as warnings
+          # with their first-seen time. Nothing is dismissed or cleared.
+          #
+          # A finding is older when any of these holds:
+          #   - its key was active when this job's setup recorded the findings
+          #     present (EDAMAME_POSTURE_GATE_BASELINE), and nothing had been
+          #     first seen since the setup started at that point;
+          #   - the newest first detection of the whole history (the report's
+          #     `timestamp`) predates the setup, so nothing is newer;
+          #   - the finding carries its own `first_detected` and it predates the
+          #     setup (daemons that report it per finding).
+          SCOPE_RAW="${RUNNER_TEMP:-/tmp}/edamame_gate_scope_raw.txt"
+          SCOPE_FILE="${RUNNER_TEMP:-/tmp}/edamame_gate_scope.json"
+          BASELINE_FILE="${EDAMAME_POSTURE_GATE_BASELINE:-}"
+          if [[ -z "$BASELINE_FILE" || ! -f "$BASELINE_FILE" ]]; then
+            BASELINE_FILE="${RUNNER_TEMP:-/tmp}/edamame_gate_no_baseline.json"
+            echo 'null' > "$BASELINE_FILE"
+          fi
+          if ! $EDAMAME_POSTURE_CMD attack-pattern-findings --active-only > "$SCOPE_RAW" 2>/dev/null \
+            || ! sed -n '/^{/,$p' "$SCOPE_RAW" | jq -c \
+              --slurpfile baseline "$BASELINE_FILE" \
+              --arg setup_time "${EDAMAME_POSTURE_SETUP_TIME:-}" '
+              def utc_second: if type == "string"
+                then ((capture("^(?<t>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})([.][0-9]+)?(Z|[+]00:00)$") | .t) // null)
+                else null end;
+              def esc: tostring | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+              ($setup_time | utc_second) as $setup
+              | (.timestamp // null) as $newest_text
+              | ($newest_text | utc_second) as $newest
+              | ($baseline[0] // null) as $b
+              | ($b != null and $b.usable == true) as $b_ok
+              | [($b.findings // [])[] | .finding_key] as $known
+              | ($setup != null and $newest != null and $newest < $setup) as $none_new
+              | [(.findings // [])[]
+                  | select((.dismissed // false) | not)
+                  | select((.severity // "" | ascii_upcase) as $s | $s == "HIGH" or $s == "CRITICAL")
+                  | (.first_detected // null) as $first_text
+                  | ($first_text | utc_second) as $first
+                  | (.finding_key // "") as $k
+                  | ($b_ok and $k != "" and any($known[]; . == $k)) as $known_at_setup
+                  | {older: ($known_at_setup or $none_new
+                             or ($setup != null and $first != null and $first < $setup)),
+                     line: ("\(.severity) \(.check // "?") (key \($k))"
+                            + (if (.process_name // "") != "" then ", process \(.process_name)" else "" end)
+                            + (if (.destination_domain // .destination_ip // "") != ""
+                               then ", destination \(.destination_domain // .destination_ip)" else "" end)
+                            + ": "
+                            + (if $first != null then "first seen \($first_text)"
+                               elif $known_at_setup and ($b.report_timestamp // null) != null
+                               then "first seen no later than \($b.report_timestamp)"
+                               elif $known_at_setup then "already active when this job was set up"
+                               elif $none_new then "first seen no later than \($newest_text)"
+                               else "first seen after this job was set up" end)
+                            | esc)}]
+              | {baseline: (if $b == null then "none" elif $b_ok then "usable" else "unusable" end),
+                 alertable: length,
+                 new: [.[] | select(.older | not) | .line],
+                 older: [.[] | select(.older) | .line]}' > "$SCOPE_FILE"; then
+            echo "::error::Could not list the active findings to tell this job's from older ones; every active finding counts."
+            exit 1
+          fi
+          read -r ALERTABLE NEW_COUNT OLDER_COUNT BASELINE_STATE < <(jq -r '"\(.alertable) \(.new | length) \(.older | length) \(.baseline)"' "$SCOPE_FILE" | tr -d '\r')
+          SETUP_TIME="${EDAMAME_POSTURE_SETUP_TIME:-}"
+          if [[ -z "$SETUP_TIME" ]]; then
+            echo "No setup time was recorded for this job (its setup did not run through this version of the action), so every active finding counts."
+          elif [[ "$BASELINE_STATE" != "usable" ]]; then
+            echo "No usable record of the findings present at this job's setup ($BASELINE_STATE): a finding counts as older only if nothing at all was first seen after the setup."
+          fi
+          if [[ "$ALERTABLE" -eq 0 ]]; then
+            echo "::error::The detector reports active HIGH/CRITICAL findings, but none could be listed to tell this job's from older ones; every active finding counts."
+            exit 1
+          fi
+          jq -r '.older[]' "$SCOPE_FILE" | tr -d '\r' | while IFS= read -r line; do
+            echo "::warning title=Attack pattern finding from before this job::${line}. This job set up at ${SETUP_TIME}; the finding does not fail it and stays in the history: triage it on the runner and dismiss it if it is benign."
+          done
+          if [[ "$NEW_COUNT" -gt 0 ]]; then
+            jq -r '.new[]' "$SCOPE_FILE" | tr -d '\r' | while IFS= read -r line; do
+              echo "::error title=Attack pattern finding from this job::${line}"
+            done
+            echo "$NEW_COUNT active HIGH/CRITICAL finding(s) first seen after this job's setup${SETUP_TIME:+ ($SETUP_TIME)}; $OLDER_COUNT older one(s) reported as warnings."
+            exit 1
+          fi
+          echo "All $ALERTABLE active HIGH/CRITICAL finding(s) predate this job's setup ($SETUP_TIME): reported as warnings, not failing this job. The finding history is unchanged."
         fi
       shell: bash
 

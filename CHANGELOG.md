@@ -13,6 +13,22 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ### Changed
 
+- The attack pattern gate (`exit_on_attack_pattern_findings`, legacy
+  `exit_on_vulnerability_findings`) fails only on findings first seen after
+  this job's setup. On a persistent self-hosted runner the daemon's finding
+  history outlives the job, so a finding an earlier job left active failed
+  every later job on that runner (App Store submit run 36540318312 on
+  vm-runner-linux-1 failed on a finding from the day before). The setup now
+  records its start time (`EDAMAME_POSTURE_SETUP_TIME`) and the findings the
+  detector already reports (`EDAMAME_POSTURE_GATE_BASELINE`); at the gate, a
+  HIGH/CRITICAL finding that was already active at setup, or any finding
+  when nothing at all was first seen since the setup, is printed as a
+  warning with its first-seen time instead of failing the job. Nothing is
+  dismissed or cleared: the history is unchanged. When the detector already
+  reported a finding first seen during the setup itself, the findings present
+  at setup are not trusted as older ones. The detector's liveness refusals
+  (off, stalled, adjudication withheld) are never scoped. On a fresh runner
+  nothing predates the setup, so every finding counts as before.
 - The installer comes from the latest edamame_posture release: its
   `install.sh` asset, published with the binaries and packages it installs,
   instead of `install.sh` on `main`, which reached every action user the

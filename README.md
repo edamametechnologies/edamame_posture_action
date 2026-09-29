@@ -132,6 +132,18 @@ The final step prints the detector status and fails the workflow when there are 
 
 For postmortem of a wedged daemon (e.g. an integration test that hung and tripped the gate), set `display_logs: true` in the same end-of-job invocation. See [Daemon log collection](#daemon-log-collection) below for the upload pattern.
 
+### Persistent self-hosted runners: only this job's findings fail the gate
+
+On a self-hosted runner that keeps its posture daemon between jobs, the daemon's finding history outlives each job: a finding an earlier job left active (never triaged, never dismissed) would otherwise fail every later job on that runner. The gate therefore fails only on findings **first seen after this job's setup**:
+
+- The setup invocation records the time the job's setup started (`EDAMAME_POSTURE_SETUP_TIME`, exported to the job) and the findings the detector already reports at that point (`EDAMAME_POSTURE_GATE_BASELINE`, a file under `$RUNNER_TEMP`).
+- At the gate, an active HIGH/CRITICAL finding counts as older when it was already active at the setup, or when nothing at all was first seen since the setup. Older findings are printed as warnings with their first-seen time (an upper bound, "first seen no later than", unless the daemon reports a per-finding `first_detected`); the gate fails on the others.
+- Nothing is dismissed or cleared: the history is unchanged, and the older findings stay visible until someone triages and dismisses them on the runner.
+- If the detector already reported a finding first seen during the setup itself, the findings present at setup are not trusted as older ones (a finding from the setup window is not an earlier job's), and the gate falls back to counting every active finding unless nothing was first seen since the setup.
+- On a fresh runner (GitHub-hosted, ephemeral), nothing predates the setup, so every finding counts as before.
+
+The detector's liveness checks (detector off or stalled, adjudication withheld) are never scoped: they fail the gate whatever the age of the findings. The live cancellation that `cancel_on_violation` enables runs in the daemon and still counts every active finding.
+
 ## Daemon log collection
 
 When `display_logs: true` is set, the action dumps every EDAMAME daemon log file (`/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD` on Linux/macOS, the binary's parent directory on Windows) into the job log AND copies the same files to a stable directory under `$RUNNER_TEMP`. The directory path is exported as the `EDAMAME_DAEMON_LOGS_PATH` env var so a downstream step can hand it to `actions/upload-artifact` without having to recompute paths or trust the daemon's PID.
@@ -291,7 +303,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `vulnerability_detection`: Start the runtime attack pattern detector during setup (default: false). When combined with `exit_on_vulnerability_findings: true`, the action fails fast unless `agentic_mode` is `analyze` or `auto`, `agentic_provider` is set, and the provider credential env var is present.
 - `vulnerability_detection_interval`: Detector tick interval in seconds (default: 60)
 - `dump_vulnerability_findings`: Print runtime attack pattern detector status/findings in a later action invocation (default: false)
-- `exit_on_vulnerability_findings`: Exit with error when active runtime vulnerability findings are detected (default: true)
+- `exit_on_vulnerability_findings`: Exit with error when active HIGH/CRITICAL runtime attack pattern findings first seen after this job's setup are detected; findings an earlier job left active are printed as warnings (see [Persistent self-hosted runners](#persistent-self-hosted-runners-only-this-jobs-findings-fail-the-gate)) (default: true)
 - `report_email`: Send a compliance report to this email address (default: "")
 - `create_custom_whitelists`: Create custom whitelists from captured network sessions (default: false)
 - `custom_whitelists_path`: Path to save or load custom whitelists JSON (default: "")
@@ -332,6 +344,9 @@ A GitHub-hosted runner starts outside the allow list. Once the daemon connects, 
 A job that only reads public repositories needs neither. In a private repository the default probe already proves access.
 
 ## Steps
+
+1. **Record this job's setup time** (first setup of the job)  
+   - Exports `EDAMAME_POSTURE_SETUP_TIME`, the start of the job's setup; the attack pattern gate fails only on findings first seen after it (see [Persistent self-hosted runners](#persistent-self-hosted-runners-only-this-jobs-findings-fail-the-gate))
 
 1. **Dependencies**  
    Checks for and installs required dependencies for your runner's OS—wget, curl, jq, Node.js, GitHub CLI (gh), etc.—using the appropriate package manager:
@@ -410,6 +425,7 @@ A job that only reads public repositories needs neither. In a private repository
    - Creates cancellation script at `$HOME/cancel_pipeline.sh` if `cancel_on_violation` is enabled
    - Uses `sudo -E` (or `doas` on Alpine) to preserve CI environment variables for proper CI/CD detection
    - Waits for connection to EDAMAME backend (connected mode only)
+   - Records the attack pattern findings the daemon already reports (first setup of the job, `EDAMAME_POSTURE_GATE_BASELINE`), so the gate can tell them from this job's
 
 1. **Download auto-whitelist artifacts**  
    - Downloads previous whitelist from GitHub artifacts (if `auto_whitelist` is true)
