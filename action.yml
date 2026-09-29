@@ -285,7 +285,7 @@ inputs:
     required: false
     default: "false"
   debug:
-    description: "Debug mode"
+    description: "Debug mode: debug logging and debug builds (install.sh --debug-build; on macOS the debug PKG, which needs an installer from edamame_posture >= 2.0.3: an older one installs the release PKG)"
     required: false
     default: "false"
   get_device_info:
@@ -1036,11 +1036,9 @@ runs:
           INSTALL_ARGS+=(--agentic-interval "${{ inputs.agentic_interval }}")
         fi
         
-        # Add debug build flag
-        if [[ "${{ inputs.debug }}" == "true" ]]; then
-          INSTALL_ARGS+=(--debug-build)
-        fi
-        
+        # The debug build flag is decided once the installer is downloaded
+        # (below): on macOS it depends on what that installer supports.
+
         # Platform-specific flags
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           INSTALL_ARGS+=(--install-dir "$HOME")
@@ -1300,6 +1298,21 @@ runs:
           else
             echo "[INFO] This installer predates EDAMAME_PIN; passing the PIN with --pin"
             INSTALL_ARGS+=(--pin "$EDAMAME_PIN_INPUT")
+          fi
+        fi
+        # debug: true installs debug builds (--debug-build). On macOS only an
+        # installer that installs the debug PKG gets it (edamame_posture >=
+        # 2.0.3 names edamame-posture-macos-<version>-debug.pkg): an older one
+        # installs the raw debug binary, which macOS kills at launch (it
+        # carries the Endpoint Security entitlement without the PKG's
+        # provisioning profile; exit 137), and from 2.0.3 no raw macOS binary
+        # is published. Such an installer installs the release PKG instead;
+        # EDAMAME_LOG_LEVEL=debug still applies.
+        if [[ "${{ inputs.debug }}" == "true" ]]; then
+          if [[ "$RUNNER_OS" != "macOS" ]] || grep -q -- '-debug\.pkg' "$TMP_INSTALL_SCRIPT"; then
+            INSTALL_ARGS+=(--debug-build)
+          else
+            echo "::warning::debug: true -- this installer predates the macOS debug PKG; installing the release PKG (debug logging stays on)"
           fi
         fi
         EDAMAME_PIN="$INSTALL_PIN" GITHUB_TOKEN="$GH_TOKEN_VALUE" sh "$TMP_INSTALL_SCRIPT" "${INSTALL_ARGS[@]}"
