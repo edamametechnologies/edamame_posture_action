@@ -12,6 +12,10 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+The next release is cut from `main`. It carries every fix of the v1 hotfix
+line (1.1.7 to 1.1.10, below; `main` now has all of them) and the changes in
+this section, which `@v1` users have not had yet.
+
 ### Added
 
 - Windows self-hosted runners: the first setup of a job kills the processes
@@ -23,6 +27,12 @@ README "Pinning" section.
   its live parents is a runner process, a service, a scheduled task, WMI or a
   logon or SSH session). This job's processes and the runner's own chain are
   never touched, every kill is logged, and no file or service is touched.
+- `adjudication_mode` input: how the attack pattern detector publishes
+  without the LLM adjudicator: `llm` (default, a tick the LLM did not answer
+  is withheld), `advisory` (publish the deterministic result when the LLM
+  fails or is not configured) or `deterministic` (never consult the LLM; the
+  strict gate then needs no LLM provider or key). The default issues no
+  command, so older posture binaries keep working.
 
 ### Changed
 
@@ -51,6 +61,13 @@ README "Pinning" section.
   `install.sh` asset (HTTP 404); a download that failed for another reason
   falls back to the asset of the release tag, never to `main`. An installer
   that predates `EDAMAME_PIN` still gets the PIN with `--pin`.
+- The action calls the canonical `attack-pattern-*` posture subcommands
+  (edamame_posture 1.3.18 or later); inputs are unchanged and the legacy
+  `vulnerability_*` inputs are still accepted.
+- Auto-whitelist in disconnected mode: when the organization IP allow list
+  refuses the GitHub API artifact lookups (a GitHub-hosted runner with no Hub
+  connection to list it), the lookups warn and the run starts from a first
+  iteration instead of failing the job. Connected mode keeps the hard failure.
 - Release workflow (maintainers): runs on the self-hosted pool (static IPs
   on the organization allow list) and uses the action of the commit it
   releases (`uses: ./`); releases only from `main`; a failed tag or release
@@ -69,6 +86,9 @@ README "Pinning" section.
   `vX.Y.Z` and its release, then prints the admin commands that move `v1` and
   refresh the `v1` release in the job summary (or refreshes the `v1` release
   itself when an admin moved `v1` to the commit first).
+- Setup waits for the daemon's RPC before starting the attack pattern
+  detector and before `start-file-monitor`; right after the daemon start
+  either could fail with "transport error" and abort the setup.
 
 ### Documentation
 
