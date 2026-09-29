@@ -1,27 +1,35 @@
 #!/bin/bash
 
-# Auto-Whitelist Lifecycle Test Script
-# =====================================
-# Validates the complete auto-whitelist feature by running multiple iterations
-# and verifying the lifecycle: baseline → learning → stability → enforcement
+# Auto-Whitelist Lifecycle Test
+# =============================
+# Dispatches .github/workflows/test_auto_whitelist_feature.yml once per
+# iteration, on real GitHub-hosted runners with a real posture daemon, and
+# follows the state the action saves in the artifact between runs:
+#
+#   - every iteration must succeed (each one asserts its own outcome: a
+#     learning run passes, an enforcing run fails on the gist fetch, reports it
+#     and does not learn it);
+#   - each iteration must start in the mode the previous one saved and carry
+#     its iteration counter forward (the artifact round trip works and nothing
+#     else feeds it);
+#   - the test passes only once an enforcing iteration has run and succeeded.
+#
+# It reads the action's own record (auto_whitelist_verdict.json in the
+# artifact) with jq; nothing is inferred from log lines.
 
 set -eo pipefail
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Configuration
-# ─────────────────────────────────────────────────────────────────────────────
 REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)}"
 WORKFLOW_FILE=".github/workflows/test_auto_whitelist_feature.yml"
-ARTIFACT_NAME_PREFIX="test-auto-whitelist-feature"
 BRANCH="${GITHUB_REF_NAME:-$(git branch --show-current 2>/dev/null || echo "main")}"
-ARTIFACT_NAME="$ARTIFACT_NAME_PREFIX-$BRANCH"
-STATE_ARTIFACT_NAME="$ARTIFACT_NAME_PREFIX-state-$BRANCH"
-MAX_ITERATIONS=30
-STABILITY_REQUIRED=3
+# The workflow names the pool test-auto-whitelist-feature-<branch>; the action
+# appends the runner OS and architecture (ubuntu-latest: linux-x64).
+ARTIFACT_NAME="test-auto-whitelist-feature-$BRANCH-linux-x64"
+LEGACY_ARTIFACT_NAMES=("test-auto-whitelist-feature-$BRANCH" "test-auto-whitelist-feature-state-$BRANCH")
+# The workflow enforces after 2 consecutive clean runs or 6 learning runs, so
+# the 7th iteration enforces at the latest.
+MAX_ITERATIONS=9
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper functions (GitHub Actions web UI compatible - no ANSI colors)
-# ─────────────────────────────────────────────────────────────────────────────
 log_header() {
     echo ""
     echo "========================================================================"
@@ -29,353 +37,117 @@ log_header() {
     echo "========================================================================"
 }
 
-log_step() {
-    echo "▶ $1"
-}
-
-log_success() {
-    echo "✓ $1"
-}
-
-log_warning() {
-    echo "⚠️  $1"
-}
-
-log_error() {
+fail() {
     echo "❌ $1"
+    exit 1
 }
 
-log_info() {
-    echo "  $1"
-}
+command -v gh >/dev/null 2>&1 || fail "gh CLI is not installed"
+command -v jq >/dev/null 2>&1 || fail "jq is not installed"
+gh auth status >/dev/null 2>&1 || fail "Not authenticated with gh CLI"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Prerequisites check
-# ─────────────────────────────────────────────────────────────────────────────
-if ! command -v gh &> /dev/null; then
-    log_error "gh CLI is not installed"
-    exit 1
-fi
+log_header "AUTO-WHITELIST LIFECYCLE TEST"
+echo "  Repository: $REPO"
+echo "  Branch:     $BRANCH"
+echo "  Artifact:   $ARTIFACT_NAME"
+echo "  Max runs:   $MAX_ITERATIONS"
 
-if ! gh auth status &> /dev/null 2>&1; then
-    log_error "Not authenticated with gh CLI. Run 'gh auth login'"
-    exit 1
-fi
-
-if ! command -v jq &> /dev/null; then
-    log_warning "jq not installed - some features may be limited"
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Header
-# ─────────────────────────────────────────────────────────────────────────────
-echo ""
-echo "========================================================================"
-echo "         AUTO-WHITELIST LIFECYCLE TEST"
-echo "========================================================================"
-echo "  Repository:    $REPO"
-echo "  Branch:        $BRANCH"
-echo "  Max Runs:      $MAX_ITERATIONS"
-echo "  Stability:     $STABILITY_REQUIRED consecutive stable runs"
-echo "========================================================================"
-echo ""
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 1: Clean up existing artifacts
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# PHASE 1: clean slate
+# ---------------------------------------------------------------------------
 log_header "PHASE 1: Cleanup"
-
-log_step "Deleting existing auto-whitelist artifacts..."
-ARTIFACT_IDS=$(gh api repos/$REPO/actions/artifacts --paginate --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" or .name == \"$STATE_ARTIFACT_NAME\") | .id" 2>/dev/null || true)
-
-if [[ -n "$ARTIFACT_IDS" ]]; then
-    COUNT=0
-    echo "$ARTIFACT_IDS" | while read -r ARTIFACT_ID; do
-        [[ -n "$ARTIFACT_ID" ]] || continue
-        gh api repos/$REPO/actions/artifacts/$ARTIFACT_ID -X DELETE 2>/dev/null || true
-        COUNT=$((COUNT + 1))
+for name in "$ARTIFACT_NAME" "${LEGACY_ARTIFACT_NAMES[@]}"; do
+    ids=$(gh api --paginate "repos/$REPO/actions/artifacts?name=$name&per_page=100" --jq '.artifacts[].id') ||
+        fail "Could not list artifacts named $name"
+    for id in $ids; do
+        gh api -X DELETE "repos/$REPO/actions/artifacts/$id" >/dev/null || fail "Could not delete artifact $id ($name)"
+        echo "  deleted artifact $id ($name)"
     done
-    log_success "Artifacts cleaned up"
-else
-    log_success "No existing artifacts (clean slate)"
-fi
+done
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 2: Run iterations
-# ─────────────────────────────────────────────────────────────────────────────
-log_header "PHASE 2: Lifecycle Test"
+# ---------------------------------------------------------------------------
+# PHASE 2: iterations
+# ---------------------------------------------------------------------------
+log_header "PHASE 2: Lifecycle"
 
-declare -a RUN_IDS=()
-declare -a RUN_STATUSES=()
-declare -a ENDPOINT_HISTORY=()
-LAST_ENDPOINT_COUNT=0
-STABLE_REACHED=false
-ENFORCEMENT_PENDING=false
+RESULTS_DIR="/tmp/auto_whitelist_test_results"
+rm -rf "$RESULTS_DIR"
+mkdir -p "$RESULTS_DIR"
+SUMMARY=()
+PREVIOUS_NEXT_MODE="learning"
 ENFORCEMENT_VERIFIED=false
+ENFORCEMENT_REASON=""
 
-for i in $(seq 1 $MAX_ITERATIONS); do
+for i in $(seq 1 "$MAX_ITERATIONS"); do
     echo ""
     echo "------------------------------------------------------------------------"
     echo "  ITERATION $i / $MAX_ITERATIONS"
     echo "------------------------------------------------------------------------"
 
-    # Get the latest run ID before triggering
-    LATEST_RUN_BEFORE=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || echo "")
-    
-    # Trigger workflow
-    log_step "Triggering workflow..."
-    set +e
-    TRIGGER_OUTPUT=$(gh workflow run "$WORKFLOW_FILE" --ref "$BRANCH" --field "iteration=$i" 2>&1)
-    TRIGGER_EXIT_CODE=$?
-    set -e
-    
-    if [[ $TRIGGER_EXIT_CODE -ne 0 ]]; then
-        log_error "Failed to trigger workflow"
-        echo "  $TRIGGER_OUTPUT"
-        exit 1
-    fi
-    
-    # Wait for workflow to start
-    log_step "Waiting for workflow to start..."
+    LATEST_RUN_BEFORE=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId --jq '.[0].databaseId // ""')
+    gh workflow run "$WORKFLOW_FILE" --repo "$REPO" --ref "$BRANCH" --field "iteration=$i" >/dev/null ||
+        fail "Failed to dispatch iteration $i"
+
     RUN_ID=""
-    MAX_WAIT=30
-    WAIT_COUNT=0
-    
-    while [[ -z "$RUN_ID" && $WAIT_COUNT -lt $MAX_WAIT ]]; do
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT + 2))
-        
-        set +e
-        CURRENT_RUN=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || echo "")
-        set -e
-        
+    for _ in $(seq 1 30); do
+        sleep 4
+        CURRENT_RUN=$(gh run list --workflow="$WORKFLOW_FILE" --repo "$REPO" --branch "$BRANCH" --limit 1 --json databaseId --jq '.[0].databaseId // ""' || true)
         if [[ -n "$CURRENT_RUN" && "$CURRENT_RUN" != "$LATEST_RUN_BEFORE" ]]; then
             RUN_ID="$CURRENT_RUN"
+            break
         fi
     done
-    
-    if [[ -z "$RUN_ID" ]]; then
-        log_error "Failed to detect new workflow run after ${MAX_WAIT}s"
-        exit 1
-    fi
-    
-    log_success "Run started: $RUN_ID"
-    log_info "URL: https://github.com/$REPO/actions/runs/$RUN_ID"
-    RUN_IDS+=("$RUN_ID")
-    
-    # Wait for workflow to complete (silent polling, no spam)
-    log_step "Waiting for completion..."
-    WAIT_START=$(date +%s)
+    [[ -n "$RUN_ID" ]] || fail "Iteration $i: the dispatched run did not appear"
+    echo "  run: https://github.com/$REPO/actions/runs/$RUN_ID"
+
     while true; do
-        STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq .status 2>/dev/null || echo "queued")
-        if [[ "$STATUS" == "completed" ]]; then
-            break
-        fi
-        sleep 15  # Check every 15 seconds
-        
-        # Show progress every 2 minutes
-        ELAPSED=$(( $(date +%s) - WAIT_START ))
-        if [[ $((ELAPSED % 120)) -lt 15 && $ELAPSED -gt 60 ]]; then
-            echo "  Still running... (${ELAPSED}s elapsed)"
-        fi
+        STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq .status || echo "unknown")
+        [[ "$STATUS" == "completed" ]] && break
+        sleep 20
     done
-    
-    # Get conclusion
-    CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq .conclusion 2>/dev/null || echo "unknown")
-    RUN_STATUSES+=("$CONCLUSION")
-    ELAPSED=$(( $(date +%s) - WAIT_START ))
-    
-    if [[ "$CONCLUSION" == "success" ]]; then
-        log_success "Completed in ${ELAPSED}s"
-    else
-        log_warning "Status: $CONCLUSION (after ${ELAPSED}s)"
-    fi
-    
-    # Download artifact
-    log_step "Downloading artifact..."
-    TEMP_DIR="/tmp/auto_whitelist_test_$i"
-    rm -rf "$TEMP_DIR"
-    mkdir -p "$TEMP_DIR"
-    
-    ARTIFACT_DOWNLOADED=false
-    MAX_WAIT_TIME=120
-    ELAPSED=0
-    
-    while [[ $ELAPSED -lt $MAX_WAIT_TIME ]]; do
-        ARTIFACT_EXISTS=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id" 2>/dev/null || echo "")
-        
-        if [[ -n "$ARTIFACT_EXISTS" ]]; then
-            if gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$TEMP_DIR" 2>/dev/null; then
-                if [[ -f "$TEMP_DIR/auto_whitelist.json" ]]; then
-                    ARTIFACT_DOWNLOADED=true
-                    break
-                fi
-            fi
-        fi
-        
-        # Simple waiting indicator every 30s
-        if [[ $((ELAPSED % 30)) -eq 0 && $ELAPSED -gt 0 ]]; then
-            echo "  Still waiting for artifact... (${ELAPSED}s elapsed)"
-        fi
-        
-        sleep 10
-        ELAPSED=$((ELAPSED + 10))
-    done
-    
-    # Analyze results
-    CURRENT_ENDPOINT_COUNT=0
-    STABLE_COUNT=0
-    
-    if [[ "$ARTIFACT_DOWNLOADED" == "true" ]]; then
-        log_success "Artifact downloaded"
-        
-        if [[ -f "$TEMP_DIR/auto_whitelist.json" ]]; then
-            CURRENT_ENDPOINT_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' "$TEMP_DIR/auto_whitelist.json" 2>/dev/null || echo "0")
-        fi
-        
-        if [[ -f "$TEMP_DIR/auto_whitelist_stable_count.txt" ]]; then
-            STABLE_COUNT=$(cat "$TEMP_DIR/auto_whitelist_stable_count.txt")
-        fi
-    else
-        if [[ $i -eq 1 ]]; then
-            log_info "No artifact yet (first iteration creates baseline)"
-        else
-            log_warning "Artifact not available after ${MAX_WAIT_TIME}s"
-        fi
-    fi
-    
-    ENDPOINT_HISTORY+=("$CURRENT_ENDPOINT_COUNT")
+    CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq .conclusion)
+    echo "  conclusion: $CONCLUSION"
 
-    if [[ "$CONCLUSION" != "success" && "$ENFORCEMENT_PENDING" != "true" ]]; then
-        log_error "Iteration $i failed before enforcement was expected"
+    DIR="$RESULTS_DIR/iteration_$i"
+    mkdir -p "$DIR"
+    if ! gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$DIR"; then
+        fail "Iteration $i: run $RUN_ID uploaded no $ARTIFACT_NAME artifact"
+    fi
+    VERDICT="$DIR/auto_whitelist_verdict.json"
+    [[ -f "$VERDICT" ]] || fail "Iteration $i: the artifact has no auto_whitelist_verdict.json"
+    jq '{start_mode, start_reason, verdict, evaluated, non_conforming: (.non_conforming | length), added: (.added | length), iteration, stable_count, next_mode, next_reason, endpoints}' "$VERDICT"
+
+    START_MODE=$(jq -r '.start_mode' "$VERDICT")
+    ITERATION=$(jq -r '.iteration' "$VERDICT")
+    SUMMARY+=("#$i run $RUN_ID: $CONCLUSION, started $START_MODE ($(jq -r '.start_reason' "$VERDICT")), verdict $(jq -r '.verdict' "$VERDICT"), $(jq '.non_conforming | length' "$VERDICT") outside, +$(jq '.added | length' "$VERDICT") learned, $(jq -r '.endpoints' "$VERDICT") endpoints")
+
+    [[ "$CONCLUSION" == "success" ]] || fail "Iteration $i failed its own assertions (run $RUN_ID)"
+    [[ "$ITERATION" == "$i" ]] ||
+        fail "Iteration $i: the saved state says iteration $ITERATION; the state chain was broken or fed from elsewhere"
+    [[ "$START_MODE" == "$PREVIOUS_NEXT_MODE" ]] ||
+        fail "Iteration $i started $START_MODE, but iteration $((i - 1)) saved $PREVIOUS_NEXT_MODE for it"
+
+    if [[ "$START_MODE" == "enforcing" ]]; then
+        ENFORCEMENT_VERIFIED=true
+        ENFORCEMENT_REASON=$(jq -r '.start_reason' "$VERDICT")
         break
     fi
-    
-    # Calculate delta
-    DELTA=0
-    if [[ $LAST_ENDPOINT_COUNT -gt 0 && $CURRENT_ENDPOINT_COUNT -gt 0 ]]; then
-        DELTA=$((CURRENT_ENDPOINT_COUNT - LAST_ENDPOINT_COUNT))
-    fi
-    LAST_ENDPOINT_COUNT=$CURRENT_ENDPOINT_COUNT
-    
-    # Display status (simple format for GitHub logs)
-    echo ""
-    echo "  Results:"
-    echo "    Endpoints:  $CURRENT_ENDPOINT_COUNT (delta: $DELTA)"
-    echo "    Stability:  $STABLE_COUNT / $STABILITY_REQUIRED"
-    
-    if [[ "$ENFORCEMENT_PENDING" == "true" ]]; then
-        echo ""
-        if [[ "$CONCLUSION" == "success" ]]; then
-            echo "✓ ENFORCEMENT VERIFIED"
-            echo "    Stable whitelist rejected the malicious endpoint as expected."
-            ENFORCEMENT_VERIFIED=true
-            break
-        fi
-        echo "✗ ENFORCEMENT FAILED"
-        echo "    Enforcement iteration did not complete successfully."
-        break
-    fi
-
-    # Check if stable. One additional run is required because enforcement
-    # only activates when a run starts with a previously stable whitelist.
-    if [[ "$STABLE_COUNT" -ge "$STABILITY_REQUIRED" ]]; then
-        echo ""
-        echo "🎉 STABILITY REACHED!"
-        echo "  Triggering one more iteration to verify enforcement."
-        STABLE_REACHED=true
-        ENFORCEMENT_PENDING=true
-    fi
-    
-    # Delay between runs
-    if [[ $i -lt $MAX_ITERATIONS ]]; then
-        echo ""
-        echo "  Waiting 10s before next iteration..."
-        sleep 10
-    fi
+    PREVIOUS_NEXT_MODE=$(jq -r '.next_mode' "$VERDICT")
+    sleep 10
 done
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 3: Results Summary
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# PHASE 3: results
+# ---------------------------------------------------------------------------
 log_header "PHASE 3: Results"
-
-# Count successes/failures
-SUCCESS_COUNT=0
-FAILURE_COUNT=0
-for status in "${RUN_STATUSES[@]}"; do
-    if [[ "$status" == "success" ]]; then
-        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-    else
-        FAILURE_COUNT=$((FAILURE_COUNT + 1))
-    fi
-done
-
+printf '  %s\n' "${SUMMARY[@]}"
 echo ""
-echo "  Iteration  | Status  | Endpoints | Run ID"
-echo "  -----------+---------+-----------+------------------"
-
-for i in "${!RUN_IDS[@]}"; do
-    ITER=$((i + 1))
-    STATUS="${RUN_STATUSES[$i]}"
-    RUN_ID="${RUN_IDS[$i]}"
-    ENDPOINTS="${ENDPOINT_HISTORY[$i]:-0}"
-    
-    if [[ "$STATUS" == "success" ]]; then
-        ICON="✓"
-    else
-        ICON="✗"
-    fi
-    
-    printf "  #%-9d | %s %-5s | %-9s | %s\n" "$ITER" "$ICON" "$STATUS" "$ENDPOINTS" "$RUN_ID"
-done
-echo "  -----------+---------+-----------+------------------"
-echo ""
-
-# Final verdict
-echo ""
-echo "========================================================================"
 
 if [[ "$ENFORCEMENT_VERIFIED" == "true" ]]; then
-    echo "  ✅ TEST PASSED"
-    echo ""
-    echo "  Auto-whitelist completed full lifecycle:"
-    echo "    • Baseline created"
-    echo "    • Learning phase completed"  
-    echo "    • Stability reached ($STABILITY_REQUIRED consecutive stable runs)"
-    echo "    • Enforcement verified with a malicious endpoint"
-    echo "========================================================================"
+    echo "✅ TEST PASSED: learning, then an enforcing run (${ENFORCEMENT_REASON}) that failed on the gist fetch, reported it and did not learn it."
+    if [[ "$ENFORCEMENT_REASON" == "max_iterations" ]]; then
+        echo "   Note: the whitelist was enforced because the learning budget ran out, not because runs came out clean: hosted-runner traffic kept adding endpoints."
+    fi
     exit 0
-elif [[ "$STABLE_REACHED" == "true" ]]; then
-    echo "  ❌ TEST FAILED"
-    echo ""
-    echo "  Stability was reached, but the required enforcement validation"
-    echo "  iteration did not pass."
-    echo "========================================================================"
-    exit 1
-elif [[ $FAILURE_COUNT -eq 0 ]]; then
-    echo "  ❌ TEST FAILED"
-    echo ""
-    echo "  All $SUCCESS_COUNT iterations succeeded but stability not reached"
-    echo "  after $MAX_ITERATIONS iterations."
-    echo ""
-    echo "  This may indicate:"
-    echo "    • Network traffic is still evolving"
-    echo "    • More iterations needed"
-    echo "========================================================================"
-    exit 1
-else
-    echo "  ❌ TEST FAILED"
-    echo ""
-    echo "  $FAILURE_COUNT of ${#RUN_IDS[@]} iterations failed."
-    echo ""
-    echo "  Failed runs:"
-    for i in "${!RUN_IDS[@]}"; do
-        if [[ "${RUN_STATUSES[$i]}" != "success" ]]; then
-            echo "    • #$((i + 1)): https://github.com/$REPO/actions/runs/${RUN_IDS[$i]}"
-        fi
-    done
-    echo "========================================================================"
-    exit 1
 fi
-
+fail "No enforcing iteration within $MAX_ITERATIONS runs"

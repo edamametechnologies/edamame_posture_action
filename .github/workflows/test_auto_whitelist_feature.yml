@@ -1,15 +1,18 @@
 name: Test Auto-Whitelist Feature
 
-# This workflow tests the auto_whitelist feature lifecycle:
-# 1. Setup: Start EDAMAME with auto_whitelist enabled
-# 2. Traffic: Generate network traffic (daemon captures)
-# 3. Teardown: Dump sessions (augments whitelist, uploads artifact)
+# One iteration of the auto-whitelist lifecycle, dispatched by
+# test_auto_whitelist_runner.yml (tests/test_auto_whitelist_feature.sh):
+# 1. Setup: the action takes the whitelist the previous iteration saved and
+#    decides this run's mode from its state (learning or enforcing).
+# 2. Traffic: the same endpoints every iteration (plus one more from
+#    iteration 2, so learning has something to add).
+# 3. Enforcing only: the CVE-2025-30066 gist fetch.
+# 4. Teardown: learning runs must pass; an enforcing run must fail, report the
+#    gist fetch and not learn it.
 #
-# Expected lifecycle:
-# - Iteration 1: Create baseline whitelist
-# - Iterations 2-N: Augment with new endpoints (learning)
-# - Iterations N+1 to N+3: No changes = counting stability
-# - Iteration N+4+: Whitelist STABLE, enforcement begins
+# Every assertion reads the action's own record
+# ($RUNNER_TEMP/edamame-auto-whitelist/auto_whitelist_verdict.json): no
+# counting of log lines.
 
 on:
   workflow_dispatch:
@@ -32,8 +35,8 @@ jobs:
   test-auto-whitelist:
     name: "Iteration #${{ inputs.iteration }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,302 +63,127 @@ jobs:
           packet_capture: true
           auto_whitelist: true
           auto_whitelist_artifact_name: test-auto-whitelist-feature-${{ github.ref_name }}
-          auto_whitelist_state_artifact_name: test-auto-whitelist-feature-state-${{ github.ref_name }}
+          # Few runs: the lifecycle test has to end in an enforcing run within
+          # ~8 iterations. GitHub's own hosted-runner traffic (rotating result
+          # storage accounts, regional hosts) keeps some runs from being clean,
+          # so the whitelist may be enforced by max_iterations rather than by
+          # stability; the verdict records which.
+          auto_whitelist_stability_consecutive_runs: "2"
+          auto_whitelist_max_iterations: "6"
 
-      - name: "Wait for daemon"
+      - name: "Mode decided at setup"
+        id: mode
+        shell: bash
         run: |
-          echo "Waiting 30s for daemon to stabilize..."
-          sleep 30
-
-      - name: "Check whitelist status"
-        run: |
-          cd
-          echo "--- WHITELIST STATUS ---"
-          
-          # Check active whitelist
-          WHITELIST_NAME=$($EDAMAME_POSTURE_CMD get-whitelist-name 2>/dev/null || echo "none")
-          echo "Active whitelist: $WHITELIST_NAME"
-          
-          # Check iteration state
-          if [[ -f "auto_whitelist_iteration.txt" ]]; then
-            ITER=$(cat auto_whitelist_iteration.txt)
-            echo "Recorded iteration: $ITER"
-          fi
-          
-          if [[ -f "auto_whitelist_stable_count.txt" ]]; then
-            STABLE=$(cat auto_whitelist_stable_count.txt)
-            echo "Stability count: $STABLE/3"
-          fi
-          
-          if [[ -f "auto_whitelist.json" ]]; then
-            COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "?")
-            echo "Endpoints in whitelist: $COUNT"
-            
-            # Save for later comparison
-            cp auto_whitelist.json auto_whitelist_before.json
-          else
-            echo "No existing whitelist (first run)"
-          fi
+          set -euo pipefail
+          config="$EDAMAME_AUTO_WHITELIST_DIR/auto_whitelist_config.json"
+          jq . "$config"
+          echo "mode=$(jq -r '.start_mode' "$config")" >> "$GITHUB_OUTPUT"
+          echo "reason=$(jq -r '.start_reason' "$config")" >> "$GITHUB_OUTPUT"
+          echo "This run starts: $(jq -r '.start_mode + " (" + .start_reason + ")"' "$config")"
 
       # PHASE 2: Generate traffic
       - name: "Generate test traffic"
+        shell: bash
         run: |
           echo "--- GENERATING TRAFFIC ---"
-          
-          # Core endpoints (every iteration)
           echo -n "api.github.com/zen: "
           curl -s --max-time 10 https://api.github.com/zen > /dev/null && echo "OK" || echo "FAIL"
-          
           echo -n "github.com/robots.txt: "
           curl -s --max-time 10 https://github.com/robots.txt > /dev/null && echo "OK" || echo "FAIL"
-          
           echo -n "registry.npmjs.org/-/ping: "
           curl -s --max-time 10 https://registry.npmjs.org/-/ping > /dev/null && echo "OK" || echo "FAIL"
-          
-          # Iteration 2+: Additional endpoints to test augmentation
+
           iteration="${{ inputs.iteration }}"
           if ! [[ "$iteration" =~ ^[0-9]+$ ]]; then
             echo "Invalid iteration value: $iteration"
             exit 1
           fi
           if (( iteration >= 2 )); then
-            echo ""
-            echo "Additional endpoints for iteration $iteration:"
             echo -n "www.npmjs.com: "
             curl -s --max-time 10 https://www.npmjs.com/ > /dev/null && echo "OK" || echo "FAIL"
           fi
-          
-          echo ""
-          echo "Waiting 60s for L7 resolution..."
+
+          echo "Waiting 60s for name and process resolution..."
           sleep 60
 
-      # PHASE 2.5: CVE-2025-30066 detection test (only when whitelist is stable)
-      - name: "Check if whitelist is stable"
-        id: check_stable
-        run: |
-          cd
-          if [[ -f "auto_whitelist_stable_count.txt" ]]; then
-            STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
-            echo "stable_count=$STABLE_COUNT" >> "$GITHUB_OUTPUT"
-            echo "Current stability: $STABLE_COUNT/3"
-            
-            if (( STABLE_COUNT >= 3 )); then
-              echo "Whitelist is STABLE - enforcement mode active"
-              echo "is_stable=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "is_stable=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "stable_count=0" >> "$GITHUB_OUTPUT"
-            echo "is_stable=false" >> "$GITHUB_OUTPUT"
-          fi
-
+      # PHASE 2.5: CVE-2025-30066 (enforcing runs only)
       - name: "CVE-2025-30066 Detection Test"
-        if: steps.check_stable.outputs.is_stable == 'true'
+        if: steps.mode.outputs.mode == 'enforcing'
+        shell: bash
         run: |
-          echo "========================================"
-          echo "  CVE-2025-30066 DETECTION TEST"
-          echo "========================================"
-          echo "Whitelist is stable - testing violation detection"
-          echo ""
-          
-          # Setup Python (if not already available)
-          if ! command -v python3 &> /dev/null; then
-            echo "Installing Python..."
-            sudo apt-get update
-            sudo apt-get install -y python3 python3-pip
-          fi
-          
-          # Install requests if needed
-          pip3 install --quiet requests 2>/dev/null || true
-          
-          # Create malicious script simulating CVE-2025-30066
-          cat > /tmp/malicious_build.py <<'PY'
-          import requests
-          
-          print("SIMULATING CVE-2025-30066 ATTACK VECTOR")
-          print("=" * 50)
-          print("Attempting unauthorized connection to gist.githubusercontent.com...")
-          print("(This simulates the tj-actions/changed-files supply chain attack)")
-          print("")
-          
-          try:
-              # This should be blocked by the whitelist
-              response = requests.get(
-                  "https://gist.githubusercontent.com/gewashington/a4d0211e6f8601b69ff74e30d9e3ca20/raw/9d3e37cf7742b41e39606e70aab7a4f971353749/practice-python-fibonnaci.py",
-                  timeout=10,
-              )
-              print(f"Response status: {response.status_code}")
-              print("Connection succeeded (should be detected as violation)")
-          except Exception as e:
-              print(f"Connection failed: {e}")
-          
-          print("")
-          print("Attack vector simulation complete")
-          PY
-          
-          # Run the malicious script
-          echo "Running malicious script..."
-          python3 /tmp/malicious_build.py
-          
-          echo ""
-          echo "Waiting 30s for daemon to capture violation..."
+          echo "SIMULATING CVE-2025-30066: fetching a payload from gist.githubusercontent.com"
+          echo "(it answers on the same Fastly addresses as raw.githubusercontent.com)"
+          curl -s --max-time 10 -o /dev/null -w "HTTP %{http_code}\n" \
+            "https://gist.githubusercontent.com/gewashington/a4d0211e6f8601b69ff74e30d9e3ca20/raw/9d3e37cf7742b41e39606e70aab7a4f971353749/practice-python-fibonnaci.py" || true
+          echo "Waiting 30s for the daemon to name the session..."
           sleep 30
-          
-          echo ""
-          echo "Violation introduced - will be detected in dump_sessions_log step"
 
-      # PHASE 3: Dump and analyze
+      # PHASE 3: Teardown
       - name: "Dump sessions"
         id: dump_sessions
         uses: ./
         with:
           dump_sessions_log: true
-          # Learning iterations are expected to discover and promote new endpoints.
-          # Enforcement is only meaningful once the run starts from a stable whitelist.
-          exit_on_whitelist_exceptions: ${{ steps.check_stable.outputs.is_stable }}
         continue-on-error: true
-
-      - name: "Analyze whitelist changes"
-        if: always()
-        run: |
-          cd
-          echo ""
-          echo "========================================"
-          echo "  WHITELIST ANALYSIS"
-          echo "========================================"
-          
-          if [[ ! -f "auto_whitelist.json" ]]; then
-            echo "No whitelist file found!"
-            exit 0
-          fi
-          
-          NEW_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist.json 2>/dev/null || echo "0")
-          
-          # Read state files
-          STABLE_COUNT="0"
-          [[ -f "auto_whitelist_stable_count.txt" ]] && STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
-          
-          if [[ -f "auto_whitelist_before.json" ]]; then
-            OLD_COUNT=$(jq '[.whitelists[]? | select(.name == "custom_whitelist") | .endpoints? // [] | length] | add // 0' auto_whitelist_before.json 2>/dev/null || echo "0")
-            DELTA=$((NEW_COUNT - OLD_COUNT))
-            
-            echo "Before:  $OLD_COUNT endpoints"
-            echo "After:   $NEW_COUNT endpoints"
-            echo "Change:  $DELTA"
-            echo ""
-            
-            if [[ $DELTA -gt 0 ]]; then
-              echo "Status: LEARNING - $DELTA new endpoints discovered"
-            elif [[ $DELTA -lt 0 ]]; then
-              echo "Status: ANOMALY - Endpoint count decreased!"
-            else
-              echo "Status: STABLE - No new endpoints"
-            fi
-          else
-            echo "First run - Baseline: $NEW_COUNT endpoints"
-            echo ""
-            echo "Status: INITIAL - Baseline created"
-          fi
-          
-          echo ""
-          echo "Stability progress: $STABLE_COUNT / 3"
-          
-          if [[ "$STABLE_COUNT" -ge "3" ]]; then
-            echo ""
-            echo "WHITELIST IS STABLE - Enforcement mode active"
-          fi
-          
-          # Show sample endpoints
-          echo ""
-          echo "Sample endpoints (up to 5):"
-          jq -r '.whitelists[]? | select(.name == "custom_whitelist") | .endpoints[]? | "  • \(.domain // .ip // "?"):\(.port // "?") [\(.process // "any")]"' auto_whitelist.json 2>/dev/null | head -5
-          
-          if [[ $NEW_COUNT -gt 5 ]]; then
-            echo "  ... and $((NEW_COUNT - 5)) more"
-          fi
-          
-          # Check for CVE-2025-30066 violation detection (if we're in stable mode)
-          if [[ "$STABLE_COUNT" -ge "3" ]]; then
-            echo ""
-            echo "========================================"
-            echo "  CVE-2025-30066 VIOLATION CHECK"
-            echo "========================================"
-            
-            # Get exceptions from the daemon
-            $EDAMAME_POSTURE_CMD get-exceptions > /tmp/exceptions.log 2>/dev/null || true
-            
-            if [[ -f "/tmp/exceptions.log" ]]; then
-              # Check for gist.githubusercontent.com violations
-              MALICIOUS_EXCEPTIONS=$(grep -c "gist.githubusercontent.com" /tmp/exceptions.log 2>/dev/null || echo "0")
-              TOTAL_EXCEPTIONS=$(grep -c "whitelisted: NonConforming" /tmp/exceptions.log 2>/dev/null || echo "0")
-              
-              echo "Total whitelist exceptions: $TOTAL_EXCEPTIONS"
-              echo "CVE-2025-30066 violations (gist.githubusercontent.com): $MALICIOUS_EXCEPTIONS"
-              echo ""
-              
-              if [[ "$MALICIOUS_EXCEPTIONS" -gt "0" ]]; then
-                echo "SUCCESS: CVE-2025-30066 attack vector was DETECTED!"
-                echo "   The whitelist enforcement blocked unauthorized gist.githubusercontent.com access"
-                echo "   This demonstrates protection against supply chain attacks"
-                echo ""
-                echo "Violation details:"
-                grep "gist.githubusercontent.com" /tmp/exceptions.log | head -3
-              else
-                echo "WARNING: No CVE-2025-30066 violations detected"
-                echo "   This could mean:"
-                echo "   - The malicious connection was not captured"
-                echo "   - L7 resolution is still pending"
-                echo "   - The endpoint was already whitelisted"
-              fi
-            else
-              echo "WARNING: No exceptions log found"
-            fi
-          fi
 
       - name: "Assert iteration outcome"
         if: always()
+        shell: bash
         run: |
           set -euo pipefail
-          cd
-          is_stable="${{ steps.check_stable.outputs.is_stable }}"
+          mode="${{ steps.mode.outputs.mode }}"
           dump_outcome="${{ steps.dump_sessions.outcome }}"
-          echo "is_stable=$is_stable"
-          echo "dump_sessions.outcome=$dump_outcome"
+          verdict_file="$EDAMAME_AUTO_WHITELIST_DIR/auto_whitelist_verdict.json"
+          whitelist_file="$EDAMAME_AUTO_WHITELIST_DIR/auto_whitelist.json"
+          if [[ ! -f "$verdict_file" ]]; then
+            echo "::error::The auto-whitelist teardown recorded no verdict ($verdict_file)."
+            exit 1
+          fi
+          jq '{start_mode, start_reason, verdict, evaluated, non_conforming: (.non_conforming | length), added: (.added | length), iteration, stable_count, next_mode, next_reason}' "$verdict_file"
+          verdict=$(jq -r '.verdict' "$verdict_file")
+          start_mode=$(jq -r '.start_mode' "$verdict_file")
 
-          if [[ "$is_stable" != "true" ]]; then
+          if [[ "$start_mode" != "$mode" ]]; then
+            echo "::error::The teardown ran in mode '$start_mode' but setup decided '$mode'."
+            exit 1
+          fi
+          if [[ "$(jq -r '.evaluated' "$verdict_file")" -lt 1 ]]; then
+            echo "::error::No egress session was checked: the capture saw nothing."
+            exit 1
+          fi
+
+          if [[ "$mode" != "enforcing" ]]; then
             if [[ "$dump_outcome" != "success" ]]; then
-              echo "Dump sessions failed during learning/stability confirmation."
+              echo "::error::A learning run must not fail (dump outcome: $dump_outcome)."
               exit 1
             fi
-            echo "Learning iteration succeeded."
+            if [[ "$verdict" != "learning" ]]; then
+              echo "::error::Expected a learning verdict, got '$verdict'."
+              exit 1
+            fi
+            echo "Learning iteration succeeded: added $(jq '.added | length' "$verdict_file"), stable runs $(jq -r '.stable_count' "$verdict_file"), next run $(jq -r '.next_mode' "$verdict_file")."
             exit 0
           fi
 
           if [[ "$dump_outcome" != "failure" ]]; then
-            echo "Expected dump_sessions to fail in enforcement mode after malicious traffic."
+            echo "::error::An enforcing run with the gist fetch must fail (dump outcome: $dump_outcome)."
             exit 1
           fi
-
-          for attempt in {1..8}; do
-            echo "Exception poll attempt $attempt/8"
-            $EDAMAME_POSTURE_CMD get-exceptions > /tmp/exceptions.log 2>/dev/null || true
-            if grep -q "gist.githubusercontent.com" /tmp/exceptions.log 2>/dev/null; then
-              break
-            fi
-            sleep 2
-          done
-
-          malicious_exceptions=$(grep -c "gist.githubusercontent.com" /tmp/exceptions.log 2>/dev/null || echo "0")
-          echo "CVE-2025-30066 violations (gist.githubusercontent.com): $malicious_exceptions"
-          if [[ "$malicious_exceptions" -le 0 ]]; then
-            echo "Expected at least one gist.githubusercontent.com whitelist exception in enforcement mode."
-            echo "Exceptions log:"
-            cat /tmp/exceptions.log 2>/dev/null || true
+          if [[ "$verdict" != "violation" ]]; then
+            echo "::error::Expected a violation verdict, got '$verdict'."
             exit 1
           fi
-
-          echo "Enforcement iteration succeeded: malicious endpoint was detected and failed the gate."
+          if ! jq -e '[.non_conforming[] | select((.dst_domain // "") | ascii_downcase | endswith("gist.githubusercontent.com"))] | length > 0' "$verdict_file" >/dev/null; then
+            echo "::error::The gist fetch is not among the reported violations:"
+            jq -r '.non_conforming[] | "  \(.dst_domain // "(no name)") \(.dst_ip):\(.dst_port) \(.process // "?")"' "$verdict_file"
+            exit 1
+          fi
+          if jq -e '[.whitelists[] | .endpoints[] | (.domain // ""), (.domains // [])[] | select(ascii_downcase | contains("gist.githubusercontent.com"))] | length > 0' "$whitelist_file" >/dev/null; then
+            echo "::error::The gist endpoint was learned by an enforcing run."
+            exit 1
+          fi
+          echo "Enforcement iteration succeeded: started enforcing ($(jq -r '.start_reason' "$verdict_file")), the gist fetch failed the job and was not learned."
 
       - name: "Stop EDAMAME Posture"
         if: always()
@@ -363,32 +191,3 @@ jobs:
         with:
           stop: true
         continue-on-error: true
-
-      - name: "Final summary"
-        if: always()
-        run: |
-          cd
-          echo ""
-          echo "════════════════════════════════════════════════════════════"
-          echo "  ITERATION ${{ inputs.iteration }} COMPLETE"
-          echo "════════════════════════════════════════════════════════════"
-          
-          # Show final status
-          if [[ -f "auto_whitelist_stable_count.txt" ]]; then
-            STABLE_COUNT=$(cat auto_whitelist_stable_count.txt)
-            echo "Final stability count: $STABLE_COUNT / 3"
-            
-            if [[ "$STABLE_COUNT" -ge "3" ]]; then
-              echo "Status: ENFORCING (whitelist is stable)"
-              echo "CVE-2025-30066 detection test was performed"
-            elif [[ "$STABLE_COUNT" -gt "0" ]]; then
-              echo "Status: CONFIRMING ($STABLE_COUNT consecutive stable runs)"
-            else
-              echo "Status: LEARNING (discovering endpoints)"
-            fi
-          else
-            echo "Status: INITIAL (first run)"
-          fi
-          
-          echo "════════════════════════════════════════════════════════════"
-

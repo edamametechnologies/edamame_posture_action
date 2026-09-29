@@ -1,11 +1,13 @@
 name: Test Auto-Whitelist Runner
 
-# Orchestrates multiple runs of test_auto_whitelist_feature.yml
-# to validate the complete auto-whitelist lifecycle:
-#   1. Clean slate → baseline creation
-#   2. Learning → endpoint discovery
-#   3. Stability → 3 consecutive unchanged runs
-#   4. Enforcement → reject new endpoints
+# Orchestrates runs of test_auto_whitelist_feature.yml to validate the
+# auto-whitelist lifecycle on real runners (tests/test_auto_whitelist_feature.sh):
+#   1. Clean slate (the test's artifacts are deleted)
+#   2. Learning runs, each started in the mode the previous run saved
+#   3. An enforcing run that must fail on the CVE-2025-30066 gist fetch,
+#      report it and not learn it
+# Fails on any iteration failure, a broken state chain, or no enforcing run
+# within the budget.
 
 on:
   schedule:
@@ -17,6 +19,7 @@ on:
       - 'main'
     paths:
       - 'action.yml'
+      - 'scripts/auto_whitelist.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,25 +33,9 @@ jobs:
   test-auto-whitelist-runner:
     name: Auto-Whitelist Lifecycle Test
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-    
-    steps:
-      - name: "Test info"
-        run: |
-          echo "========================================"
-          echo "  AUTO-WHITELIST LIFECYCLE TEST"
-          echo "========================================"
-          echo "  Repository: ${{ github.repository }}"
-          echo "  Branch:     ${{ github.ref_name }}"
-          echo "  Trigger:    ${{ github.event_name }}"
-          echo "========================================"
-          echo ""
-          echo "This test will:"
-          echo "  1. Delete existing artifacts (clean slate)"
-          echo "  2. Trigger multiple workflow iterations"
-          echo "  3. Track endpoint discovery and stability"
-          echo "  4. Verify lifecycle reaches enforcement state"
+    timeout-minutes: 240
 
+    steps:
       - name: "Setup EDAMAME Posture"
         uses: edamametechnologies/edamame_posture_action@v1
         with:
@@ -61,38 +48,18 @@ jobs:
           checkout: true
           wait_for_api: true
 
-      - name: "Verify gh CLI"
-        run: |
-          if command -v gh &> /dev/null; then
-            echo "✓ gh CLI available: $(gh --version | head -1)"
-          else
-            echo "Installing gh CLI..."
-            type -p wget >/dev/null || sudo apt-get install -y wget
-            sudo mkdir -p -m 755 /etc/apt/keyrings
-            wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
-            sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-            sudo apt-get install -y gh
-          fi
-
-      - name: "Prepare test script"
-        run: chmod +x ./tests/test_auto_whitelist_feature.sh
-
       - name: "Run lifecycle test"
-        id: test
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./tests/test_auto_whitelist_feature.sh
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash ./tests/test_auto_whitelist_feature.sh
 
       - name: "Upload test artifacts"
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: auto-whitelist-test-results-${{ github.run_id }}
-          path: /tmp/auto_whitelist_test_*
+          path: /tmp/auto_whitelist_test_results
           retention-days: 7
           if-no-files-found: ignore
-
-
