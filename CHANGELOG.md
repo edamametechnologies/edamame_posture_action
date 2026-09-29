@@ -12,368 +12,253 @@ README "Pinning" section.
 
 ## [Unreleased]
 
-The next release is cut from `main`. It carries every fix of the v1 hotfix
-line (1.1.7 to 1.1.10, below; `main` now has all of them) and the changes in
-this section, which `@v1` users have not had yet.
+Requires edamame_posture 2.0.3 or later.
 
 ### Added
 
-- Windows self-hosted runners: the first setup of a job kills the processes
-  earlier jobs left behind. A cancelled job whose cleanup never ran could
-  leave its posture daemon (and its build or test processes) running into
-  later jobs. Killed: an `edamame_posture`, or a process whose image or
-  command line is under the runner's directory or work directory, created
-  before this job's `Runner.Worker` and orphaned by an earlier job (none of
-  its live parents is a runner process, a service, a scheduled task, WMI or a
-  logon or SSH session). This job's processes and the runner's own chain are
-  never touched, every kill is logged, and no file or service is touched.
+- Windows self-hosted runners: the first setup of a job stops the processes
+  an earlier, interrupted job left running (its posture daemon, build or test
+  processes). Only processes started by the runner's earlier jobs are
+  stopped, each one is logged, and no file or service is touched.
 - `adjudication_mode` input: how the attack pattern detector publishes
-  without the LLM adjudicator: `llm` (default, a tick the LLM did not answer
-  is withheld), `advisory` (publish the deterministic result when the LLM
-  fails or is not configured) or `deterministic` (never consult the LLM; the
-  strict gate then needs no LLM provider or key). The default issues no
-  command, so older posture binaries keep working.
+  without an LLM adjudicator: `llm` (default), `advisory` (publish the
+  deterministic result when the LLM fails or is not configured) or
+  `deterministic` (never consult the LLM; the strict gate then needs no LLM
+  provider or key).
+- The `whitelist` input is applied to the daemon at setup, also when a
+  persistent runner reuses a running daemon. An unknown name fails the setup
+  and lists the names that exist.
 
 ### Changed
 
+- Auto-whitelist:
+  - A run's mode, learning or enforcing, is decided at setup from the
+    whitelist's saved state. Once the whitelist has settled, a job that
+    contacts an endpoint outside it fails, and the endpoint is not added.
+  - A learning run counts toward stability when it saw nothing outside the
+    whitelist; with `auto_whitelist_stability_threshold` above 0, also when
+    its additions stay at or under that percentage of the whitelist's
+    entries. After `auto_whitelist_max_iterations` learning runs, the
+    whitelist is enforced as it stands, with a warning.
+  - Each job is checked, and learns, against the whitelist file it
+    downloaded, from the traffic seen since its setup.
+  - One artifact per runner pool, OS and architecture: the action appends
+    the runner OS and architecture to `auto_whitelist_artifact_name`
+    (`edamame-auto-whitelist-ubuntu-latest` is stored as
+    `edamame-auto-whitelist-ubuntu-latest-linux-x64`). Artifacts are read
+    from earlier runs of the same workflow, on the same branch of the same
+    repository, started by `push`, `workflow_dispatch`, `schedule`,
+    `merge_group`, `release` or `repository_dispatch`.
+  - The job fails when the whitelist artifact cannot be listed or
+    downloaded; a new whitelist starts only when no eligible artifact
+    exists. In an organization with an IP allow list, use connected mode
+    with `wait_for_api: true`.
+  - `promote_exceptions: true` adds the endpoints outside an enforced
+    whitelist instead of failing the job, lists them, and keeps them in
+    `auto_whitelist_added.json` in the artifact.
+  - Each run records its result in `auto_whitelist_verdict.json` (in the
+    artifact, and during the job in `EDAMAME_AUTO_WHITELIST_DIR`) and in the
+    job summary.
+  - Migration: every runner pool learns its whitelist again under the new
+    artifact name; artifacts from earlier versions are not read. Delete them
+    once the new ones exist (README, "Artifact naming").
+  - Deprecated: `auto_whitelist_state_artifact_name` is ignored; the state
+    travels in the whitelist artifact.
+- Whitelist matching (edamame_posture 2.0.3): a destination with a name
+  (DNS answer or TLS SNI) is matched by its name. An entry's addresses cover
+  destinations without a name and, in an entry without a domain, named
+  destinations outside shared hosting and CDN networks. A custom whitelist
+  that allows a service on a CDN or cloud front end only by its address
+  needs a `domain` entry for it.
+- `exit_on_whitelist_exceptions` checks the whitelist the job set up. A job
+  that set none has nothing to check; a whitelist that cannot be checked
+  (capture not running) fails the job.
+- `set_custom_whitelists` loads an empty whitelist as it is (it allows
+  nothing) and fails the step when the daemon refuses the file.
+- `augment_custom_whitelists` learns on top of the file at
+  `custom_whitelists_path`, from the traffic seen since the job's setup.
+- `debug: true` on macOS installs the debug PKG with an edamame_posture 2.0.3
+  or later installer; with an older installer it installs the release PKG
+  and keeps debug logging on.
 - The attack pattern gate (`exit_on_attack_pattern_findings`, legacy
   `exit_on_vulnerability_findings`) fails only on findings first seen after
-  this job's setup. On a persistent self-hosted runner the daemon's finding
-  history outlives the job, so a finding an earlier job left active failed
-  every later job on that runner (App Store submit run 36540318312 on
-  vm-runner-linux-1 failed on a finding from the day before). The setup now
-  records its start time (`EDAMAME_POSTURE_SETUP_TIME`) and the findings the
-  detector already reports (`EDAMAME_POSTURE_GATE_BASELINE`); at the gate, a
-  HIGH/CRITICAL finding that was already active at setup, or any finding
-  when nothing at all was first seen since the setup, is printed as a
-  warning with its first-seen time instead of failing the job. Nothing is
-  dismissed or cleared: the history is unchanged. When the detector already
-  reported a finding first seen during the setup itself, the findings present
-  at setup are not trusted as older ones. The detector's liveness refusals
-  (off, stalled, adjudication withheld) are never scoped. On a fresh runner
-  nothing predates the setup, so every finding counts as before.
-- The installer comes from the latest edamame_posture release: its
-  `install.sh` asset, published with the binaries and packages it installs,
-  instead of `install.sh` on `main`, which reached every action user the
-  moment it was pushed, before any release carried a binary it had been
-  tested with (2026-09-28: a PIN handed only in `EDAMAME_PIN`, which the
-  released 2.0.1 ignored). `main` is used only when the latest release has no
-  `install.sh` asset (HTTP 404); a download that failed for another reason
-  falls back to the asset of the release tag, never to `main`. An installer
-  that predates `EDAMAME_PIN` still gets the PIN with `--pin`.
-- The action calls the canonical `attack-pattern-*` posture subcommands
+  the job's setup. On a persistent self-hosted runner, findings earlier jobs
+  left active are printed as warnings with their first-seen time and stay in
+  the history. The setup time is exported as `EDAMAME_POSTURE_SETUP_TIME`.
+  The detector's liveness checks still fail the gate.
+- The installer is the `install.sh` asset of the latest edamame_posture
+  release, published with the binaries it installs. When neither that
+  installer nor a release can be resolved or downloaded, the setup fails;
+  no older installer or version is used instead.
+- The action calls the `attack-pattern-*` posture subcommands
   (edamame_posture 1.3.18 or later); inputs are unchanged and the legacy
   `vulnerability_*` inputs are still accepted.
-- Auto-whitelist in disconnected mode: when the organization IP allow list
-  refuses the GitHub API artifact lookups (a GitHub-hosted runner with no Hub
-  connection to list it), the lookups warn and the run starts from a first
-  iteration instead of failing the job. Connected mode keeps the hard failure.
-- Release workflow (maintainers): runs on the self-hosted pool (static IPs
-  on the organization allow list) and uses the action of the commit it
-  releases (`uses: ./`); releases only from `main`; a failed tag or release
-  lookup fails the run instead of reading as "not published"; requires both
-  `test.yml` and `test_vulnerability_gate.yml` green on the commit; the
-  annotated tag's message is `vX.Y.Z`, and the `vX.Y.Z` release is not marked
-  Latest (the `v1` release stays Latest).
+- Release workflow (maintainers): releases only from `main`, requires
+  `test.yml` and `test_vulnerability_gate.yml` green on the commit, and
+  publishes `vX.Y.Z` without moving `v1`; an organization admin moves `v1`
+  once the release is validated.
 
 ### Fixed
 
-- The Release workflow can cut a release again. It had been red since
-  2026-05-27 (run 26507403065, "CHANGELOG.md missing [X.Y.Z] entry"), and it
-  would then have failed on its next step anyway: it force-pushed `v1` with
-  its `GITHUB_TOKEN`, which the `v*` tag ruleset (only organization admins may
-  update or delete `v*` tags) refuses. It no longer moves `v1`: it publishes
-  `vX.Y.Z` and its release, then prints the admin commands that move `v1` and
-  refresh the `v1` release in the job summary (or refreshes the `v1` release
-  itself when an admin moved `v1` to the commit first).
-- Setup waits for the daemon's RPC before starting the attack pattern
-  detector and before `start-file-monitor`; right after the daemon start
-  either could fail with "transport error" and abort the setup.
+- Setup waits for the daemon to answer before starting the attack pattern
+  detector and the file monitor.
 
 ### Documentation
 
-- `wait_repository` is documented: in a public repository the default
-  `wait_for_api` / `wait_for_https` probe succeeds at once, while pushes,
-  token-created pull requests and releases, and private repositories stay
-  refused until EDAMAME Hub lists the runner. `token` is also the probe's
-  token.
-- README: the reproducible pin example reads `@v1.2.0` (it still read
-  `@v1.1.0`), and the Pinning section says that moving `v1` is an
-  organization admin step taken once a release is validated.
+- `wait_repository`: in a public repository, set it to a private repository
+  the job needs so `wait_for_api` / `wait_for_https` wait for that access.
+  `token` is also the token these waits use.
+- README: the pinning example reads `@v1.2.0`, and moving `v1` is described
+  as an admin step taken once a release is validated.
 
 ## [1.1.10] - 2026-09-29
 
 ### Security
 
-- The Hub PIN reaches the installer (and through it the daemon) in the
-  `EDAMAME_PIN` environment variable instead of `--pin` on its command line,
-  where any local process could read it. A release-pinned installer from
-  before 2.0.2, which only knows `--pin`, still gets the flag.
-- `edamame_pin` and `token` are no longer interpolated into step scripts with
-  `${{ }}`: they reach the scripts as environment variables, so a value can
-  never be parsed as shell code.
+- Security improvements. Updating is recommended.
 
 ### Added
 
 - `agentic_mode: off` turns agentic protection off (the Assistant, attack
-  pattern detection, divergence detection; edamame_posture >= 2.0.2). The
-  strict vulnerability gate treats it like `disabled`.
+  pattern detection, divergence detection; edamame_posture 2.0.2 or later).
+  The strict vulnerability gate treats it like `disabled`.
 
 ## [1.1.9] - 2026-09-26
 
 ### Fixed
 
-- Linux: a package install later in the job no longer restarts the posture
-  daemon. needrestart restarted `edamame_posture` whenever apt upgraded a
-  library it links (libpcap0.8t64 from noble-updates on 2026-09-25); the
-  daemon's stop reported a disconnect, the Hub revoked the runner's access,
-  the organization IP allow list included, for the ~8 s until it
-  reconnected, and a `git clone` in that window failed with 403. The action
-  now installs `/etc/needrestart/conf.d/50-edamame-posture.conf`, which
-  makes needrestart list the daemon instead of restarting it.
+- Linux: a package installed or upgraded later in the job no longer
+  restarts the posture daemon. The action installs
+  `/etc/needrestart/conf.d/50-edamame-posture.conf`, so needrestart lists
+  the daemon instead of restarting it.
 
 ## [1.1.8] - 2026-09-25
 
-### Fixed
+### Added
 
-- `wait_for_api` / `wait_for_https` probed the workflow's own repository.
-  A public repository answers at once whatever the organization IP allow
-  list says, so the waits reported access after 0 s and a later clone of
-  a private or internal repository failed with 403 before the runner was
-  admitted. New input `wait_repository` names the repository to probe
-  (default: the workflow's repository, unchanged for existing callers),
-  and both waits now try 20 times (~19 min) instead of 10.
+- `wait_repository` input: the repository `wait_for_api` and
+  `wait_for_https` probe (default: the workflow's repository). In a public
+  repository, set it to a private repository the job needs.
+
+### Changed
+
+- `wait_for_api` and `wait_for_https` try 20 times (about 19 minutes)
+  instead of 10.
 
 ## [1.1.7] - 2026-09-25
 
 ### Removed
 
-- The "Sync system clock" setup step. On a self-hosted Windows runner its
-  `w32tm /resync` (no timeout) blocked the setup for over an hour; a
-  skewed clock now surfaces as a plain Hub E01 in the connection step.
+- The "Sync system clock" setup step, which could hold up the setup on
+  self-hosted Windows runners.
 
-### Fixed (on the moving v1 tag since 2026-07-23, first numbered here)
+### Fixed
 
-- Setup wait-for-connection: `InputValidationFailed` and `InvalidSignature`
-  are retried within the budget as transient Hub-side classes, alongside
-  `NonExistentDevice`, instead of fatally aborting Setup.
-- `apt` retry: on a transient index failure (`Hash Sum mismatch`,
-  `Failed to fetch`, `404`, `Could not resolve`, stale `Unable to locate
-  package`, ...), clean the package cache and re-run `apt-get update` before
-  retrying; a package still unlocatable after a successful refresh fails
-  fast as genuinely missing.
+- Setup retries transient Hub errors while waiting for the connection
+  instead of failing.
+- Linux: package installs recover from transient package index errors.
 
 ## [1.1.6] - 2026-07-20
 
 ### Fixed
 
-- Setup wait-for-connection: raise the NonExistentDevice retry budget from
-  6x10s to 12x20s. Under Hub load, freshly reported CI devices can take
-  minutes to become visible to policy/connect lookups; the previous budget
-  failed Setup on Windows/github-hosted runners while the device was still
-  propagating.
+- Setup waits longer for a newly registered device to become visible in
+  EDAMAME Hub before failing.
 
 ## [1.1.5] - 2026-05-28
 
 ### Fixed
 
-- Installer bootstrap: avoid silent fallback to ancient binaries when the
-  GitHub releases API is unreachable from github-hosted runner pools.
+- The installer finds the latest edamame_posture release reliably on
+  GitHub-hosted runners, instead of sometimes installing an old version.
 
-  Two compounding root causes, fixed together:
+### Documentation
 
-  1. **Unauth rate limit / IP allow list on `api.github.com`.** The
-     `Setup EDAMAME Posture` step used to read the latest release tag
-     with an unauthenticated GitHub API call. On github-hosted runner
-     pools, that call returned an empty body (or HTTP 403 once the
-     `edamametechnologies` org enabled an IP allow list on the org-
-     scoped `api.github.com` endpoint -- the allow list rejects github-
-     hosted runner egress IPs even when the call is authenticated with
-     `$GITHUB_TOKEN`, because the allow list is enforced at the org
-     boundary, not at the auth layer). The resolver then fell back to
-     the hardcoded `INSTALL_SCRIPT_REF=v1.0.0`, and the v1.0.0
-     `install.sh` fell back to its own `FALLBACK_VERSION=0.9.75`,
-     installing a 2024-era binary that lacks modern CLI subcommands
-     (e.g. `vulnerability-findings`).
-
-  2. **`install.sh` itself uses `api.github.com`.** Even after the
-     action passed `$GITHUB_TOKEN` into `install.sh`, the installer's
-     own `fetch_latest_release_tag` / `fetch_release_feed` calls hit
-     the same blocked endpoint, fell back to the installer's hardcoded
-     `FALLBACK_VERSION=1.2.0`, and installed a 6-month-old macOS binary
-     that gets killed by Gatekeeper with `Killed: 9`.
-
-  The action and the latest `install.sh` now:
-  - resolve the latest release tag via the **`github.com/.../releases/
-    latest` HTTP 302 redirect**, which is served by github.com itself
-    (not the org-scoped `api.github.com`) and works without auth and
-    without hitting the IP allow list, instead of calling
-    `api.github.com/.../releases/latest`;
-  - prefer `https://raw.githubusercontent.com/.../main/install.sh` as
-    the **primary** installer source (release-pinned `install.sh` is
-    frozen at release time and does not know how to install later
-    releases), and only fall back to the release-asset installer when
-    raw `main` is unreachable;
-  - bump the hardcoded `INSTALL_SCRIPT_REF` default from `v1.0.0` to
-    `v1.3.18` so the last-resort fallback uses an installer whose
-    `FALLBACK_VERSION` and `LATEST_RELEASE_TAG_SECONDARY` retry logic
-    are current and whose CLI surface includes the modern subcommand
-    aliases (`vulnerability-findings`, etc.);
-  - keep exporting `$GITHUB_TOKEN` into the `install.sh` invocation as
-    a belt-and-suspenders fallback for installer code paths that still
-    use `api.github.com` (the redirect path is now preferred, but the
-    token is still useful for non-org repos or for the rare runner
-    that can reach `api.github.com` but is being rate-limited).
-
-  The companion change in `edamame_posture/install.sh` adds the same
-  redirect-based resolver to `fetch_latest_version` and
-  `fetch_latest_release_tag`, and bumps `FALLBACK_VERSION` from
-  `1.2.0` to `1.3.18`. Released installers will keep the old fallback
-  until the next `edamame_posture` release, which is why the action's
-  `INSTALL_SCRIPT_REF=v1.3.18` default is the critical guard for the
-  transition window.
-
-### Changed
-
-- Documented recommended `auto_whitelist_artifact_name` naming: key artifacts by
-  `runs-on` runner pool (`edamame-auto-whitelist-${{ matrix.runs-on }}` or a
-  literal runs-on suffix), not `runner.os` or the default single-repo bucket.
-  Expanded README **Artifact naming (runner pools)** and the `action.yml` input
-  description.
+- Recommended `auto_whitelist_artifact_name` naming: one artifact per
+  runner pool (`edamame-auto-whitelist-${{ matrix.runs-on }}` or a literal
+  runs-on suffix). See README "Artifact naming (runner pools)".
 
 ## [1.1.4] - 2026-05-22
 
 ### Added
 
-- Preferred attack pattern detector inputs:
-  `attack_pattern_detection`, `attack_pattern_detection_interval`,
-  `dump_attack_pattern_findings`, and `exit_on_attack_pattern_findings`.
-  Each new input takes precedence when explicitly set; the legacy
-  `vulnerability_*` names remain accepted as wire-level aliases.
-- Agent Security Attack Detection Demo workflow
-  (`.github/workflows/agent_security_attacks.yml`) for end-to-end CVE
-  scenario validation against a Lima-hosted posture daemon.
+- Preferred attack pattern detector inputs: `attack_pattern_detection`,
+  `attack_pattern_detection_interval`, `dump_attack_pattern_findings` and
+  `exit_on_attack_pattern_findings`. Each takes precedence when set; the
+  legacy `vulnerability_*` names remain accepted.
+- Agent security attack detection demo workflow
+  (`.github/workflows/agent_security_attacks.yml`).
 
 ### Changed
 
-- User-facing docs and input descriptions now refer to "attack pattern
-  detection" while keeping legacy `vulnerability_*` input names for
-  backward compatibility.
-- `auto_whitelist_max_iterations` default raised from `15` to `25` so
-  longer auto-whitelist learning cycles can converge before declaring
-  stability.
+- Documentation and input descriptions refer to "attack pattern
+  detection"; the legacy `vulnerability_*` input names are kept.
+- `auto_whitelist_max_iterations` defaults to `25` (was `15`).
 
 ## [1.1.3] - 2026-05-16
 
 ### Changed
 
-- Live daemon cancellation now uses runtime vulnerability findings instead of
-  anomalous-session enforcement. When `vulnerability_detection` and
-  `exit_on_vulnerability_findings` are both enabled, setup passes
-  `--fail-on-findings` to `edamame_posture`.
-- Strict vulnerability gating now fails fast unless the setup invocation also
-  enables LLM adjudication with `agentic_mode=analyze|auto`, a non-`none`
-  `agentic_provider`, and the required provider credential environment variable.
-- Disconnected startup now passes `--agentic-interval`, matching connected
-  startup configuration.
+- Live cancellation (`cancel_on_violation`) uses attack pattern findings
+  when `vulnerability_detection` and `exit_on_vulnerability_findings` are
+  both enabled.
+- The strict vulnerability gate requires LLM adjudication at setup:
+  `agentic_mode: analyze` or `auto`, an `agentic_provider`, and the
+  provider's credential in the environment.
+- Disconnected mode passes `agentic_interval` to the daemon, like connected
+  mode.
 
 ### Removed
 
-- Removed legacy posture-binary fallbacks from `dump_vulnerability_findings`.
-  The action now requires `vulnerability-findings --active-only` and
-  `vulnerability-status --fail-on-findings`.
+- Support for posture binaries without `vulnerability-findings
+  --active-only` and `vulnerability-status --fail-on-findings`.
 
 ## [1.1.2] - 2026-05-15
 
-### Fixed
+### Changed
 
-- Removed action-level vulnerability finding filtering from
-  `dump_vulnerability_findings`. The action now dumps raw findings and delegates
-  enforcement back to `edamame_posture vulnerability-status --fail-on-findings`;
-  stale workflow state and detector false positives must be fixed in their
-  owning workflow or detector layer.
+- `dump_vulnerability_findings` prints the daemon's findings as they are,
+  and the gate is edamame_posture's own
+  (`vulnerability-status --fail-on-findings`).
 
 ## [1.1.1] - 2026-05-15
 
-### Improved
+### Fixed
 
-- `stop: true` now bounds the foreground stop command to 30 seconds before
-  continuing into the existing verification and force-kill path. This prevents
-  Windows-hosted action tests from hanging indefinitely when the posture CLI
-  blocks while the daemon is shutting down.
+- `stop: true` gives the stop command 30 seconds before verifying and, if
+  needed, forcing the daemon to stop, so a stop can no longer hang the job.
 
 ## [1.1.0] - 2026-05-14
 
-### Fixed
-
-- `display_logs: true` now correctly dumps the daemon's rolling log files
-  from `/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD` (Unix) and the
-  binary's parent directory (Windows). Previously the step did
-  `cd ~ && find .` which missed `/var/log/edamame/` entirely and had no
-  `sudo`, so it could not read the daemon's root-owned rolling logs.
-- Pre-create `/var/log/edamame` mode `1777` (sticky world-writable, like
-  `/tmp`) on Unix so non-`sudo` CLI invocations no longer print
-  `Failed to initialize rolling file appender in /var/log/edamame: Permission denied`.
-  Both the root daemon and non-`sudo` CLI processes can now write their
-  PID-suffixed log files in the same directory.
-
 ### Added
 
-- `EDAMAME_DAEMON_LOGS_PATH` environment variable, exported when
-  `display_logs: true`, points to `$RUNNER_TEMP/edamame-daemon-logs/`.
-  Downstream `actions/upload-artifact` steps can hand the path through
-  directly without recomputing daemon paths or trusting the daemon PID.
-  See README "Daemon log collection".
-- `dump_vulnerability_findings: true` now also runs
-  `vulnerability-findings --active-only` and prints the full
-  per-finding data (`finding_key`, `check`, `severity`, `description`,
-  `process_*`, `destination_*`, `open_files`, `detection_basis`) so a CI
-  operator can triage a finding from the job log alone without SSHing
-  into the runner.
-- README "Pinning" subsection explaining the difference between the
-  moving `@v1` tag and immutable `@vX.Y.Z` tags.
-- New release-time validation: the `release.yml` workflow now gates on
-  semver-shape, version not already published, the presence of a
-  CHANGELOG entry for the dispatched version, and `test.yml` being
-  green on the same commit. All four checks hard-fail.
+- `EDAMAME_DAEMON_LOGS_PATH`, exported with `display_logs: true`: the
+  directory holding a copy of the daemon's logs, ready for
+  `actions/upload-artifact`. See README "Daemon log collection".
+- `dump_vulnerability_findings: true` prints each active finding's details
+  (key, check, severity, description, process, destination, open files,
+  detection basis).
+- README "Pinning": the moving `@v1` tag and immutable `@vX.Y.Z` tags.
 
-### Improved
+### Fixed
 
-- The vulnerability gate delegates to
-  `edamame_posture vulnerability-status --fail-on-findings`, which consumes
-  `active_alertable_findings` (HIGH/CRITICAL non-dismissed) so LOW-severity
-  ambient findings stay visible without tripping the run gate.
-- Self-test workflow `test_vulnerability_gate.yml` now clears runtime
-  vulnerability state (`clear_vulnerability_history` +
-  `reset_vulnerability_suppressions`) after the gate-firing scenario, so
-  the deliberately-injected token-exfil finding cannot leak into a
-  subsequent workflow run on the same self-hosted runner per the
-  `vulnerability_detector` Finding Persistence invariant.
+- `display_logs: true` collects the daemon's rolling logs
+  (`/var/log/edamame/edamame_*_<pid>.YYYY-MM-DD` on Unix, beside the binary
+  on Windows).
+- Unix: `/var/log/edamame` is created writable for both the daemon and the
+  CLI, so CLI commands no longer print log permission errors.
 
 ### Changed
 
-- `release.yml` now publishes BOTH an immutable `vX.Y.Z` tag plus a
-  GitHub Release AND force-updates the moving `v1` tag and its release
-  pointer. The previous workflow only force-updated `v1`.
-- `test.yml` `paths:` trigger now also fires on changes to
-  `CHANGELOG.md`, `.github/workflows/test.yml`, and
-  `.github/workflows/release.yml` so a release-relevant commit always
-  produces a green test run on its own SHA before the release gate
-  evaluates it.
-- `release.yml` keeps `Setup EDAMAME Posture` (connected mode) as the
-  first step of both the `validate` and `release` jobs. This is
-  mandatory: the github-hosted runner pool's IPs are not in the
-  `edamametechnologies` org IP allow list, so any direct
-  `api.github.com` / `git push` call returns 403 from a hosted
-  runner. Hub registration via Setup EDAMAME Posture dynamically
-  whitelists the runner's egress IP for the duration of the job.
-  The trailing `dump_vulnerability_findings: true` step enforces the
-  gate (`exit_on_vulnerability_findings: true`) so the freshly-built
-  binary is observed end-to-end.
+- The vulnerability gate fails on active HIGH/CRITICAL findings; LOW
+  findings stay visible without failing it.
+- Release workflow (maintainers): publishes an immutable `vX.Y.Z` tag and
+  release, and validates the version, the CHANGELOG entry and a green
+  `test.yml` on the commit first.
 
 ## [1.0.0] - 2026-04-17
 
-- Initial immutable-tag release (commit 479ee93).
-- Composite action covering: setup, network scan, packet capture,
-  policy checks, custom and auto-whitelist lifecycle, runtime
-  vulnerability gate, eBPF support verification, and stop.
+- Initial immutable-tag release.
+- Composite action covering: setup, network scan, packet capture, policy
+  checks, custom and auto-whitelist lifecycle, runtime vulnerability gate,
+  eBPF support verification, and stop.
