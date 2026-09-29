@@ -19,7 +19,8 @@ For the broader “Zero Trust at the GitHub layer” framing (identity + device 
 - Default: `uses: edamametechnologies/edamame_posture_action@v1`. Picks up
   the latest backwards-compatible v1 release automatically. Recommended
   for most users.
-- Reproducible: `uses: edamametechnologies/edamame_posture_action@v1.1.0`.
+- Reproducible: `uses: edamametechnologies/edamame_posture_action@v1.2.0`
+  (or any other `vX.Y.Z` on the [releases page](https://github.com/edamametechnologies/edamame_posture_action/releases)).
   Pinned to an immutable tag. Recommended for release-critical
   workflows where you need byte-identical action behavior across runs.
 

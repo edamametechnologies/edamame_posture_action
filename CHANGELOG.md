@@ -77,6 +77,9 @@ README "Pinning" section.
   token-created pull requests and releases, and private repositories stay
   refused until EDAMAME Hub lists the runner. `token` is also the probe's
   token.
+- README: the reproducible pin example reads `@v1.2.0` (it still read
+  `@v1.1.0`), and the Pinning section says that moving `v1` is an
+  organization admin step taken once a release is validated.
 
 ## [1.1.10] - 2026-09-29
 
