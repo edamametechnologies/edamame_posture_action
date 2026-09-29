@@ -31,6 +31,10 @@ Requires edamame_posture 2.0.3 or later.
 
 ### Changed
 
+- With edamame_posture 2.0.3 or later, the attack pattern gate asks posture
+  itself to count only findings first seen since this job's setup
+  (`--since`); older posture versions keep the action's own scoping.
+
 - Auto-whitelist:
   - A run's mode, learning or enforcing, is decided at setup from the
     whitelist's saved state. Once the whitelist has settled, a job that

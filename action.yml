@@ -2482,9 +2482,16 @@ runs:
         echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-status"
         $EDAMAME_POSTURE_CMD attack-pattern-status | tee "$STATUS_FILE"
         if [[ "${{ inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
-          echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings"
+          # edamame_posture >= 2.0.3 scopes the gate itself (--since this job's
+          # setup); older binaries do not know the flag and are scoped below.
+          SINCE_ARGS=()
+          STATUS_HELP=$($EDAMAME_POSTURE_CMD attack-pattern-status --help 2>/dev/null || true)
+          if [[ -n "${EDAMAME_POSTURE_SETUP_TIME:-}" && "$STATUS_HELP" == *"--since"* ]]; then
+            SINCE_ARGS=(--since "$EDAMAME_POSTURE_SETUP_TIME")
+          fi
+          echo "Executing: $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings ${SINCE_ARGS[*]:-}"
           gate_rc=0
-          $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings || gate_rc=$?
+          $EDAMAME_POSTURE_CMD attack-pattern-status --fail-on-findings ${SINCE_ARGS[@]+"${SINCE_ARGS[@]}"} || gate_rc=$?
           if [[ "$gate_rc" -ne 1 ]]; then
             # 0: no active HIGH/CRITICAL finding. 2 and up: the detector is off
             # or stalled, its adjudication stays withheld, or the daemon did not
