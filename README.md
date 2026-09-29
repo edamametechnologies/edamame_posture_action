@@ -345,6 +345,11 @@ A job that only reads public repositories needs neither. In a private repository
 
 ## Steps
 
+1. **Kill processes left by earlier jobs** (Windows self-hosted runners, first setup of the job)  
+   - A cancelled job whose cleanup never ran can leave its posture daemon and its build or test processes running into later jobs
+   - Kills an `edamame_posture`, or a process whose image or command line is under the runner's directory or work directory, only when it was created before this job's `Runner.Worker` and it is an orphan of an earlier job: none of its live parents is a runner process, a service, a scheduled task, WMI or a logon or SSH session
+   - Never touches this job's processes or the runner's own chain; logs every process it kills or leaves alone; touches no file and no service
+
 1. **Record this job's setup time** (first setup of the job)  
    - Exports `EDAMAME_POSTURE_SETUP_TIME`, the start of the job's setup; the attack pattern gate fails only on findings first seen after it (see [Persistent self-hosted runners](#persistent-self-hosted-runners-only-this-jobs-findings-fail-the-gate))
 

@@ -309,6 +309,157 @@ runs:
   using: "composite"
 
   steps:
+    # A wedged cancel on a self-hosted Windows runner can skip the runner's
+    # post-job cleanup, and then the job's posture daemon and the processes it
+    # started live on into later jobs. Before this job's first setup, kill what
+    # earlier jobs left behind. Process-only: no file and no service is touched.
+    # A process is killed only when all of these hold:
+    #   - it was created before this job's Runner.Worker, so it is never one of
+    #     this job's own processes, and it is not in this step's own chain
+    #     (Runner.Worker, Runner.Listener, run.cmd, the wrapper that started it);
+    #   - it is an edamame_posture, or its image or command line is under this
+    #     runner's directory or work directory;
+    #   - it is an orphan of an earlier job: going up its live parents never
+    #     reaches a runner process (another runner's job), a service, a
+    #     scheduled task, WMI or a logon or SSH session (what an operator or
+    #     the host started is left alone).
+    - name: Kill processes left by earlier jobs (Windows self-hosted runner)
+      if: >
+        runner.os == 'Windows' &&
+        runner.environment == 'self-hosted' &&
+        env.EDAMAME_POSTURE_SETUP_TIME == '' &&
+        inputs.stop != 'true' &&
+        inputs.dump_sessions_log != 'true' &&
+        (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) != 'true' &&
+        inputs.dump_attack_pattern_trace != 'true' &&
+        inputs.edamame_policy == '' &&
+        inputs.edamame_minimum_score == '' &&
+        inputs.create_custom_whitelists != 'true' &&
+        inputs.augment_custom_whitelists != 'true'
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        try {
+          $all = @(Get-CimInstance -ClassName Win32_Process -Property ProcessId,ParentProcessId,CreationDate,Name,ExecutablePath,CommandLine)
+          $byPid = @{}
+          foreach ($p in $all) { $byPid[[int]$p.ProcessId] = $p }
+
+          # The live parent, or $null when it is gone. A parent id held by a
+          # process created after the child is a reused id, not the parent.
+          function Get-LiveParent($p) {
+            $parentId = [int]$p.ParentProcessId
+            if ($parentId -eq [int]$p.ProcessId) { return $null }
+            $parent = $byPid[$parentId]
+            if (-not $parent) { return $null }
+            if ($null -ne $parent.CreationDate -and $null -ne $p.CreationDate -and $parent.CreationDate -gt $p.CreationDate) { return $null }
+            return $parent
+          }
+          function Get-Utc($date) {
+            if ($null -eq $date) { return '?' }
+            return $date.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+          }
+          function Get-ParentDir($path) {
+            $trimmed = ([string]$path).TrimEnd('\')
+            $i = $trimmed.LastIndexOf('\')
+            if ($i -le 0) { return $null }
+            return $trimmed.Substring(0, $i)
+          }
+
+          # This step's own chain, up to the runner and the wrapper that started it.
+          $chain = New-Object 'System.Collections.Generic.HashSet[int]'
+          $worker = $null
+          $node = $byPid[[int]$PID]
+          for ($depth = 0; $node -and $depth -lt 64; $depth++) {
+            [void]$chain.Add([int]$node.ProcessId)
+            if (-not $worker -and $node.Name -ieq 'Runner.Worker.exe') { $worker = $node }
+            $node = Get-LiveParent $node
+          }
+          if (-not $worker -or $null -eq $worker.CreationDate) {
+            Write-Host "Leftover process check skipped: this step does not run under a Runner.Worker."
+            exit 0
+          }
+          $jobStart = $worker.CreationDate
+
+          # This runner's directory (<runner>\bin\Runner.Worker.exe) and work
+          # directory (the parent of RUNNER_WORKSPACE). A directory holding the
+          # drive root, the profile, Windows, Program Files or ProgramData says
+          # nothing about which job started a process and is not used.
+          $broad = @($env:SystemDrive, $env:USERPROFILE, $env:SystemRoot, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData) |
+            Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\') + '\' }
+          $candidateRoots = @()
+          if ($worker.ExecutablePath) { $candidateRoots += Get-ParentDir (Get-ParentDir $worker.ExecutablePath) }
+          if ($env:RUNNER_WORKSPACE) { $candidateRoots += Get-ParentDir $env:RUNNER_WORKSPACE }
+          $roots = @()
+          foreach ($r in $candidateRoots) {
+            if (-not $r -or $r.Length -le 3) { continue }
+            $r = $r.TrimEnd('\') + '\'
+            $tooBroad = $false
+            foreach ($b in $broad) {
+              if ($b.StartsWith($r, [StringComparison]::OrdinalIgnoreCase)) { $tooBroad = $true }
+            }
+            if (-not $tooBroad -and $roots -notcontains $r) { $roots += $r }
+          }
+          Write-Host "This job started at $(Get-Utc $jobStart) (Runner.Worker PID $($worker.ProcessId)); runner directories: $($roots -join ', ')"
+
+          function Test-FromRunnerDirs($p) {
+            $image = [string]$p.ExecutablePath
+            $cmd = ([string]$p.CommandLine).Replace('/', '\')
+            foreach ($r in $roots) {
+              if ($image.StartsWith($r, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+              if ($cmd.IndexOf($r, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+            }
+            return $false
+          }
+          # Who started a process that is not an earlier job's: a runner (another
+          # runner's job), a service, a scheduled task, WMI, a logon or SSH session.
+          $launchers = @('runner.worker.exe', 'runner.listener.exe', 'services.exe', 'svchost.exe',
+            'taskhostw.exe', 'taskeng.exe', 'wmiprvse.exe', 'explorer.exe', 'userinit.exe',
+            'winlogon.exe', 'wininit.exe', 'csrss.exe', 'smss.exe', 'lsass.exe', 'sshd.exe', 'system')
+          function Get-Launcher($p) {
+            $a = Get-LiveParent $p
+            for ($depth = 0; $a -and $depth -lt 64; $depth++) {
+              if ([int]$a.ProcessId -le 4 -or $launchers -contains ([string]$a.Name).ToLowerInvariant()) { return $a }
+              $a = Get-LiveParent $a
+            }
+            return $null
+          }
+
+          $killed = 0
+          $failed = 0
+          foreach ($p in $all) {
+            $id = [int]$p.ProcessId
+            if ($id -le 4 -or $chain.Contains($id)) { continue }
+            if ($null -eq $p.CreationDate -or $p.CreationDate -ge $jobStart) { continue }
+            if ([string]$p.Name -like 'Runner.*') { continue }
+            if (-not ($p.Name -ieq 'edamame_posture.exe' -or (Test-FromRunnerDirs $p))) { continue }
+            $what = "PID $id $($p.Name) (started $(Get-Utc $p.CreationDate), parent PID $($p.ParentProcessId), image $($p.ExecutablePath))"
+            $launcher = Get-Launcher $p
+            if ($launcher) {
+              Write-Host "Left alone, started under $($launcher.Name) (PID $($launcher.ProcessId)): $what"
+              continue
+            }
+            # Same PID and creation time: still the process examined above.
+            $again = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $id" -Property CreationDate -ErrorAction SilentlyContinue
+            if (-not $again -or $again.CreationDate -ne $p.CreationDate) { continue }
+            try {
+              Stop-Process -Id $id -Force
+              $killed++
+              Write-Host "Killed $what"
+            } catch {
+              $failed++
+              Write-Host "::warning::Could not kill $what : $($_.Exception.Message)"
+            }
+          }
+          if ($killed -eq 0 -and $failed -eq 0) {
+            Write-Host "No process left by an earlier job."
+          } else {
+            Write-Host "Killed $killed process(es) left by earlier jobs; $failed could not be killed."
+          }
+        } catch {
+          Write-Host "::warning::Leftover process check stopped: $($_.Exception.Message)"
+        }
+        exit 0
+
     # The attack pattern gate of this job fails only on findings first seen
     # after its setup. Recorded once per job, at the first setup invocation.
     - name: Record this job's setup time

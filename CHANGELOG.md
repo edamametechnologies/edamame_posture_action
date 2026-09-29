@@ -11,6 +11,18 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+### Added
+
+- Windows self-hosted runners: the first setup of a job kills the processes
+  earlier jobs left behind. A cancelled job whose cleanup never ran could
+  leave its posture daemon (and its build or test processes) running into
+  later jobs. Killed: an `edamame_posture`, or a process whose image or
+  command line is under the runner's directory or work directory, created
+  before this job's `Runner.Worker` and orphaned by an earlier job (none of
+  its live parents is a runner process, a service, a scheduled task, WMI or a
+  logon or SSH session). This job's processes and the runner's own chain are
+  never touched, every kill is logged, and no file or service is touched.
+
 ### Changed
 
 - The attack pattern gate (`exit_on_attack_pattern_findings`, legacy
