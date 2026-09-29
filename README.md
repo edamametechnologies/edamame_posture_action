@@ -375,7 +375,7 @@ A job that only reads public repositories needs neither. In a private repository
    - **Fallback**: Downloads appropriate binary from GitHub releases if package manager fails
    - **Repository Setup**: Automatically adds package repositories and signing keys if needed
    - **Debug Mode**: Bypasses package managers and downloads debug binaries directly
-   - **Installer source**: the `install.sh` asset of the latest [edamame_posture release](https://github.com/edamametechnologies/edamame_posture_cli/releases/latest), the installer published with the binaries it installs; `install.sh` from `main` only when that release has no such asset (HTTP 404); the asset of the release tag as a last resort. An installer that predates `EDAMAME_PIN` gets the PIN with `--pin`
+   - **Installer source**: the `install.sh` asset of the latest [edamame_posture release](https://github.com/edamametechnologies/edamame_posture_cli/releases/latest), the installer published with the binaries it installs; `install.sh` from `main` only when that release has no such asset (HTTP 404); the same asset by the latest release's tag as a retry. No older release's installer is used: when none of these downloads, the setup fails. An installer that predates `EDAMAME_PIN` gets the PIN with `--pin`
    - **Outputs**: Sets `install_method`, `binary_already_present`, and `installed_via_package_manager` for use in subsequent steps
 
 1. **Show initial posture**  
@@ -1641,6 +1641,7 @@ If package manager installation fails, the action gracefully falls back to direc
 - Supports debug builds (not available via package managers)
 - Handles rate limiting with automatic retries
 - Places binary in `$HOME` directory with execute permissions
+- Stops when it cannot resolve or download the latest release (edamame_posture 2.0.3 or later), and the setup fails: no older version is installed instead
 
 ## Note
 For public repos that need access to private repos (or other restricted endpoints), pass the `token` input to this action. This allows the action to handle partial or delayed permissions during checkout, API access, or HTTPS waiting steps.

@@ -1055,7 +1055,7 @@ runs:
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
 
         # Resolve the latest release tag (logged, and used by the release-pinned
-        # fallback below).
+        # retry below).
         #
         # IMPORTANT: do NOT use api.github.com here. The edamametechnologies org has
         # an IP allow list enabled, and github-hosted runner pools (ubuntu-latest,
@@ -1071,11 +1071,13 @@ runs:
         # org-scoped api.github.com) and returns a 302 to the latest tag for any
         # public repo without auth and without hitting the IP allow list.
         #
-        # The hardcoded default below MUST point at a recent release whose install.sh
-        # contains the modern FALLBACK_VERSION / LATEST_RELEASE_TAG_SECONDARY logic and
-        # whose CLI surface includes the modern subcommand aliases. v1.3.18 is the
-        # earliest release that satisfies both constraints.
-        INSTALL_SCRIPT_REF="v1.3.18"
+        # There is no hardcoded installer version to fall back to: an old
+        # release's installer would install that old release. When the latest
+        # release cannot be resolved here, only the latest release's own
+        # installer (or raw main when that asset is missing) is used, and the
+        # step fails if neither downloads, like install.sh itself (2.0.3 and
+        # later) when it cannot resolve or download a release.
+        INSTALL_SCRIPT_REF=""
         # Capture the GH token for the install.sh invocation later (belt-and-
         # suspenders so older installer code paths that still call
         # api.github.com authenticate at least). Used at the install.sh exec.
@@ -1114,9 +1116,9 @@ runs:
           fi
         else
           echo "[WARNING] github.com /releases/latest redirect returned HTTP $REDIRECT_HTTP_CODE (location='$REDIRECT_LOCATION')"
-          echo "[WARNING] Falling back to hardcoded INSTALL_SCRIPT_REF=$INSTALL_SCRIPT_REF"
+          echo "[WARNING] The latest release is not resolved: no release-pinned installer retry"
         fi
-        echo "Using installer reference for the release-pinned fallback: $INSTALL_SCRIPT_REF"
+        echo "Latest release: ${INSTALL_SCRIPT_REF:-not resolved}"
 
         # Download with retry logic for transient errors (502, 503, 504, 429, connection errors).
         # The last HTTP status is left in LAST_DOWNLOAD_HTTP_CODE so the caller can
@@ -1253,12 +1255,15 @@ runs:
         #      whose installer is not uploaded yet). A download that failed for
         #      any other reason is not a missing asset, so it does not bring in
         #      an installer nobody released; it goes to 3.
-        #   3. The release-pinned asset at INSTALL_SCRIPT_REF (the latest tag from
-        #      the redirect above, or the hardcoded floor when the redirect
-        #      failed).
+        #   3. The same asset by its tag (INSTALL_SCRIPT_REF, the latest tag from
+        #      the redirect above), only when that tag was resolved. Otherwise
+        #      the step fails: no older release's installer stands in for it.
         LATEST_ASSET_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest/download/install.sh"
         RAW_INSTALL_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/main/install.sh"
-        RELEASE_INSTALL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
+        RELEASE_INSTALL_URL=""
+        if [[ -n "$INSTALL_SCRIPT_REF" ]]; then
+          RELEASE_INSTALL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
+        fi
         TMP_INSTALL_SCRIPT=$(mktemp)
         DOWNLOAD_SOURCE=""
 
@@ -1277,28 +1282,29 @@ runs:
           echo "[WARNING] Could not download the latest release's installer (last HTTP status: ${LAST_DOWNLOAD_HTTP_CODE:-none})."
           echo "[WARNING] Not using raw main: it only stands in for a missing asset."
         fi
-        if [[ -z "$DOWNLOAD_SOURCE" ]]; then
-          echo "Falling back to release-pinned installer: $RELEASE_INSTALL_URL"
+        if [[ -z "$DOWNLOAD_SOURCE" && -n "$RELEASE_INSTALL_URL" ]]; then
+          echo "Retrying with the latest release's installer by its tag: $RELEASE_INSTALL_URL"
           if download_file_with_retry "$RELEASE_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
-            DOWNLOAD_SOURCE="the install.sh asset of ${INSTALL_SCRIPT_REF} (release-pinned fallback)"
-          else
-            echo "[ERROR] Unable to download the installer: latest release asset, raw main (asset missing only) and release-pinned asset all failed."
-            rm -f "$TMP_INSTALL_SCRIPT"
-            exit 1
+            DOWNLOAD_SOURCE="the install.sh asset of ${INSTALL_SCRIPT_REF}"
           fi
         fi
+        if [[ -z "$DOWNLOAD_SOURCE" ]]; then
+          echo "[ERROR] Unable to download the installer of the latest edamame_posture release (latest release: ${INSTALL_SCRIPT_REF:-not resolved}; last HTTP status: ${LAST_DOWNLOAD_HTTP_CODE:-none})."
+          echo "[ERROR] No older installer is used instead. Run the job again later, or check that the runner reaches github.com."
+          rm -f "$TMP_INSTALL_SCRIPT"
+          exit 1
+        fi
         echo "Installer: $DOWNLOAD_SOURCE. Executing..."
-        # Export GITHUB_TOKEN so install.sh's `fetch_latest_release_tag` and
-        # `fetch_release_feed` authenticate their api.github.com calls. Without
-        # this, those calls hit the 60 req/hr unauth rate limit on github-hosted
-        # runner pools, install.sh falls back to its hardcoded FALLBACK_VERSION
-        # (currently 1.2.0), and we install a 6-month-old binary that fails on
-        # macOS Gatekeeper (`Killed: 9`) and may lack modern CLI subcommands on
-        # other platforms.
+        # Export GITHUB_TOKEN so install.sh's release lookups on api.github.com
+        # authenticate instead of sharing the unauthenticated rate limit of a
+        # hosted runner pool. An installer from edamame_posture 2.0.3 on stops
+        # with an error when it cannot resolve or download a release (package
+        # manager installs still proceed); this step then fails (set -e), so a
+        # job never runs on a binary the installer could not choose.
         #
         # The PIN: installers since 2.0.2 read EDAMAME_PIN. An installer from
-        # before (the release-pinned floor above, or a latest release older
-        # than 2.0.2) only knows --pin, so it gets that, the old shape.
+        # before (a latest release older than 2.0.2) only knows --pin, so it
+        # gets that, the old shape.
         INSTALL_PIN=""
         if [[ "$PASS_PIN" == "true" ]]; then
           if grep -q 'EDAMAME_PIN' "$TMP_INSTALL_SCRIPT"; then
