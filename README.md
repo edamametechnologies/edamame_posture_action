@@ -352,6 +352,7 @@ A job that only reads public repositories needs neither. In a private repository
    - **Fallback**: Downloads appropriate binary from GitHub releases if package manager fails
    - **Repository Setup**: Automatically adds package repositories and signing keys if needed
    - **Debug Mode**: Bypasses package managers and downloads debug binaries directly
+   - **Installer source**: the `install.sh` asset of the latest [edamame_posture release](https://github.com/edamametechnologies/edamame_posture_cli/releases/latest), the installer published with the binaries it installs; `install.sh` from `main` only when that release has no such asset (HTTP 404); the asset of the release tag as a last resort. An installer that predates `EDAMAME_PIN` gets the PIN with `--pin`
    - **Outputs**: Sets `install_method`, `binary_already_present`, and `installed_via_package_manager` for use in subsequent steps
 
 1. **Show initial posture**  

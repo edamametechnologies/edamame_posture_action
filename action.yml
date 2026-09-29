@@ -876,7 +876,8 @@ runs:
         
         echo "Running installer with args: ${INSTALL_ARGS[*]}"
 
-        # Resolve installer reference (used ONLY for the release-asset fallback path below).
+        # Resolve the latest release tag (logged, and used by the release-pinned
+        # fallback below).
         #
         # IMPORTANT: do NOT use api.github.com here. The edamametechnologies org has
         # an IP allow list enabled, and github-hosted runner pools (ubuntu-latest,
@@ -903,6 +904,7 @@ runs:
         GH_TOKEN_VALUE="${ACTION_TOKEN:-}"
         LATEST_REDIRECT_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest"
         echo "Determining latest installer release via redirect: $LATEST_REDIRECT_URL"
+        LATEST_TAG=""
         REDIRECT_LOCATION=""
         REDIRECT_HTTP_CODE=""
         if command -v curl >/dev/null 2>&1; then
@@ -936,16 +938,20 @@ runs:
           echo "[WARNING] github.com /releases/latest redirect returned HTTP $REDIRECT_HTTP_CODE (location='$REDIRECT_LOCATION')"
           echo "[WARNING] Falling back to hardcoded INSTALL_SCRIPT_REF=$INSTALL_SCRIPT_REF"
         fi
-        echo "Using installer reference for release-asset fallback: $INSTALL_SCRIPT_REF"
-        
-        # Download with retry logic for transient errors (502, 503, 504, 429, connection errors)
+        echo "Using installer reference for the release-pinned fallback: $INSTALL_SCRIPT_REF"
+
+        # Download with retry logic for transient errors (502, 503, 504, 429, connection errors).
+        # The last HTTP status is left in LAST_DOWNLOAD_HTTP_CODE so the caller can
+        # tell a missing file (404) from a download that failed.
+        LAST_DOWNLOAD_HTTP_CODE=""
         download_file_with_retry() {
           local url="$1"
           local destination="$2"
           local max_retries=5
           local retry_delay=2
           local attempt=1
-          
+          LAST_DOWNLOAD_HTTP_CODE=""
+
           while [ $attempt -le $max_retries ]; do
             echo "  Download attempt $attempt/$max_retries..."
             local http_code=""
@@ -970,7 +976,9 @@ runs:
               echo "  [ERROR] Neither curl nor wget available"
               return 1
             fi
-            
+            # The status code only (curl's error text, when there is one, comes first).
+            LAST_DOWNLOAD_HTTP_CODE="${http_code##*[!0-9]}"
+
             # Check for success (HTTP 2xx)
             case "$http_code" in
               2*)
@@ -1054,33 +1062,54 @@ runs:
           fi
         }
         
-        # Raw URL uses main branch (install.sh is not tagged with releases).
-        # We prefer raw/main as the PRIMARY source because the install.sh logic itself
-        # evolves between releases (FALLBACK_VERSION, retry/secondary-tag logic, new
-        # CLI subcommand handling). A release-pinned install.sh is the script as it
-        # existed at release time, NOT the script that knows how to install that
-        # release. Old release assets (e.g. v1.0.0/install.sh) bake in
-        # FALLBACK_VERSION=0.9.75 and silently degrade modern installs.
+        # Installer source, in this order:
+        #   1. The latest release's install.sh asset: the installer published with
+        #      the binaries and packages it installs (posture release_install.yml
+        #      uploads it with a build-provenance attestation). A change pushed to
+        #      install.sh on main reaches action users only once it is uploaded
+        #      to a release, after install_compat has passed on it. Until then
+        #      every push to main was live at once, ahead of the binary it would
+        #      install (2026-09-28: a PIN handed over only in EDAMAME_PIN, which
+        #      the released 2.0.1 ignored).
+        #   2. Raw main, only when that asset is MISSING (HTTP 404: a new release
+        #      whose installer is not uploaded yet). A download that failed for
+        #      any other reason is not a missing asset, so it does not bring in
+        #      an installer nobody released; it goes to 3.
+        #   3. The release-pinned asset at INSTALL_SCRIPT_REF (the latest tag from
+        #      the redirect above, or the hardcoded floor when the redirect
+        #      failed).
+        LATEST_ASSET_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/latest/download/install.sh"
         RAW_INSTALL_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/main/install.sh"
+        RELEASE_INSTALL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
         TMP_INSTALL_SCRIPT=$(mktemp)
         DOWNLOAD_SOURCE=""
 
-        echo "Attempting to download installer from raw main: $RAW_INSTALL_URL"
-        if download_file_with_retry "$RAW_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
-          DOWNLOAD_SOURCE="raw"
+        echo "Attempting to download the latest release's installer: $LATEST_ASSET_URL"
+        if download_file_with_retry "$LATEST_ASSET_URL" "$TMP_INSTALL_SCRIPT"; then
+          DOWNLOAD_SOURCE="the install.sh asset of the latest release (${LATEST_TAG:-tag not resolved})"
+        elif [[ "$LAST_DOWNLOAD_HTTP_CODE" == "404" ]]; then
+          echo "[WARNING] The latest release has no install.sh asset (HTTP 404); using raw main."
+          echo "Attempting to download installer from raw main: $RAW_INSTALL_URL"
+          if download_file_with_retry "$RAW_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
+            DOWNLOAD_SOURCE="raw main (the latest release has no install.sh asset)"
+          else
+            echo "[WARNING] Failed to download installer from raw main after retries."
+          fi
         else
-          echo "[WARNING] Failed to download installer from raw main after retries."
-          RELEASE_INSTALL_URL="https://github.com/edamametechnologies/edamame_posture_cli/releases/download/${INSTALL_SCRIPT_REF}/install.sh"
+          echo "[WARNING] Could not download the latest release's installer (last HTTP status: ${LAST_DOWNLOAD_HTTP_CODE:-none})."
+          echo "[WARNING] Not using raw main: it only stands in for a missing asset."
+        fi
+        if [[ -z "$DOWNLOAD_SOURCE" ]]; then
           echo "Falling back to release-pinned installer: $RELEASE_INSTALL_URL"
           if download_file_with_retry "$RELEASE_INSTALL_URL" "$TMP_INSTALL_SCRIPT"; then
-            DOWNLOAD_SOURCE="release:${INSTALL_SCRIPT_REF}"
+            DOWNLOAD_SOURCE="the install.sh asset of ${INSTALL_SCRIPT_REF} (release-pinned fallback)"
           else
-            echo "[ERROR] Unable to download installer from raw main or release asset after retries."
+            echo "[ERROR] Unable to download the installer: latest release asset, raw main (asset missing only) and release-pinned asset all failed."
             rm -f "$TMP_INSTALL_SCRIPT"
             exit 1
           fi
         fi
-        echo "Installer downloaded from $DOWNLOAD_SOURCE source. Executing..."
+        echo "Installer: $DOWNLOAD_SOURCE. Executing..."
         # Export GITHUB_TOKEN so install.sh's `fetch_latest_release_tag` and
         # `fetch_release_feed` authenticate their api.github.com calls. Without
         # this, those calls hit the 60 req/hr unauth rate limit on github-hosted
@@ -1089,9 +1118,9 @@ runs:
         # macOS Gatekeeper (`Killed: 9`) and may lack modern CLI subcommands on
         # other platforms.
         #
-        # The PIN: installers since 2.0.2 read EDAMAME_PIN. A release-pinned
-        # installer from before (the fallback path above, or raw main before
-        # the 2.0.2 release) only knows --pin, so it gets that, the old shape.
+        # The PIN: installers since 2.0.2 read EDAMAME_PIN. An installer from
+        # before (the release-pinned floor above, or a latest release older
+        # than 2.0.2) only knows --pin, so it gets that, the old shape.
         INSTALL_PIN=""
         if [[ "$PASS_PIN" == "true" ]]; then
           if grep -q 'EDAMAME_PIN' "$TMP_INSTALL_SCRIPT"; then

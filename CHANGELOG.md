@@ -11,6 +11,18 @@ also published for reproducible pins; see the README "Pinning" section.
 
 ## [Unreleased]
 
+### Changed
+
+- The installer comes from the latest edamame_posture release: its
+  `install.sh` asset, published with the binaries and packages it installs,
+  instead of `install.sh` on `main`, which reached every action user the
+  moment it was pushed, before any release carried a binary it had been
+  tested with (2026-09-28: a PIN handed only in `EDAMAME_PIN`, which the
+  released 2.0.1 ignored). `main` is used only when the latest release has no
+  `install.sh` asset (HTTP 404); a download that failed for another reason
+  falls back to the asset of the release tag, never to `main`. An installer
+  that predates `EDAMAME_PIN` still gets the PIN with `--pin`.
+
 ### Documentation
 
 - `wait_repository` is documented: in a public repository the default
