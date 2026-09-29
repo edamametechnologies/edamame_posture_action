@@ -23,9 +23,11 @@ For the broader “Zero Trust at the GitHub layer” framing (identity + device 
   Pinned to an immutable tag. Recommended for release-critical
   workflows where you need byte-identical action behavior across runs.
 
-The release workflow publishes both tags on every cut: a fresh
-immutable `vX.Y.Z` tag plus a force-updated `v1` pointing to the same
-commit. See [`CHANGELOG.md`](CHANGELOG.md) for the version history.
+Every release publishes an immutable `vX.Y.Z` tag and its GitHub
+Release. The moving `v1` tag then follows it; moving `v1` is reserved
+to organization admins (only they may update or delete `v*` tags), so
+`@v1` changes only once a release has been validated. See
+[`CHANGELOG.md`](CHANGELOG.md) for the version history.
 
 ## Overview
 This GitHub Action sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture), the CLI for runner and build-host trust gates, posture checks, and optional runtime network enforcement.

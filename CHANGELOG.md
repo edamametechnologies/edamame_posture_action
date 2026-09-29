@@ -5,9 +5,10 @@ All notable changes to this GitHub Action are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The moving major-version tag (`v1`) is force-updated to the latest
-backwards-compatible release on every cut. Immutable `vX.Y.Z` tags are
-also published for reproducible pins; see the README "Pinning" section.
+The moving major-version tag (`v1`) follows the latest backwards-compatible
+release once an organization admin moves it (only admins may update `v*`
+tags). Immutable `vX.Y.Z` tags are published for reproducible pins; see the
+README "Pinning" section.
 
 ## [Unreleased]
 
@@ -50,6 +51,24 @@ also published for reproducible pins; see the README "Pinning" section.
   `install.sh` asset (HTTP 404); a download that failed for another reason
   falls back to the asset of the release tag, never to `main`. An installer
   that predates `EDAMAME_PIN` still gets the PIN with `--pin`.
+- Release workflow (maintainers): runs on the self-hosted pool (static IPs
+  on the organization allow list) and uses the action of the commit it
+  releases (`uses: ./`); releases only from `main`; a failed tag or release
+  lookup fails the run instead of reading as "not published"; requires both
+  `test.yml` and `test_vulnerability_gate.yml` green on the commit; the
+  annotated tag's message is `vX.Y.Z`, and the `vX.Y.Z` release is not marked
+  Latest (the `v1` release stays Latest).
+
+### Fixed
+
+- The Release workflow can cut a release again. It had been red since
+  2026-05-27 (run 26507403065, "CHANGELOG.md missing [X.Y.Z] entry"), and it
+  would then have failed on its next step anyway: it force-pushed `v1` with
+  its `GITHUB_TOKEN`, which the `v*` tag ruleset (only organization admins may
+  update or delete `v*` tags) refuses. It no longer moves `v1`: it publishes
+  `vX.Y.Z` and its release, then prints the admin commands that move `v1` and
+  refresh the `v1` release in the job summary (or refreshes the `v1` release
+  itself when an admin moved `v1` to the commit first).
 
 ### Documentation
 

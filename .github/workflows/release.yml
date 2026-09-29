@@ -1,14 +1,41 @@
 name: Release
 
+# Cuts vX.Y.Z from the dispatched commit of main:
+#   1. validate: main only, semver with major 1, vX.Y.Z not published yet (a
+#      failed lookup is an error, never "not published"), a non-empty
+#      "## [X.Y.Z]" section in CHANGELOG.md, and test.yml plus
+#      test_vulnerability_gate.yml green on this exact commit. Both test
+#      workflows run the action of the commit itself (`uses: ./`); dispatch
+#      them on the commit when a push did not trigger them.
+#   2. release: pushes the immutable annotated tag vX.Y.Z (message "vX.Y.Z")
+#      and publishes the GitHub Release "Release vX.Y.Z" with the CHANGELOG
+#      section as its notes.
+#
+# Moving `v1` is NOT done here. The tag ruleset version-tags-integrity lets
+# only organization admins update or delete `v*` tags, and this workflow's
+# GITHUB_TOKEN is not one of them: customers pin `@v1`, so moving it stays a
+# deliberate admin step. The release job writes the exact commands into its
+# summary (move the lightweight `v1` tag to vX.Y.Z, then retitle the `v1`
+# release and keep it Latest). If an admin moved `v1` to this commit before
+# the release job ran, the job refreshes the `v1` release itself.
+#
+# Runners: the self-hosted pool. Its static IPs are on the organization IP
+# allow list; from a GitHub-hosted runner the GitHub API calls and the tag
+# push are refused (403) until EDAMAME Hub lists the runner, and in this public
+# repository the action's allow-list wait has no repository this token can
+# probe to prove the listing.
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Semver version to release (e.g. 1.1.0). Major must match the moving v1 tag."
+        description: "Semver version to release (e.g. 1.2.0). Major must match the moving v1 tag."
         required: true
         type: string
 
-permissions: write-all
+permissions:
+  contents: write
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -16,23 +43,23 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: vm-runner-linux
+    timeout-minutes: 30
     steps:
-      # IP allow list lift: edamametechnologies org has an IP allow list and the
-      # github-hosted runner pool's IPs are not whitelisted. Setup EDAMAME
-      # Posture in connected mode registers the runner with the EDAMAME Hub,
-      # which dynamically whitelists the runner's egress IP for the duration
-      # of the job so subsequent api.github.com / git operations work.
+      - name: Checkout the dispatched commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      # The action of the commit being released (`uses: ./`), in connected
+      # mode with the attack pattern gate, like every job on this pool.
       - name: Setup EDAMAME Posture
-        uses: edamametechnologies/edamame_posture_action@v1
+        uses: ./
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
           edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
           edamame_id: ${{ github.run_id }}
-          checkout: true
-          wait_for_api: true
           packet_capture: true
           vulnerability_detection: true
           vulnerability_detection_interval: "60"
@@ -42,80 +69,121 @@ jobs:
         env:
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
 
-      - name: Validate semver and major-version match
+      - name: Validate ref, semver and major version
+        env:
+          VERSION: ${{ inputs.version }}
+          REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          v="${{ inputs.version }}"
-          if [[ ! "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Not semver (X.Y.Z): $v"
+          if [[ "$REF" != "refs/heads/main" ]]; then
+            echo "::error::Releases are cut from main; this run is on $REF."
             exit 1
           fi
-          major="${v%%.*}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Not semver (X.Y.Z): $VERSION"
+            exit 1
+          fi
+          major="${VERSION%%.*}"
           if [[ "$major" != "1" ]]; then
-            echo "Major must be 1 (moving tag is v1); got $major"
+            echo "::error::Major must be 1 (the moving tag is v1); got $major"
             exit 1
           fi
 
       - name: Validate version not already published
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if gh release view "v${{ inputs.version }}" --repo ${{ github.repository }} >/dev/null 2>&1; then
-            echo "Release v${{ inputs.version }} already exists. Bump version."
+          if ! remote_tag=$(git ls-remote --tags origin "refs/tags/v${VERSION}"); then
+            echo "::error::Could not list the remote tags; not assuming v${VERSION} is free."
             exit 1
           fi
-
-      - name: Validate CHANGELOG has entry for this version
-        run: |
-          set -euo pipefail
-          if ! grep -qE "^## \[${{ inputs.version }}\]" CHANGELOG.md; then
-            echo "CHANGELOG.md missing [${{ inputs.version }}] entry"
+          if [[ -n "$remote_tag" ]]; then
+            echo "::error::Tag v${VERSION} already exists. Bump the version."
             exit 1
           fi
+          if lookup=$(gh api "repos/${REPO}/releases/tags/v${VERSION}" 2>&1); then
+            echo "::error::Release v${VERSION} already exists. Bump the version."
+            exit 1
+          fi
+          if ! grep -q "HTTP 404" <<<"$lookup"; then
+            echo "::error::Could not look up release v${VERSION}; not assuming it is unpublished: $lookup"
+            exit 1
+          fi
+          echo "v${VERSION} is not published yet."
 
-      - name: Assert test.yml green on this SHA
+      - name: Validate the CHANGELOG section for this version
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          conclusion=$(gh run list \
-            --repo ${{ github.repository }} \
-            --workflow test.yml \
-            --branch ${{ github.ref_name }} \
-            --commit ${{ github.sha }} \
-            --limit 1 \
-            --json conclusion --jq '.[0].conclusion // "missing"')
-          if [[ "$conclusion" != "success" ]]; then
-            echo "test.yml not green for SHA ${{ github.sha }} (got: $conclusion)."
-            echo "Push the change, wait for test.yml to complete on this SHA, then re-dispatch release."
+          heading=$(awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 {print; exit}' CHANGELOG.md)
+          if [[ -z "$heading" ]]; then
+            echo "::error::CHANGELOG.md has no \"## [${VERSION}] - YYYY-MM-DD\" section. Rename [Unreleased] to it (and open a new empty [Unreleased]) in a commit on main, then dispatch this workflow on that commit."
             exit 1
           fi
-          echo "OK: test.yml green on SHA ${{ github.sha }}"
+          notes=$(awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 {flag=1; next}
+            flag && /^## \[/ {exit}
+            flag {print}
+          ' CHANGELOG.md)
+          if [[ -z "${notes//[[:space:]]/}" ]]; then
+            echo "::error::The CHANGELOG.md section for ${VERSION} is empty."
+            exit 1
+          fi
+          echo "CHANGELOG.md: $heading"
 
-      - name: Dump EDAMAME Posture vulnerability findings
+      - name: Assert test.yml and test_vulnerability_gate.yml green on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          status=0
+          for workflow in test.yml test_vulnerability_gate.yml; do
+            conclusion=$(gh run list \
+              --repo "$REPO" \
+              --workflow "$workflow" \
+              --commit "$SHA" \
+              --status completed \
+              --limit 1 \
+              --json conclusion --jq '.[0].conclusion // "missing"')
+            if [[ "$conclusion" != "success" ]]; then
+              echo "::error::$workflow is not green on $SHA (latest completed run: $conclusion). Dispatch it on this commit (gh workflow run $workflow --ref main), wait for green, then dispatch this release again."
+              status=1
+            else
+              echo "OK: $workflow green on $SHA"
+            fi
+          done
+          exit "$status"
+
+      - name: EDAMAME Posture attack pattern gate
         if: always()
-        uses: edamametechnologies/edamame_posture_action@v1
+        uses: ./
         with:
-          dump_vulnerability_findings: true
-          exit_on_vulnerability_findings: true
+          dump_attack_pattern_findings: true
+          exit_on_attack_pattern_findings: true
 
   release:
     needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: vm-runner-linux
+    timeout-minutes: 30
     steps:
-      # IP allow list lift (same as validate). Required before any
-      # git push / api.github.com call from a github-hosted runner.
+      - name: Checkout the dispatched commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
       - name: Setup EDAMAME Posture
-        uses: edamametechnologies/edamame_posture_action@v1
+        uses: ./
         with:
           edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
           edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
           edamame_id: ${{ github.run_id }}
-          checkout: true
-          wait_for_api: true
           packet_capture: true
           vulnerability_detection: true
           vulnerability_detection_interval: "60"
@@ -126,63 +194,90 @@ jobs:
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
 
       - name: Tag immutable vX.Y.Z
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
-          git push origin "v${{ inputs.version }}"
-
-      - name: Force-update moving v1 tag
-        run: |
-          set -euo pipefail
-          git tag -f v1
-          git push origin -f v1
+          git tag -a "v${VERSION}" -m "v${VERSION}" "$SHA"
+          git push origin "refs/tags/v${VERSION}"
 
       - name: Extract release notes from CHANGELOG
-        id: notes
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          awk -v v="${{ inputs.version }}" '
-            $0 ~ "^## \\["v"\\]" {flag=1; next}
+          NOTES="${RUNNER_TEMP}/release-notes.md"
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 {flag=1; next}
             flag && /^## \[/ {exit}
             flag {print}
-          ' CHANGELOG.md > /tmp/notes.md
-          if [[ ! -s /tmp/notes.md ]]; then
-            echo "Extracted release notes are empty -- check CHANGELOG.md formatting"
+          ' CHANGELOG.md > "$NOTES"
+          if [[ ! -s "$NOTES" ]]; then
+            echo "::error::Extracted release notes are empty; check the CHANGELOG.md section for ${VERSION}."
             exit 1
           fi
           echo "--- extracted notes ---"
-          cat /tmp/notes.md
+          cat "$NOTES"
           echo "--- end notes ---"
 
+      # Not marked Latest: the `v1` release is the Latest one, and it keeps
+      # telling the truth ("v1 (moving) -> <the version v1 points to>") until
+      # an admin moves `v1`.
       - name: Create GitHub Release for vX.Y.Z
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh release create "v${{ inputs.version }}" \
-            --repo ${{ github.repository }} \
-            --title "Release v${{ inputs.version }}" \
-            --notes-file /tmp/notes.md \
-            --latest
+          gh release create "v${VERSION}" \
+            --repo "$REPO" \
+            --title "Release v${VERSION}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
+            --verify-tag \
+            --latest=false
 
-      - name: Refresh GitHub Release for v1 (moving)
+      - name: Moving v1 (organization admin step)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          gh release delete v1 --repo ${{ github.repository }} --yes 2>/dev/null || true
-          gh release create v1 \
-            --repo ${{ github.repository }} \
-            --title "v1 (moving) -> v${{ inputs.version }}" \
-            --notes "Currently points to [v${{ inputs.version }}](../releases/tag/v${{ inputs.version }})." \
-            --target ${{ github.sha }} \
-            --prerelease=false
+          title="v1 (moving) -> v${VERSION}"
+          notes="Currently points to [v${VERSION}](../releases/tag/v${VERSION})."
+          if ! v1_ref=$(git ls-remote origin refs/tags/v1 'refs/tags/v1^{}'); then
+            echo "::error::Could not read the v1 tag."
+            exit 1
+          fi
+          # v1 is a lightweight tag; take the peeled commit should it ever be annotated.
+          v1_sha=$(awk '$2 == "refs/tags/v1^{}" {p = $1} $2 == "refs/tags/v1" {t = $1} END {print (p != "" ? p : t)}' <<<"$v1_ref")
+          if [[ "$v1_sha" == "$SHA" ]]; then
+            gh release edit v1 --repo "$REPO" --title "$title" --notes "$notes" --latest
+            echo "v1 already points to v${VERSION} ($SHA); the v1 release now says so." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "## Move \`v1\` to v${VERSION} (organization admin)"
+            echo
+            echo "\`v1\` still points to \`${v1_sha:-nothing}\`. The tag ruleset lets only organization admins move it, so this workflow did not. Customers on \`@v1\` get v${VERSION} as soon as it moves: move it only once you mean to ship it to them."
+            echo
+            echo '```sh'
+            echo "git fetch origin tag v${VERSION}"
+            echo "git tag -f v1 'v${VERSION}^{commit}'"
+            echo "git push -f origin refs/tags/v1"
+            echo "gh release edit v1 --repo ${REPO} --title \"${title}\" --notes \"${notes}\" --latest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Move v1 (organization admin)::v${VERSION} is published; v1 still points to ${v1_sha:-nothing}. The commands are in the job summary."
 
-      - name: Dump EDAMAME Posture vulnerability findings
+      - name: EDAMAME Posture attack pattern gate
         if: always()
-        uses: edamametechnologies/edamame_posture_action@v1
+        uses: ./
         with:
-          dump_vulnerability_findings: true
-          exit_on_vulnerability_findings: true
+          dump_attack_pattern_findings: true
+          exit_on_attack_pattern_findings: true
