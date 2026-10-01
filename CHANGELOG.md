@@ -12,6 +12,8 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-01
+
 Requires edamame_posture 2.0.3 or later.
 
 ### Added
