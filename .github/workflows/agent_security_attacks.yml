@@ -270,8 +270,10 @@ jobs:
           stop: true
         continue-on-error: true
 
+      # Alerts come from the default branch only: a dispatch on another
+      # branch is a validation run whose failures are read in the run itself.
       - name: Slack alert on detection failure
-        if: failure()
+        if: failure() && github.ref_name == github.event.repository.default_branch
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
@@ -301,7 +303,7 @@ jobs:
           echo "Every attack scenario of edamame_posture ${{ needs.scenarios.outputs.ref }} was detected by EDAMAME."
 
       - name: Slack alerts
-        if: failure()
+        if: failure() && github.ref_name == github.event.repository.default_branch
         uses: slackapi/slack-github-action@v1.26.0
         with:
           channel-id: 'C072J0U9TH7'
