@@ -909,6 +909,35 @@ runs:
         # the installer's argv (process list).
         EDAMAME_PIN_INPUT: ${{ inputs.edamame_pin }}
         ACTION_TOKEN: ${{ inputs.token }}
+        # The inputs reach the script through the environment as well: GitHub
+        # evaluates a script holding `${{ }}` as one expression, capped at
+        # 21000 characters. IN_ names collide with nothing the installer or
+        # the daemon reads.
+        IN_STOP: ${{ inputs.stop }}
+        IN_DUMP_SESSIONS_LOG: ${{ inputs.dump_sessions_log }}
+        IN_DUMP_FINDINGS: ${{ inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings }}
+        IN_DUMP_TRACE: ${{ inputs.dump_attack_pattern_trace }}
+        IN_POLICY: ${{ inputs.edamame_policy }}
+        IN_MINIMUM_SCORE: ${{ inputs.edamame_minimum_score }}
+        IN_CREATE_CUSTOM_WHITELISTS: ${{ inputs.create_custom_whitelists }}
+        IN_AUGMENT_CUSTOM_WHITELISTS: ${{ inputs.augment_custom_whitelists }}
+        IN_USER: ${{ inputs.edamame_user }}
+        IN_DOMAIN: ${{ inputs.edamame_domain }}
+        IN_ID: ${{ inputs.edamame_id }}
+        IN_NETWORK_SCAN: ${{ inputs.network_scan }}
+        IN_PACKET_CAPTURE: ${{ inputs.packet_capture }}
+        IN_WHITELIST: ${{ inputs.whitelist }}
+        IN_CHECK_WHITELIST: ${{ inputs.check_whitelist }}
+        IN_CHECK_BLACKLIST: ${{ inputs.check_blacklist }}
+        IN_DETECTION: ${{ inputs.attack_pattern_detection || inputs.vulnerability_detection }}
+        IN_EXIT_ON_FINDINGS: ${{ inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings }}
+        IN_CANCEL_ON_VIOLATION: ${{ inputs.cancel_on_violation }}
+        IN_CANCEL_PIPELINE_SCRIPT: ${{ inputs.cancel_pipeline_script }}
+        IN_INCLUDE_LOCAL_TRAFFIC: ${{ inputs.include_local_traffic }}
+        IN_AGENTIC_MODE: ${{ inputs.agentic_mode }}
+        IN_AGENTIC_PROVIDER: ${{ inputs.agentic_provider }}
+        IN_AGENTIC_INTERVAL: ${{ inputs.agentic_interval }}
+        IN_DEBUG: ${{ inputs.debug }}
       run: |
         set -euo pipefail
         STATE_FILE="$INSTALL_STATE_FILE"
@@ -918,14 +947,14 @@ runs:
         # Only pass connection parameters on initial setup, not on subsequent operations
         # This prevents unnecessary daemon restarts when action is called for policy checks, etc.
         IS_INITIAL_SETUP="true"
-        if [[ "${{ inputs.stop }}" == "true" || \
-              "${{ inputs.dump_sessions_log }}" == "true" || \
-              "${{ inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings }}" == "true" || \
-              "${{ inputs.dump_attack_pattern_trace }}" == "true" || \
-              -n "${{ inputs.edamame_policy }}" || \
-              -n "${{ inputs.edamame_minimum_score }}" || \
-              "${{ inputs.create_custom_whitelists }}" == "true" || \
-              "${{ inputs.augment_custom_whitelists }}" == "true" ]]; then
+        if [[ "${IN_STOP}" == "true" || \
+              "${IN_DUMP_SESSIONS_LOG}" == "true" || \
+              "${IN_DUMP_FINDINGS}" == "true" || \
+              "${IN_DUMP_TRACE}" == "true" || \
+              -n "${IN_POLICY}" || \
+              -n "${IN_MINIMUM_SCORE}" || \
+              "${IN_CREATE_CUSTOM_WHITELISTS}" == "true" || \
+              "${IN_AUGMENT_CUSTOM_WHITELISTS}" == "true" ]]; then
           IS_INITIAL_SETUP="false"
           echo "Detected non-setup operation - skipping credential pass to installer"
           echo "This prevents unnecessary daemon restarts that would lose captured sessions"
@@ -934,11 +963,11 @@ runs:
         # Add connection parameters only if this is initial setup
         if [[ "$IS_INITIAL_SETUP" == "true" ]]; then
           echo "Initial setup detected - passing credentials and network flags to installer"
-          if [[ -n "${{ inputs.edamame_user }}" ]]; then
-            INSTALL_ARGS+=(--user "${{ inputs.edamame_user }}")
+          if [[ -n "${IN_USER}" ]]; then
+            INSTALL_ARGS+=(--user "${IN_USER}")
           fi
-          if [[ -n "${{ inputs.edamame_domain }}" ]]; then
-            INSTALL_ARGS+=(--domain "${{ inputs.edamame_domain }}")
+          if [[ -n "${IN_DOMAIN}" ]]; then
+            INSTALL_ARGS+=(--domain "${IN_DOMAIN}")
           fi
           # The PIN goes to the installer in EDAMAME_PIN (set at its exec
           # below), not in INSTALL_ARGS: argv is visible in the process list.
@@ -947,34 +976,34 @@ runs:
           fi
           
           # Add device ID with timestamp suffix for uniqueness
-          if [[ -n "${{ inputs.edamame_id }}" ]]; then
+          if [[ -n "${IN_ID}" ]]; then
             IDSUFFIX=$(node -e "console.log(Date.now())")
-            INSTALL_ARGS+=(--device-id "${{ inputs.edamame_id }}_${IDSUFFIX}")
+            INSTALL_ARGS+=(--device-id "${IN_ID}_${IDSUFFIX}")
           fi
           
           # Add network monitoring flags (only on initial setup to persist in service config)
-          if [[ "${{ inputs.network_scan }}" == "true" ]]; then
+          if [[ "${IN_NETWORK_SCAN}" == "true" ]]; then
             INSTALL_ARGS+=(--start-lanscan)
           fi
-          if [[ "${{ inputs.packet_capture }}" == "true" || ( "${{ inputs.packet_capture }}" == "auto" && "${{ inputs.network_scan }}" == "true" ) ]]; then
+          if [[ "${IN_PACKET_CAPTURE}" == "true" || ( "${IN_PACKET_CAPTURE}" == "auto" && "${IN_NETWORK_SCAN}" == "true" ) ]]; then
             INSTALL_ARGS+=(--start-capture)
           fi
         fi
         
         # Add whitelist configuration
-        if [[ -n "${{ inputs.whitelist }}" ]]; then
-          INSTALL_ARGS+=(--whitelist "${{ inputs.whitelist }}")
+        if [[ -n "${IN_WHITELIST}" ]]; then
+          INSTALL_ARGS+=(--whitelist "${IN_WHITELIST}")
         fi
-        if [[ "${{ inputs.check_whitelist }}" == "true" || -n "${{ inputs.whitelist }}" ]]; then
+        if [[ "${IN_CHECK_WHITELIST}" == "true" || -n "${IN_WHITELIST}" ]]; then
           INSTALL_ARGS+=(--fail-on-whitelist)
         fi
-        if [[ "${{ inputs.check_blacklist }}" == "true" ]]; then
+        if [[ "${IN_CHECK_BLACKLIST}" == "true" ]]; then
           INSTALL_ARGS+=(--fail-on-blacklist)
         fi
-        if [[ "${{ inputs.attack_pattern_detection || inputs.vulnerability_detection }}" == "true" && "${{ inputs.exit_on_attack_pattern_findings || inputs.exit_on_vulnerability_findings }}" == "true" ]]; then
+        if [[ "${IN_DETECTION}" == "true" && "${IN_EXIT_ON_FINDINGS}" == "true" ]]; then
           INSTALL_ARGS+=(--fail-on-findings)
         fi
-        if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
+        if [[ "${IN_CANCEL_ON_VIOLATION}" == "true" ]]; then
           INSTALL_ARGS+=(--cancel-on-violation)
           
           # Create cancellation script BEFORE install.sh runs
@@ -984,8 +1013,8 @@ runs:
           
           # Determine script path
           # The daemon runs with sudo (HOME=/root), so we need to create the script there
-          if [[ -n "${{ inputs.cancel_pipeline_script }}" ]]; then
-            CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
+          if [[ -n "${IN_CANCEL_PIPELINE_SCRIPT}" ]]; then
+            CANCEL_SCRIPT_PATH="${IN_CANCEL_PIPELINE_SCRIPT}"
           else
             # Use $HOME which matches the daemon's default lookup path
             # Since we use sudo -E, the daemon inherits the same HOME as the action
@@ -1017,31 +1046,31 @@ runs:
           chmod 700 "$CANCEL_SCRIPT_PATH"
           echo "[OK] Cancellation script created at $CANCEL_SCRIPT_PATH"
         fi
-        if [[ "${{ inputs.include_local_traffic }}" == "true" ]]; then
+        if [[ "${IN_INCLUDE_LOCAL_TRAFFIC}" == "true" ]]; then
           INSTALL_ARGS+=(--include-local-traffic)
         fi
         
         # Add agentic mode configuration
-        if [[ "${{ inputs.agentic_mode }}" != "disabled" && "${{ inputs.agentic_mode }}" != "" ]]; then
-          INSTALL_ARGS+=(--agentic-mode "${{ inputs.agentic_mode }}")
+        if [[ "${IN_AGENTIC_MODE}" != "disabled" && "${IN_AGENTIC_MODE}" != "" ]]; then
+          INSTALL_ARGS+=(--agentic-mode "${IN_AGENTIC_MODE}")
         fi
-        if [[ "${{ inputs.agentic_provider }}" != "none" && "${{ inputs.agentic_provider }}" != "" ]]; then
-          INSTALL_ARGS+=(--agentic-provider "${{ inputs.agentic_provider }}")
+        if [[ "${IN_AGENTIC_PROVIDER}" != "none" && "${IN_AGENTIC_PROVIDER}" != "" ]]; then
+          INSTALL_ARGS+=(--agentic-provider "${IN_AGENTIC_PROVIDER}")
           # Log which provider is being used
-          case "${{ inputs.agentic_provider }}" in
+          case "${IN_AGENTIC_PROVIDER}" in
             edamame)
               echo "[OK] Using EDAMAME Portal LLM (requires EDAMAME_LLM_API_KEY env var)"
               ;;
             claude|openai)
-              echo "[OK] Using BYOLLM provider: ${{ inputs.agentic_provider }} (requires EDAMAME_LLM_API_KEY env var)"
+              echo "[OK] Using BYOLLM provider: ${IN_AGENTIC_PROVIDER} (requires EDAMAME_LLM_API_KEY env var)"
               ;;
             ollama)
               echo "[OK] Using local Ollama (requires EDAMAME_LLM_BASE_URL env var)"
               ;;
           esac
         fi
-        if [[ "${{ inputs.agentic_interval }}" != "3600" && -n "${{ inputs.agentic_interval }}" ]]; then
-          INSTALL_ARGS+=(--agentic-interval "${{ inputs.agentic_interval }}")
+        if [[ "${IN_AGENTIC_INTERVAL}" != "3600" && -n "${IN_AGENTIC_INTERVAL}" ]]; then
+          INSTALL_ARGS+=(--agentic-interval "${IN_AGENTIC_INTERVAL}")
         fi
         
         # The debug build flag is decided once the installer is downloaded
@@ -1322,7 +1351,7 @@ runs:
         # provisioning profile; exit 137), and from 2.0.3 no raw macOS binary
         # is published. Such an installer installs the release PKG instead;
         # EDAMAME_LOG_LEVEL=debug still applies.
-        if [[ "${{ inputs.debug }}" == "true" ]]; then
+        if [[ "${IN_DEBUG}" == "true" ]]; then
           if [[ "$RUNNER_OS" != "macOS" ]] || grep -q -- '-debug\.pkg' "$TMP_INSTALL_SCRIPT"; then
             INSTALL_ARGS+=(--debug-build)
           else
