@@ -35,6 +35,17 @@ on:
         description: "edamame_posture ref to take the scenarios and triggers from (default: the latest release tag, the version this action installs)"
         type: string
         default: ""
+      scenarios:
+        description: "Comma-separated subset of the scenario list (default: every scenario)"
+        type: string
+        default: ""
+      python:
+        description: "Interpreter the triggers run with: the runner's own /usr/bin/python3 (system, what code on the runner would use) or actions/setup-python's (setup-python, as edamame_posture's gate does)"
+        type: choice
+        options:
+          - system
+          - setup-python
+        default: system
   push:
     branches:
       - 'dev'
@@ -44,7 +55,9 @@ on:
       - 'scripts/posture_release_ref.sh'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A dispatch is an operator's run with its own inputs: it neither cancels
+  # nor is cancelled by another run.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'auto' }}
   cancel-in-progress: true
 
 permissions:
@@ -66,6 +79,7 @@ jobs:
         id: list
         env:
           POSTURE_REF: ${{ inputs.posture_ref }}
+          SUBSET: ${{ inputs.scenarios }}
         run: |
           set -euo pipefail
           ref=$(bash scripts/posture_release_ref.sh)
@@ -77,6 +91,15 @@ jobs:
             exit 1
           fi
           scenarios=$(printf '%s\n' "$csv" | tr ',' '\n' | sed '/^$/d' | jq -R . | jq -cs .)
+          if [[ -n "${SUBSET:-}" ]]; then
+            wanted=$(printf '%s\n' "$SUBSET" | tr ',' '\n' | sed 's/ //g; /^$/d' | jq -R . | jq -cs .)
+            unknown=$(jq -cn --argjson w "$wanted" --argjson a "$scenarios" '$w - $a')
+            if [[ "$unknown" != "[]" ]]; then
+              echo "::error::Not in the scenario list of edamame_posture ${ref}: ${unknown}"
+              exit 1
+            fi
+            scenarios=$(jq -cn --argjson w "$wanted" --argjson a "$scenarios" '[$a[] | select(. as $s | $w | index($s))]')
+          fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
           echo "edamame_posture ${ref}: $(printf '%s' "$scenarios" | jq 'length') scenarios"
@@ -102,6 +125,7 @@ jobs:
         run: |
           echo "Scenario        : $SCENARIO"
           echo "edamame_posture : $POSTURE_SECURITY_REF (tests/security/run_cve_detection.sh)"
+          echo "Interpreter     : ${{ inputs.python || 'system' }}"
 
       - name: Checkout edamame_posture_action
         uses: actions/checkout@v4
@@ -124,6 +148,20 @@ jobs:
           agentic_interval: 60
         env:
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
+
+      - name: Set up Python (setup-python)
+        if: inputs.python == 'setup-python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Choose the triggers' interpreter
+        run: |
+          if [[ "${{ inputs.python }}" == "setup-python" ]]; then
+            echo "PYTHON=$(command -v python3)" >> "$GITHUB_ENV"
+          else
+            echo "PYTHON=/usr/bin/python3" >> "$GITHUB_ENV"
+          fi
 
       - name: Install edamame_cli
         run: |
@@ -188,6 +226,20 @@ jobs:
             echo "::error::EDAMAME did not detect $SCENARIO (status: $status; $(jq -r '.extra' <<< "$row"))"
             exit 1
           fi
+
+      # The daemon's own log, as edamame_posture's gate keeps it: the
+      # foundation logger writes /var/log/edamame/edamame_posture_<PID>.<date>
+      # on Linux, and a miss is triaged from it (FIM writer attribution,
+      # detector diagnostics).
+      - name: Collect the daemon logs
+        if: always()
+        run: |
+          mkdir -p results/daemon-logs
+          if [[ -d /var/log/edamame ]]; then
+            sudo cp -a /var/log/edamame/. results/daemon-logs/ 2>/dev/null || true
+            sudo chown -R "$(id -u):$(id -g)" results/daemon-logs 2>/dev/null || true
+          fi
+          ls -la results/daemon-logs
 
       - name: Upload detection evidence
         if: always()
