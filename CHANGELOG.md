@@ -12,6 +12,14 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+### Fixed
+
+- `wait_for_https` waits until the runner can actually fetch the
+  repository: it probes the endpoint a git clone uses and succeeds only when
+  access is granted, instead of accepting the redirect GitHub returns for any
+  repository address. The token is passed to curl on stdin, not on its
+  command line.
+
 ## [1.2.0] - 2026-10-01
 
 Requires edamame_posture 2.0.3 or later.

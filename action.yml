@@ -2082,18 +2082,31 @@ runs:
           attempts=0
           timeout=true
           # See the API wait: probe the repository the job needs, not a
-          # public one the allow list does not guard.
-          repo_url="https://github.com/${{ inputs.wait_repository || github.repository }}.git"
+          # public one the allow list does not guard. Probe the endpoint a
+          # clone uses: github.com answers 301 to any `<repo>.git` URL, even
+          # one that does not exist, so only a 200 here means the runner can
+          # fetch (404: no such repository or no access; 403: refused).
+          repo_url="https://github.com/${{ inputs.wait_repository || github.repository }}.git/info/refs?service=git-upload-pack"
           echo "Probing: $repo_url"
           last_status=""
+
+          probe_https() {
+            # The token reaches curl through a config on stdin, never argv.
+            if [[ -n "${ACTION_TOKEN:-}" ]]; then
+              printf 'user = "x-access-token:%s"\n' "$ACTION_TOKEN" |
+                curl -o /dev/null -s -w "%{http_code}" --config - "$repo_url"
+            else
+              curl -o /dev/null -s -w "%{http_code}" "$repo_url"
+            fi
+          }
 
           for i in {1..20}; do
             attempts=$((attempts + 1))
             echo "Attempt $attempts: Checking HTTPS access to the repo..."
-            status_code=$(curl -o /dev/null -s -w "%{http_code}" -H "Authorization: token ${ACTION_TOKEN:-}" "$repo_url")
+            status_code=$(probe_https)
             last_status="$status_code"
 
-            if [[ "$status_code" == "301" || "$status_code" == "200" ]]; then
+            if [[ "$status_code" == "200" ]]; then
               timeout=false
               echo "[OK] HTTPS access granted (status: $status_code)!"
               break
