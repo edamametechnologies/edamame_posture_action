@@ -46,6 +46,15 @@ case "$1" in
     url="$1"
     case "$url" in
       *"/actions/artifacts?"*)
+        # refuse_list_times N: the next N calls are refused with refuse_list.
+        if [[ -f "$d/refuse_list_times" ]]; then
+          n=$(cat "$d/refuse_list_times")
+          if ((n > 0)); then
+            echo $((n - 1)) > "$d/refuse_list_times"
+            cat "$d/refuse_list" >&2
+            exit 1
+          fi
+        fi
         if [[ -f "$d/fail_list" ]]; then cat "$d/fail_list" >&2; exit 1; fi
         cat "$d/artifacts.json"
         exit 0
@@ -465,16 +474,56 @@ expect_setup_failure() {
 scenario_list_refused_by_allow_list() {
   begin list_refused_by_allow_list
   echo "gh: Although you appear to have the correct authorization credentials, the \`acme\` organization has an IP allow list enabled, and your IP address is not permitted to access this resource. (HTTP 403)" > "$STUB_DIR/fail_list"
-  expect_setup_failure list_refused_by_allow_list "IP allow list"
+  expect_setup_failure list_refused_by_allow_list "Set wait_for_api: true"
+  check "no wait without wait_for_api" eq "$(artifact_calls)" 1
   finish_case list_refused_by_allow_list
+}
+
+ALLOW_LIST_REFUSAL="gh: Although you appear to have the correct authorization credentials, the \`acme\` organization has an IP allow list enabled, and your IP address is not permitted to access this resource. (HTTP 403)"
+
+artifact_calls() { grep -c "/actions/artifacts?" "$STUB_DIR/calls.log"; }
+
+scenario_allow_list_wait_then_listed() {
+  begin allow_list_wait_then_listed
+  echo "$ALLOW_LIST_REFUSAL" > "$STUB_DIR/refuse_list"
+  echo 2 > "$STUB_DIR/refuse_list_times"
+  run_step setup AW_WAIT_FOR_API=true AW_ALLOW_LIST_INTERVAL=0
+  check "setup succeeds once the runner is allowed" eq "$?" 0
+  check "mode learning/first_run" eq "$(jqf '.start_mode + "/" + .start_reason' auto_whitelist_config.json)" "learning/first_run"
+  check "the wait is logged" file_has "$CASE_DIR/setup.out" "does not list this runner yet (attempt 1 of 20)"
+  check "the wait ends on attempt 3" file_has "$CASE_DIR/setup.out" "answers this runner (attempt 3)"
+  check "three probes, then the listing" eq "$(artifact_calls)" 4
+  finish_case allow_list_wait_then_listed
+}
+
+scenario_allow_list_wait_exhausted() {
+  begin allow_list_wait_exhausted
+  echo "$ALLOW_LIST_REFUSAL" > "$STUB_DIR/fail_list"
+  run_step setup AW_WAIT_FOR_API=true AW_ALLOW_LIST_ATTEMPTS=3 AW_ALLOW_LIST_INTERVAL=0
+  check "setup fails" eq "$?" 1
+  check "says it waited" file_has "$CASE_DIR/setup.out" "after waiting for EDAMAME Hub to allow this runner"
+  check "three probes, then the listing" eq "$(artifact_calls)" 4
+  check "no whitelist is loaded" no_file "$STUB_DIR/loaded.json"
+  finish_case allow_list_wait_exhausted
+}
+
+scenario_allow_list_wait_only_for_the_allow_list() {
+  begin allow_list_wait_only_for_the_allow_list
+  echo "gh: Server Error (HTTP 502)" > "$STUB_DIR/fail_list"
+  run_step setup AW_WAIT_FOR_API=true AW_ALLOW_LIST_INTERVAL=0
+  check "setup fails" eq "$?" 1
+  check "the server error is reported" file_has "$CASE_DIR/setup.out" "not starting a new one in its place"
+  check "one probe, then the listing" eq "$(artifact_calls)" 2
+  finish_case allow_list_wait_only_for_the_allow_list
 }
 
 scenario_list_refused_disconnected() {
   begin list_refused_disconnected
   echo "gh: ... has an IP allow list enabled ... (HTTP 403)" > "$STUB_DIR/fail_list"
-  run_step setup AW_DISCONNECTED=true
+  run_step setup AW_DISCONNECTED=true AW_WAIT_FOR_API=true
   check "setup fails" eq "$?" 1
   check "explains disconnected mode" file_has "$CASE_DIR/setup.out" "disconnected daemon cannot"
+  check "a disconnected daemon does not wait" eq "$(artifact_calls)" 1
   finish_case list_refused_disconnected
 }
 
@@ -603,6 +652,9 @@ ALL_SCENARIOS=(
   no_trusted_artifact_starts_new
   pool_name_carries_os_and_arch
   list_refused_by_allow_list
+  allow_list_wait_then_listed
+  allow_list_wait_exhausted
+  allow_list_wait_only_for_the_allow_list
   list_refused_disconnected
   list_server_error
   run_lookup_error

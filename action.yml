@@ -2249,6 +2249,7 @@ runs:
         AW_CONSECUTIVE: ${{ inputs.auto_whitelist_stability_consecutive_runs }}
         AW_MAX_ITERATIONS: ${{ inputs.auto_whitelist_max_iterations }}
         AW_DISCONNECTED: ${{ inputs.disconnected_mode }}
+        AW_WAIT_FOR_API: ${{ inputs.wait_for_api }}
       run: bash "${{ github.action_path }}/scripts/auto_whitelist.sh" setup
 
     - name: Apply custom whitelists if provided

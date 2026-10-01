@@ -120,6 +120,9 @@ gh_failure() {
     if [[ "${AW_DISCONNECTED:-false}" == "true" ]]; then
       fail "auto_whitelist: $what was refused by the organization's IP allow list, and a disconnected daemon cannot get this runner allowed. Use connected mode (edamame_user, edamame_domain, edamame_pin) with wait_for_api: true, or run where the artifacts API is reachable. ($detail)"
     fi
+    if [[ "${AW_WAIT_FOR_API:-false}" == "true" ]]; then
+      fail "auto_whitelist: $what was refused by the organization's IP allow list, after waiting for EDAMAME Hub to allow this runner. ($detail)"
+    fi
     fail "auto_whitelist: $what was refused by the organization's IP allow list. Set wait_for_api: true so the job waits until EDAMAME Hub has allowed this runner. ($detail)"
   fi
   fail "auto_whitelist: $what failed, so the previous whitelist cannot be read; not starting a new one in its place. ($detail)"
@@ -140,6 +143,33 @@ trusted_event() {
     pull_request) [[ "$current" == "pull_request" ]] ;;
     *) return 1 ;;
   esac
+}
+
+# With wait_for_api and a connected daemon, wait until the artifacts API
+# answers this runner. The organization's IP allow list guards it even in a
+# public repository, where wait_for_api's probe of the repository answers at
+# once, and EDAMAME Hub allows a newly connected runner a minute or two later.
+# Same budget as wait_for_api: 20 attempts, a minute apart. Any other answer
+# ends the wait; select_artifact then reports it.
+wait_for_artifacts_api() {
+  local errfile="$WORK/gh_wait_error.txt" attempt
+  local attempts="${AW_ALLOW_LIST_ATTEMPTS:-20}" interval="${AW_ALLOW_LIST_INTERVAL:-60}"
+  if [[ "${AW_WAIT_FOR_API:-false}" != "true" || "${AW_DISCONNECTED:-false}" == "true" ]]; then
+    return 0
+  fi
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=1" > /dev/null 2> "$errfile"; then
+      if ((attempt > 1)); then
+        log "The artifacts API answers this runner (attempt $attempt)."
+      fi
+      return 0
+    fi
+    grep -qi "IP allow list" "$errfile" || return 0
+    if ((attempt < attempts)); then
+      log "The organization's IP allow list does not list this runner yet (attempt $attempt of $attempts); waiting ${interval}s for EDAMAME Hub to allow it."
+      sleep "$interval"
+    fi
+  done
 }
 
 # Write the chosen artifact as JSON ({artifact, run}) to OUT, or leave OUT
@@ -261,6 +291,7 @@ setup() {
   event="${GITHUB_EVENT_NAME:-}"
   log "Auto-whitelist artifact: $name (repository ${GITHUB_REPOSITORY}, workflow ${workflow_path:-${GITHUB_WORKFLOW:-?}}, branch ${branch:-?}, event ${event:-?})"
 
+  wait_for_artifacts_api
   select_artifact "$name" "$branch" "$workflow_path" "$event" "$WORK/selection.json"
   selection=$(cat "$WORK/selection.json")
   if [[ -z "$selection" ]]; then

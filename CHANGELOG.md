@@ -58,7 +58,8 @@ Requires edamame_posture 2.0.3 or later.
   - The job fails when the whitelist artifact cannot be listed or
     downloaded; a new whitelist starts only when no eligible artifact
     exists. In an organization with an IP allow list, use connected mode
-    with `wait_for_api: true`.
+    with `wait_for_api: true`: the setup then waits until the allow list
+    lets the runner list the artifacts (up to about 20 minutes).
   - `promote_exceptions: true` adds the endpoints outside an enforced
     whitelist instead of failing the job, lists them, and keeps them in
     `auto_whitelist_added.json` in the artifact.
