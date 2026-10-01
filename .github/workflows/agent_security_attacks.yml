@@ -1,532 +1,215 @@
 name: Agent Security Attack Detection Demo
 
-# Demonstrates EDAMAME's runtime vulnerability detector against the same
-# attack catalog the agent_security demo runs locally
-# (https://github.com/edamametechnologies/agent_security/blob/main/tests/e2e/DEMO.md).
+# Runs EDAMAME's attack scenario corpus -- the one edamame_posture's release
+# gate runs (tests/security/run_cve_detection.sh, the security job of its
+# tests.yml) -- through this action against the latest released
+# edamame_posture, one scenario per leg, on a GitHub-hosted runner.
 #
-# Each matrix leg:
-#   1. Starts the EDAMAME Posture daemon in disconnected mode with the
-#      runtime vulnerability detector + LLM adjudication enabled.
-#   2. Downloads the canonical trigger script from
-#      raw.githubusercontent.com/edamametechnologies/edamame_posture/<POSTURE_TRIGGERS_REF>/...
-#      (pinned to a posture release tag, see the env block below).
-#   3. Runs the trigger against the github-hosted ubuntu-latest runner.
-#   4. Polls `vulnerability-status` (and `get-sessions` for blacklist_comm)
-#      to confirm EDAMAME emitted the expected finding.
-#   5. Cleans up demo files + clears runtime vulnerability history so the
-#      trailing runner-protection gate stays green.
+# The scenario list, the trigger scripts, each scenario's expected check and
+# its detection criteria all come from edamame_posture at the latest release
+# tag (scripts/posture_release_ref.sh): the version this action installs, so
+# triggers and detector always match, and a scenario added to the gate runs
+# here from the release that ships it, with no change to this file. The
+# posture_ref dispatch input runs another ref (for instance `main` before a
+# release). agent_security/tests/e2e/DEMO.md walks an operator through the
+# same corpus locally.
 #
-# Linux-only, github-hosted (managed) runner. Matches the shape of
-# CVE-2025-30066.yml but covers the full agent_security demo surface.
-#
-# Coverage mirrors the release gate's CVE corpus
-# (edamame_posture/tests/security/run_cve_detection.sh SCENARIOS_CSV) minus
-# `skill_supply_chain`, which is the `blacklist_comm` trigger verified under a
-# second name and is already exercised by the blacklist_comm leg here. When a
-# scenario is added to the gate, add its leg below and its row to
-# agent_security/tests/e2e/DEMO.md.
+# Each leg:
+#   1. Starts the EDAMAME Posture daemon in disconnected mode with packet
+#      capture, the attack pattern detector and LLM adjudication (Portal).
+#   2. Installs edamame_cli and stages edamame_posture's tests/security at the
+#      resolved ref.
+#   3. Runs run_cve_detection.sh for its scenario: cleanup, trigger, detector
+#      ticks, verification; the leg passes only when the scenario's status is
+#      `pass` (a `skip` is not a pass, as in edamame_posture's gate).
+#   4. Clears the findings the trigger fired, so the runner-protection gate of
+#      the action's own stop stays meaningful.
 
 on:
   schedule:
     # Daily at 02:00 UTC (offset from CVE-2025-30066.yml at 01:00).
     - cron: '0 2 * * *'
   workflow_dispatch:
+    inputs:
+      posture_ref:
+        description: "edamame_posture ref to take the scenarios and triggers from (default: the latest release tag, the version this action installs)"
+        type: string
+        default: ""
   push:
     branches:
       - 'dev'
       - 'main'
     paths:
       - '.github/workflows/agent_security_attacks.yml'
+      - 'scripts/posture_release_ref.sh'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-# Trigger scripts are fetched from edamame_posture at a RELEASE TAG, not `main`,
-# so a trigger rewrite on main cannot silently change what this workflow runs.
-# Bump POSTURE_TRIGGERS_REF together with the posture release the action tracks
-# (latest: v1.8.5 as of 2026-09-09).
-env:
-  POSTURE_TRIGGERS_REF: v1.8.5
-
 permissions:
   contents: read
 
 jobs:
-  detect-attack:
-    name: ${{ matrix.scenario }} (${{ matrix.expected_check }})
+  scenarios:
+    name: Scenario list
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 5
+    outputs:
+      ref: ${{ steps.list.outputs.ref }}
+      scenarios: ${{ steps.list.outputs.scenarios }}
+    steps:
+      - name: Checkout edamame_posture_action
+        uses: actions/checkout@v4
+
+      - name: Resolve the edamame_posture ref and its scenario list
+        id: list
+        env:
+          POSTURE_REF: ${{ inputs.posture_ref }}
+        run: |
+          set -euo pipefail
+          ref=$(bash scripts/posture_release_ref.sh)
+          url="https://raw.githubusercontent.com/edamametechnologies/edamame_posture_cli/${ref}/tests/security/run_cve_detection.sh"
+          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL "$url" -o run_cve_detection.sh
+          csv=$(sed -n 's/^SCENARIOS_CSV="\([^"]*\)".*/\1/p' run_cve_detection.sh | head -n 1)
+          if [[ -z "$csv" ]]; then
+            echo "::error::No SCENARIOS_CSV in run_cve_detection.sh at edamame_posture ${ref}"
+            exit 1
+          fi
+          scenarios=$(printf '%s\n' "$csv" | tr ',' '\n' | sed '/^$/d' | jq -R . | jq -cs .)
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
+          echo "edamame_posture ${ref}: $(printf '%s' "$scenarios" | jq 'length') scenarios"
+          printf '%s' "$scenarios" | jq -r '.[]'
+
+  detect-attack:
+    name: ${{ matrix.scenario }}
+    needs: scenarios
+    runs-on: ubuntu-latest
+    # Setup, the cli install, then run_cve_detection.sh's readiness wait,
+    # trigger, verification polls and its retries for one scenario.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - scenario: blacklist_comm
-            trigger: trigger_blacklist_comm.py
-            expected_check: skill_supply_chain
-            attack: FireHOL-blacklisted IP egress with credential files open
-            reference: Generic blacklist attack pattern
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: cve_token_exfil
-            trigger: trigger_cve_token_exfil.py
-            expected_check: token_exfiltration
-            attack: Long-lived high-port egress while sensitive files are open
-            reference: CVE-2025-52882 / CVE-2026-25253
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: cve_sandbox_escape
-            trigger: trigger_cve_sandbox_escape.py
-            expected_check: sandbox_exploitation
-            attack: Process spawned from /tmp/ with sustained network egress
-            reference: CVE-2026-24763
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: memory_poisoning
-            trigger: trigger_memory_poisoning.py
-            expected_check: token_exfiltration
-            attack: Anomalous egress with credential file handles held open
-            reference: Palo Alto Unit 42 memory-poisoning incident
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: credential_sprawl
-            trigger: trigger_credential_sprawl.py
-            expected_check: credential_harvest
-            # When < credential_harvest_min_labels (3) distinct credential-class
-            # files are open, the deterministic engine emits the egress as
-            # token_exfiltration / sensitive_material_egress instead. Both are
-            # legitimate detections of the same attack shape.
-            acceptable_checks: credential_harvest,token_exfiltration,sensitive_material_egress
-            attack: Multi-category credential access (SSH + AWS + cloud + crypto)
-            reference: OpenClaw #9627 + AMOS infostealer
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: supply_chain_exfil
-            trigger: trigger_supply_chain_exfil.py
-            expected_check: credential_harvest
-            # See credential_sprawl: < 3 distinct credential files open at
-            # detector tick may land as token_exfiltration / sensitive_material_egress.
-            acceptable_checks: credential_harvest,token_exfiltration,sensitive_material_egress
-            attack: 9-category credential harvest + HTTP POST octet-stream
-            reference: litellm 1.82.8 PyPI compromise (March 2026)
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: npm_rat_beacon
-            trigger: trigger_npm_rat_beacon.py
-            expected_check: token_exfiltration
-            # The same beacon is also caught as sensitive_material_egress
-            # (npm credentials open + egress) and, when the trigger is staged
-            # from a temp path, as sandbox_exploitation; which check lands
-            # first is timing-dependent (seen 2026-09-03: 3 HIGH findings,
-            # none of them token_exfiltration, on an otherwise correct run).
-            acceptable_checks: token_exfiltration,sensitive_material_egress,sandbox_exploitation
-            attack: Base64 JSON beacon + legacy IE UA + npm credentials open
-            reference: axios 1.14.1/0.30.4 npm supply-chain RAT (March 2026)
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: file_events
-            trigger: trigger_file_events.py
-            expected_check: file_system_tampering
-            attack: Sensitive file create/modify in FIM-watched directories
-            reference: CVE-2025-30066 (tj-actions/changed-files)
-            file_monitoring: true
-            duration: 120
-            settle: 60
-          - scenario: temp_modify
-            trigger: trigger_temp_modify.py
-            expected_check: file_system_tampering
-            attack: Two-phase staged-payload drop in /tmp (benign then malicious)
-            reference: Adversarial scenario 3 (graduated to deterministic)
-            file_monitoring: true
-            duration: 120
-            settle: 60
-          - scenario: nonsensitive_path
-            trigger: trigger_nonsensitive_path.py
-            expected_check: sensitive_material_egress
-            attack: Credentials staged outside the sensitive-path DB + routine HTTPS
-            reference: Adversarial scenario 4 (graduated to deterministic)
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: pgserve_postinstall
-            trigger: trigger_pgserve_postinstall.py
-            expected_check: credential_harvest
-            # See credential_sprawl: < 3 distinct credential files open at
-            # detector tick may land as token_exfiltration / sensitive_material_egress.
-            acceptable_checks: credential_harvest,token_exfiltration,sensitive_material_egress
-            attack: npm postinstall stealer reading npm/ssh/aws/cloud/wallet secrets + POST to an ICP canister
-            reference: pgserve 1.1.11-1.1.13 npm compromise (April 2026)
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: agent_config_tamper
-            trigger: trigger_agent_config_tamper.py
-            expected_check: file_system_tampering
-            attack: Temp-dir writer injecting hostile hooks / rules / MCP entries into the coding agent's config
-            reference: IronWorm, SANDWORM_MODE, Mitiga rogue-MCP-server shape
-            file_monitoring: true
-            duration: 120
-            settle: 60
-          - scenario: agent_cred_harvest
-            trigger: trigger_agent_cred_harvest.py
-            expected_check: credential_harvest
-            # See credential_sprawl: < 3 distinct credential files open at
-            # detector tick may land as token_exfiltration / sensitive_material_egress.
-            acceptable_checks: credential_harvest,token_exfiltration,sensitive_material_egress
-            attack: One process holding the agent's own credential stores (claude, codex, cursor MCP) + SSH/AWS open while POSTing out
-            reference: IronWorm / Bitwarden CLI hijack / Djinn Stealer / codexui-android
-            file_monitoring: false
-            duration: 180
-            settle: 90
-          - scenario: agent_denylist_bypass
-            trigger: trigger_agent_denylist_bypass.py
-            expected_check: agent_denylist_bypass
-            # The check (core detector + foundation transcript decoder) shipped
-            # in 1.8.4. This demo installs the latest PUBLISHED edamame_posture,
-            # so until that release is out the leg soft-passes with a warning
-            # instead of paging on a check the installed daemon cannot emit.
-            min_posture_version: "1.8.4"
-            attack: Agent re-spells a permission-denied command (curl -> /usr/bin/curl, bash -c) to walk around its own denylist
-            reference: Ona report "How Claude Code escapes its own denylist and sandbox"
-            file_monitoring: false
-            duration: 120
-            settle: 90
+        scenario: ${{ fromJSON(needs.scenarios.outputs.scenarios) }}
+    env:
+      POSTURE_SECURITY_REF: ${{ needs.scenarios.outputs.ref }}
+      SCENARIO: ${{ matrix.scenario }}
 
     steps:
       - name: Describe scenario
         run: |
-          echo "::group::Attack scenario"
-          echo "Scenario          : ${{ matrix.scenario }}"
-          echo "Attack pattern    : ${{ matrix.attack }}"
-          echo "Reference         : ${{ matrix.reference }}"
-          echo "Expected detection: ${{ matrix.expected_check }}"
-          echo "Trigger script    : ${{ matrix.trigger }}"
-          echo "File monitoring   : ${{ matrix.file_monitoring }}"
-          echo "::endgroup::"
+          echo "Scenario        : $SCENARIO"
+          echo "edamame_posture : $POSTURE_SECURITY_REF (tests/security/run_cve_detection.sh)"
 
       - name: Checkout edamame_posture_action
         uses: actions/checkout@v4
 
-      - name: Setup EDAMAME Posture with vulnerability detector
+      - name: Setup EDAMAME Posture with the attack pattern detector
         uses: ./
         with:
           disconnected_mode: true
           network_scan: true
           packet_capture: true
-          # We assert the expected detection ourselves below; do not let the
-          # blacklist / anomaly enforcement layers cancel the job before our
-          # verification step has a chance to inspect vulnerability-status.
+          # run_cve_detection.sh asserts the expected detection itself; the
+          # blacklist / anomaly enforcement layers must not cancel the job
+          # before it has looked.
           check_blacklist: false
           check_anomalous: false
           vulnerability_detection: true
-          vulnerability_detection_interval: "15"
+          vulnerability_detection_interval: "60"
           agentic_mode: analyze
           agentic_provider: edamame
           agentic_interval: 60
-          file_monitoring: ${{ matrix.file_monitoring }}
-          # On ubuntu-latest, $HOME is always /home/runner. The agent_security
-          # triggers write to ~/.ssh/, ~/.aws/, ~/.env_*, and /tmp/.
-          file_monitoring_paths: ${{ matrix.file_monitoring == true && '/home/runner/.ssh,/home/runner/.aws,/home/runner,/tmp' || '' }}
         env:
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
 
-      - name: Download trigger scripts from agent_security
+      - name: Install edamame_cli
         run: |
           set -euo pipefail
-          TRIGGERS_DIR="${RUNNER_TEMP:-/tmp}/agent_security_triggers"
-          mkdir -p "$TRIGGERS_DIR"
-          BASE_URL="https://raw.githubusercontent.com/edamametechnologies/edamame_posture/${POSTURE_TRIGGERS_REF}/tests/security/triggers"
-          # Required helpers + the matrix-specific trigger.
-          FILES=(_common.py cleanup.py _native_udp_probe.py _edamame_cli.py "${{ matrix.trigger }}")
-          for f in "${FILES[@]}"; do
-            url="$BASE_URL/$f"
-            if curl --retry 3 --retry-delay 2 --retry-connrefused -fsSL "$url" -o "$TRIGGERS_DIR/$f"; then
-              test -s "$TRIGGERS_DIR/$f"
-              echo "  downloaded $f"
-            else
-              echo "  skipped $f (not present at $POSTURE_TRIGGERS_REF; non-fatal)"
-              rm -f "$TRIGGERS_DIR/$f" || true
+          for attempt in 1 2 3; do
+            if curl --proto '=https' --tlsv1.2 -sSf \
+                https://raw.githubusercontent.com/edamametechnologies/edamame_cli/main/install.sh \
+                | sudo -E sh -s --; then
+              break
             fi
+            if [[ "$attempt" == 3 ]]; then
+              echo "::error::edamame_cli could not be installed"
+              exit 1
+            fi
+            sleep $((attempt * 10))
           done
-          # The trigger itself must be present.
-          if [[ ! -s "$TRIGGERS_DIR/${{ matrix.trigger }}" ]]; then
-            echo "::error::Required trigger ${{ matrix.trigger }} could not be downloaded"
+          cli=$(command -v edamame_cli 2>/dev/null || echo /usr/local/bin/edamame_cli)
+          "$cli" --version
+          echo "EDAMAME_CLI=$cli" >> "$GITHUB_ENV"
+
+      - name: Stage edamame_posture's scenario runner and triggers
+        run: |
+          set -euo pipefail
+          stage="${RUNNER_TEMP}/edamame_posture_security"
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          curl --retry 3 --retry-delay 5 --retry-connrefused -fsSL \
+            "https://codeload.github.com/edamametechnologies/edamame_posture_cli/tar.gz/${POSTURE_SECURITY_REF}" |
+            tar -xz -C "$stage" --strip-components=1 --wildcards '*/tests/security'
+          test -s "$stage/tests/security/run_cve_detection.sh"
+          # Staged like edamame_posture's security job: a scratch copy of the
+          # vendored triggers.
+          triggers="${RUNNER_TEMP}/cve_triggers"
+          rm -rf "$triggers"
+          mkdir -p "$triggers"
+          cp -R "$stage/tests/security/triggers/." "$triggers/"
+          echo "POSTURE_SECURITY_DIR=$stage/tests/security" >> "$GITHUB_ENV"
+          echo "CVE_TRIGGERS_DIR=$triggers" >> "$GITHUB_ENV"
+          ls "$triggers"
+
+      - name: Run the scenario (run_cve_detection.sh)
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          rc=0
+          bash "$POSTURE_SECURITY_DIR/run_cve_detection.sh" \
+            --triggers-dir "$CVE_TRIGGERS_DIR" \
+            --output-dir results \
+            --agent-type openclaw \
+            --scenarios "$SCENARIO" || rc=$?
+          row=""
+          if [[ -s results/results.json ]]; then
+            row=$(jq -c --arg s "$SCENARIO" '[.scenarios[] | select(.scenario == $s)] | last // empty' results/results.json)
+          fi
+          if [[ -z "$row" ]]; then
+            echo "::error::run_cve_detection.sh recorded no result for $SCENARIO (exit code $rc)"
             exit 1
           fi
-          echo "TRIGGERS_DIR=$TRIGGERS_DIR" >> "$GITHUB_ENV"
-
-      - name: Clean any stale demo state
-        run: |
-          python3 "$TRIGGERS_DIR/cleanup.py" --agent-type openclaw || true
-
-      - name: Generate baseline traffic
-        run: |
-          # A short burst of mundane traffic so the iForest baseline is non-empty
-          # before the trigger fires. The CVE-2025-30066 demo uses the same trick.
-          curl -s --max-time 10 https://github.com/robots.txt >/dev/null || true
-          curl -s --max-time 10 https://api.github.com/zen >/dev/null || true
-          curl -s --max-time 10 https://pypi.org/pypi/requests/json >/dev/null || true
-          sleep 5
-
-      - name: Capture pre-trigger vulnerability status
-        run: |
-          set +e
-          $EDAMAME_POSTURE_CMD vulnerability-status > ./vulnerability-status-before.json 2>&1
-          rc=$?
-          echo "vulnerability-status pre-trigger exit code: $rc"
-          echo "::group::vulnerability-status-before.json"
-          cat ./vulnerability-status-before.json || true
-          echo "::endgroup::"
-          exit 0
-
-      - name: Run attack trigger (${{ matrix.scenario }})
-        run: |
-          # Disable errexit: some triggers (notably the C-backed
-          # cve_sandbox_escape wrapper) ignore their own --duration cap on
-          # github-hosted runners, so timeout(1) will kill them with a
-          # non-zero exit code. We want to continue to the verification step
-          # regardless -- the C probe spent the window emitting attack
-          # traffic, which is exactly what the detector consumes.
-          set +e
-          set -uo pipefail
-          TRIGGER_MAX=$(( ${{ matrix.duration }} + 60 ))
-          echo "::group::Running ${{ matrix.trigger }} (--duration ${{ matrix.duration }}s, hard cap ${TRIGGER_MAX}s)"
-          # IMPORTANT: do NOT pipe into `tee`. The python wrapper spawns a C
-          # probe subprocess that inherits python's stdout FD; when timeout(1)
-          # kills python the C probe survives in the same process group and
-          # keeps the pipe to tee open, so the pipeline (and step) hangs
-          # until the 25-min job-level timeout. Write to file directly.
-          timeout --foreground --preserve-status -k 5 ${TRIGGER_MAX} \
-            python3 "$TRIGGERS_DIR/${{ matrix.trigger }}" \
-              --agent-type openclaw \
-              --duration ${{ matrix.duration }} \
-            > ./trigger.log 2>&1
-          TRIGGER_RC=$?
-          # Belt and braces: if the python wrapper was force-killed, its C
-          # probe descendant may still be alive (e.g. sandbox_probe sending
-          # UDP). Reap any leftover child by name so the next step starts
-          # from a quiet runner.
-          sudo -n pkill -KILL -f trigger_cve_sandbox_escape 2>/dev/null || true
-          sudo -n pkill -KILL -f sandbox_probe              2>/dev/null || true
-          sudo -n pkill -KILL -f sandbox_launcher           2>/dev/null || true
-          echo "----- trigger.log -----"
-          cat ./trigger.log || true
-          echo "----- end trigger.log -----"
-          echo "::endgroup::"
-          if [[ "$TRIGGER_RC" -eq 124 || "$TRIGGER_RC" -eq 137 || "$TRIGGER_RC" -eq 143 ]]; then
-            echo "::warning::Trigger hit the ${TRIGGER_MAX}s hard cap (rc=$TRIGGER_RC); relying on detector evidence captured during the window."
-          else
-            echo "Trigger finished (rc=$TRIGGER_RC)."
+          status=$(jq -r '.status' <<< "$row")
+          echo "$SCENARIO: $status (expected $(jq -r '.expected_check' <<< "$row"); findings $(jq -r '.finding_total' <<< "$row"), alertable $(jq -r '.finding_alertable' <<< "$row"), severities $(jq -r '.severities' <<< "$row"))"
+          if [[ "$status" != "pass" ]]; then
+            echo "::error::EDAMAME did not detect $SCENARIO (status: $status; $(jq -r '.extra' <<< "$row"))"
+            exit 1
           fi
-          echo "Settling ${{ matrix.settle }}s for detector tick + L7 attribution..."
-          sleep ${{ matrix.settle }}
-
-      - name: Capture post-trigger vulnerability status
-        run: |
-          set +e
-          $EDAMAME_POSTURE_CMD vulnerability-status > ./vulnerability-status-after.json 2>&1
-          rc=$?
-          echo "vulnerability-status post-trigger exit code: $rc"
-          echo "::group::vulnerability-status-after.json"
-          cat ./vulnerability-status-after.json || true
-          echo "::endgroup::"
-          # vulnerability-status returns counters only (active_findings,
-          # active_alertable_findings, ...). To inspect the per-finding
-          # `check` field we need the dedicated findings dump.
-          $EDAMAME_POSTURE_CMD background-vulnerability-findings --active-only \
-            > ./vulnerability-findings-after.json 2>&1
-          rc=$?
-          echo "background-vulnerability-findings exit code: $rc"
-          echo "::group::vulnerability-findings-after.json"
-          cat ./vulnerability-findings-after.json || true
-          echo "::endgroup::"
-          exit 0
-
-      - name: Capture sessions evidence
-        if: always()
-        run: |
-          set +e
-          $EDAMAME_POSTURE_CMD get-sessions > ./sessions.log 2>&1
-          echo "::group::sessions.log (tail)"
-          tail -80 ./sessions.log || true
-          echo "::endgroup::"
-          exit 0
-
-      - name: Capture file events (FIM scenarios)
-        if: matrix.file_monitoring == true
-        run: |
-          set +e
-          $EDAMAME_POSTURE_CMD get-file-events --json > ./file-events.json 2>&1 || \
-            $EDAMAME_POSTURE_CMD get-file-events > ./file-events.json 2>&1
-          echo "::group::file-events.json (head)"
-          head -200 ./file-events.json || true
-          echo "::endgroup::"
-          exit 0
-
-      - name: Verify EDAMAME detected the attack
-        id: verify
-        env:
-          EXPECTED_CHECK: ${{ matrix.expected_check }}
-          # Optional CSV of additional checks that count as a successful
-          # detection for this scenario. Used for credential-class attacks
-          # where the deterministic engine may legitimately label the same
-          # behavior as credential_harvest, token_exfiltration, or
-          # sensitive_material_egress depending on how many distinct
-          # credential-class files were open at the detector tick.
-          ACCEPTABLE_CHECKS: ${{ matrix.acceptable_checks || '' }}
-          SCENARIO: ${{ matrix.scenario }}
-          MIN_POSTURE_VERSION: ${{ matrix.min_posture_version || '' }}
-        run: |
-          set -euo pipefail
-          INSTALLED_POSTURE_VERSION="$($EDAMAME_POSTURE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-          export INSTALLED_POSTURE_VERSION
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          expected = os.environ["EXPECTED_CHECK"]
-          min_version = os.environ.get("MIN_POSTURE_VERSION", "").strip()
-          installed = os.environ.get("INSTALLED_POSTURE_VERSION", "").strip()
-          def vtuple(v):
-              return tuple(int(x) for x in v.split("."))
-          if min_version and installed and vtuple(installed) < vtuple(min_version):
-              print(
-                  f"::warning::scenario '{os.environ['SCENARIO']}' needs edamame_posture >= {min_version} "
-                  f"(installed {installed}); the '{expected}' check does not exist in this release yet -- soft-pass"
-              )
-              sys.exit(0)
-          extra = [c.strip() for c in os.environ.get("ACCEPTABLE_CHECKS", "").split(",") if c.strip()]
-          acceptable = sorted({expected, *extra})
-          scenario = os.environ["SCENARIO"]
-
-          # `vulnerability-status` returns counters only (active_findings,
-          # active_alertable_findings, running, adjudication_status, ...).
-          # The actual finding objects (with `check`, `severity`,
-          # `finding_key`) come from `background-vulnerability-findings`.
-          try:
-              with open("./vulnerability-status-after.json", "r", encoding="utf-8") as fh:
-                  status = json.load(fh)
-          except Exception as e:
-              print(f"::warning::Could not parse vulnerability-status: {e}")
-              status = {}
-
-          active = int(status.get("active_findings") or 0)
-          alertable = int(status.get("active_alertable_findings") or 0)
-
-          findings = []
-          try:
-              with open("./vulnerability-findings-after.json", "r", encoding="utf-8") as fh:
-                  data = json.load(fh)
-              if isinstance(data, list):
-                  findings = data
-              elif isinstance(data, dict):
-                  # The RPC has historically wrapped the list under various keys
-                  # depending on caller; try a couple before giving up.
-                  for key in ("findings", "active_findings", "items", "result"):
-                      val = data.get(key)
-                      if isinstance(val, list):
-                          findings = val
-                          break
-                  else:
-                      findings = []
-          except Exception as e:
-              print(f"::warning::Could not parse vulnerability-findings: {e}")
-
-          checks = sorted({f.get("check") for f in findings if isinstance(f, dict) and f.get("check")})
-
-          print(f"active_findings          = {active}")
-          print(f"active_alertable_findings = {alertable}")
-          print(f"distinct checks          = {checks}")
-          print(f"acceptable checks        = {acceptable}")
-          for f in findings:
-              if not isinstance(f, dict):
-                  continue
-              print(
-                  f"  finding: check={f.get('check')} "
-                  f"severity={f.get('severity')} "
-                  f"key={f.get('finding_key')}"
-              )
-
-          matched = sorted(set(checks).intersection(acceptable))
-          if matched:
-              if matched == [expected]:
-                  print(f"SUCCESS: EDAMAME emitted '{expected}' for scenario '{scenario}'")
-              else:
-                  print(
-                      f"SUCCESS: EDAMAME emitted {matched} for scenario '{scenario}' "
-                      f"(expected '{expected}', acceptable {acceptable})"
-                  )
-              sys.exit(0)
-
-          # blacklist_comm can land as a blacklisted session in the capture
-          # pipeline before L7 attribution upgrades it to a skill_supply_chain
-          # finding. Accept that as evidence of detection.
-          if scenario == "blacklist_comm":
-              try:
-                  with open("./sessions.log", "r", encoding="utf-8") as fh:
-                      sessions_text = fh.read()
-              except Exception:
-                  sessions_text = ""
-              if "Blacklisted" in sessions_text or "blacklisted" in sessions_text:
-                  print(
-                      "SUCCESS: blacklisted session detected (skill_supply_chain "
-                      "finding may lag L7 attribution on github-hosted runners)"
-                  )
-                  sys.exit(0)
-
-          print(
-              f"FAILURE: expected one of {acceptable} for '{scenario}' but "
-              f"detector produced {checks or 'no findings'}"
-          )
-          sys.exit(1)
-          PY
 
       - name: Upload detection evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: agent-security-detection-${{ matrix.scenario }}-${{ github.run_id }}
-          path: |
-            ./vulnerability-status-before.json
-            ./vulnerability-status-after.json
-            ./vulnerability-findings-after.json
-            ./sessions.log
-            ./file-events.json
-            ./trigger.log
+          path: results/
           if-no-files-found: warn
 
-      - name: Cleanup demo state
+      # The trigger intentionally fires HIGH/CRITICAL findings. Clear them
+      # before the daemon stops so the on-disk state is clean (as
+      # test_vulnerability_gate.yml does).
+      - name: Clear runtime attack pattern state (test artifacts)
         if: always()
         run: |
-          if [[ -n "${TRIGGERS_DIR:-}" && -f "$TRIGGERS_DIR/cleanup.py" ]]; then
-            python3 "$TRIGGERS_DIR/cleanup.py" --agent-type openclaw || true
+          if [[ -n "${CVE_TRIGGERS_DIR:-}" && -f "$CVE_TRIGGERS_DIR/cleanup.py" ]]; then
+            python3 "$CVE_TRIGGERS_DIR/cleanup.py" --agent-type openclaw || true
           fi
-
-      # The triggers above intentionally fire HIGH/CRITICAL vulnerability
-      # findings. Clear the runtime vulnerability history before the daemon
-      # stops so the on-disk state is clean (matches test_vulnerability_gate.yml).
-      - name: Clear runtime vulnerability state (test artifacts)
-        if: always()
-        shell: bash
-        run: |
-          if ! command -v edamame_cli >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -sSf \
-              https://raw.githubusercontent.com/edamametechnologies/edamame_cli/main/install.sh \
-              | sudo -E sh -s -- || {
-              echo "edamame_cli install failed; skipping runtime cleanup."
-              exit 0
-            }
+          if [[ -n "${EDAMAME_CLI:-}" ]]; then
+            "$EDAMAME_CLI" rpc clear_attack_pattern_history || true
+            "$EDAMAME_CLI" rpc reset_attack_pattern_suppressions || true
           fi
-          edamame_cli rpc clear_attack_pattern_history || true
-          edamame_cli rpc reset_attack_pattern_suppressions || true
 
       - name: Stop posture daemon
         if: always()
@@ -541,9 +224,8 @@ jobs:
         with:
           channel-id: 'C072J0U9TH7'
           slack-message: |
-            Agent Security Attack Detection Demo: `${{ matrix.scenario }}`
-            (expected `${{ matrix.expected_check }}`) failed in
-            ${{ github.repository }} on ${{ github.ref }}.
+            Agent Security Attack Detection Demo: `${{ matrix.scenario }}` (edamame_posture ${{ needs.scenarios.outputs.ref }})
+            failed in ${{ github.repository }} on ${{ github.ref }}.
             Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -551,20 +233,20 @@ jobs:
 
   summary:
     name: Detection summary
-    needs: detect-attack
+    needs: [scenarios, detect-attack]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Print rollup
         run: |
-          echo "::notice::Agent Security Attack Detection Demo finished."
+          echo "::notice::Agent Security Attack Detection Demo finished (edamame_posture ${{ needs.scenarios.outputs.ref }})."
           echo "Result of detect-attack matrix: ${{ needs.detect-attack.result }}"
           if [[ "${{ needs.detect-attack.result }}" != "success" ]]; then
-            echo "::error::At least one agent_security attack was NOT detected by EDAMAME."
+            echo "::error::At least one attack scenario was NOT detected by EDAMAME."
             exit 1
           fi
-          echo "All agent_security attack scenarios were detected by EDAMAME."
+          echo "Every attack scenario of edamame_posture ${{ needs.scenarios.outputs.ref }} was detected by EDAMAME."
 
       - name: Slack alerts
         if: failure()
