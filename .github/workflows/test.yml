@@ -253,7 +253,15 @@ jobs:
         id: test-auto-whitelist-start
         uses: ./
         with:
-          disconnected_mode: true
+          # Connected, with wait_for_api: the whitelist artifacts are listed
+          # through the organization's IP allow list, which only a connected
+          # daemon gets this runner onto (CHANGELOG 1.2.0).
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}-native-${{ matrix.os }}-${{ matrix.arch }}-auto-whitelist
+          checkout: false
+          wait_for_api: true
           network_scan: true
           packet_capture: true
           auto_whitelist: true
@@ -670,7 +678,13 @@ jobs:
         id: test-auto-whitelist-start
         uses: ./
         with:
-          disconnected_mode: true
+          # Connected, with wait_for_api: see the native job.
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}-container-${{ matrix.container_name }}-auto-whitelist
+          checkout: false
+          wait_for_api: true
           network_scan: true
           packet_capture: true
           auto_whitelist: true
