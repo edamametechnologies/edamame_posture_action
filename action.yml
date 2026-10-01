@@ -2233,7 +2233,9 @@ runs:
     # Any failure to list or download the artifact fails the job: only an
     # answered listing without an eligible artifact starts a new whitelist.
     # The logic is in scripts/auto_whitelist.sh (tested by
-    # tests/test_auto_whitelist_logic.sh).
+    # tests/test_auto_whitelist_logic.sh). It is called through
+    # $GITHUB_ACTION_PATH: in a container job, github.action_path is the
+    # host's path, which does not exist in the container.
     - name: Set up the auto-whitelist
       id: auto_whitelist_setup
       if: >
@@ -2250,7 +2252,7 @@ runs:
         AW_MAX_ITERATIONS: ${{ inputs.auto_whitelist_max_iterations }}
         AW_DISCONNECTED: ${{ inputs.disconnected_mode }}
         AW_WAIT_FOR_API: ${{ inputs.wait_for_api }}
-      run: bash "${{ github.action_path }}/scripts/auto_whitelist.sh" setup
+      run: bash "$GITHUB_ACTION_PATH/scripts/auto_whitelist.sh" setup
 
     - name: Apply custom whitelists if provided
       if: >
@@ -2491,7 +2493,7 @@ runs:
       shell: bash
       env:
         AW_PROMOTE: ${{ inputs.promote_exceptions }}
-      run: bash "${{ github.action_path }}/scripts/auto_whitelist.sh" teardown
+      run: bash "$GITHUB_ACTION_PATH/scripts/auto_whitelist.sh" teardown
 
     - name: Dump attack pattern findings if requested
       if: ${{ (inputs.dump_attack_pattern_findings || inputs.dump_vulnerability_findings) == 'true' }}
@@ -2841,7 +2843,7 @@ runs:
         steps.auto_whitelist_teardown.outcome == 'success' &&
         env.AUTO_WHITELIST_ENABLED == 'true'
       shell: bash
-      run: bash "${{ github.action_path }}/scripts/auto_whitelist.sh" finalize
+      run: bash "$GITHUB_ACTION_PATH/scripts/auto_whitelist.sh" finalize
 
     - name: Stop EDAMAME Posture process if requested
       run: |
