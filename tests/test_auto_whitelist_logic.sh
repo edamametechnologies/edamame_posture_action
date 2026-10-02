@@ -114,8 +114,8 @@ case "$1" in
     ;;
   augment-custom-whitelists-from-file)
     echo called >> "$d/augment_called"
-    added="$(cat "$d/augment_added.json" 2>/dev/null || echo '[]')"
-    jq -c --argjson added "$added" '{success: true,
+    [[ -f "$d/augment_added.json" ]] || echo '[]' > "$d/augment_added.json"
+    jq -c --slurpfile added_file "$d/augment_added.json" '$added_file[0] as $added | {success: true,
       whitelist: (.whitelists |= map(if .name == "custom_whitelist" then .endpoints += $added else . end)),
       added: $added, evaluated: 3, non_conforming: ($added | length)}' "$2"
     ;;
@@ -364,6 +364,29 @@ scenario_stable_start_promote() {
   run_step finalize
   check "finalize passes" eq "$?" 0
   finish_case stable_start_promote
+}
+
+scenario_promote_many_exceptions() {
+  # Live 2026-10-02 (posture release_debs): a release runner's exception list
+  # passed the 128 KiB Linux allows one argument, and the verdict's jq never
+  # started ("Argument list too long"). 6000 rows also pass macOS's 1 MiB total.
+  begin promote_many_exceptions
+  one_eligible 7 3
+  run_step setup
+  jq -n '{success: true, evaluated: 6000, conforming: 0, non_conforming: [range(6000) | {
+    protocol: "TCP", src_ip: "10.1.0.4", src_port: (40000 + .), dst_ip: "185.199.110.133", dst_port: 443,
+    dst_domain: "host-\(.).cdn.example.com", as_number: 54113, as_owner: "FASTLY", process: "python3",
+    last_activity: "2026-10-02T19:15:00Z", reason: "Domain mismatch"}]}' > "$STUB_DIR/evaluate.json"
+  echo 1 > "$STUB_DIR/evaluate_rc"
+  jq -n '[range(6000) | {domain: "host-\(.).cdn.example.com", port: 443, protocol: "TCP"}]' > "$STUB_DIR/augment_added.json"
+  run_step teardown AW_PROMOTE=true
+  check "teardown succeeds" eq "$?" 0
+  check "promoted verdict" eq "$(jqf '.verdict' auto_whitelist_verdict.json)" promoted
+  check "verdict keeps every exception" eq "$(jqf '.non_conforming | length' auto_whitelist_verdict.json)" 6000
+  check "verdict keeps every addition" eq "$(jqf '.added | length' auto_whitelist_verdict.json)" 6000
+  run_step finalize
+  check "finalize passes" eq "$?" 0
+  finish_case promote_many_exceptions
 }
 
 scenario_stable_start_conforming() {
@@ -644,6 +667,7 @@ ALL_SCENARIOS=(
   first_run_learns
   stable_start_fails_on_new_endpoint
   stable_start_promote
+  promote_many_exceptions
   stable_start_conforming
   learning_settles
   learning_new_endpoint_resets

@@ -19,6 +19,10 @@ README "Pinning" section.
   access is granted, instead of accepting the redirect GitHub returns for any
   repository address. The token is passed to curl on stdin, not on its
   command line.
+- The auto-whitelist teardown no longer fails on a runner with many
+  sessions: it passes the exception and addition lists to `jq` through
+  files, where a long list used to exceed the size a single command-line
+  argument may have.
 
 ## [1.2.0] - 2026-10-01
 

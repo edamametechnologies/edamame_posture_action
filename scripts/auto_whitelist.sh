@@ -41,6 +41,7 @@ WHITELIST="$WORK/auto_whitelist.json"
 STATE="$WORK/auto_whitelist_state.json"
 VERDICT="$WORK/auto_whitelist_verdict.json"
 ADDED="$WORK/auto_whitelist_added.json"
+NON_CONFORMING="$WORK/auto_whitelist_non_conforming.json"
 
 log() { printf '%s\n' "$*"; }
 notice() { printf '::notice::%s\n' "$*"; }
@@ -478,6 +479,7 @@ teardown() {
     added_count=$(printf '%s' "$added" | jq 'length')
   fi
   printf '%s\n' "$added" | jq '.' > "$ADDED"
+  printf '%s\n' "$non_conforming" | jq '.' > "$NON_CONFORMING"
   total_after=$(jq '[.whitelists[] | select(.name == "custom_whitelist") | .endpoints | length] | add // 0' "$WHITELIST")
 
   # 3. Counters. A refused check counts nothing. A learning run is stable when
@@ -536,14 +538,17 @@ teardown() {
       run_attempt: $run_attempt, workflow: $workflow, branch: $branch,
       runner_os: $runner_os, runner_arch: $runner_arch}' > "$STATE"
 
+  # The two lists go through files: on a busy runner either one passes the
+  # 128 KiB a single argument may hold on Linux, and jq never starts
+  # ("Argument list too long", posture release_debs 2026-10-02).
   jq -n \
     --arg start_mode "$start_mode" \
     --arg start_reason "$start_reason" \
     --arg verdict "$verdict" \
     --arg error "$error" \
     --argjson evaluated "$evaluated" \
-    --argjson non_conforming "$non_conforming" \
-    --argjson added "$added" \
+    --slurpfile non_conforming "$NON_CONFORMING" \
+    --slurpfile added "$ADDED" \
     --argjson iteration "$iteration" \
     --argjson stable_count "$stable_count" \
     --argjson run_stable "$run_stable" \
@@ -552,7 +557,7 @@ teardown() {
     --argjson endpoints "$total_after" \
     '{start_mode: $start_mode, start_reason: $start_reason, verdict: $verdict,
       error: (if $error == "" then null else $error end), evaluated: $evaluated,
-      non_conforming: $non_conforming, added: $added, iteration: $iteration,
+      non_conforming: $non_conforming[0], added: $added[0], iteration: $iteration,
       stable_count: $stable_count, run_stable: $run_stable,
       next_mode: $next_mode, next_reason: $next_reason, endpoints: $endpoints}' > "$VERDICT"
 
