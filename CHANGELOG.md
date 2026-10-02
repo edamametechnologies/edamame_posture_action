@@ -12,6 +12,8 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-03
+
 ### Fixed
 
 - `wait_for_https` waits until the runner can actually fetch the
