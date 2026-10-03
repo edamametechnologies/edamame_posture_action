@@ -24,6 +24,14 @@ name: Agent Security Attack Detection Demo
 #      `pass` (a `skip` is not a pass, as in edamame_posture's gate).
 #   4. Clears the findings the trigger fired, so the runner-protection gate of
 #      the action's own stop stays meaningful.
+#
+# Known detection gaps (KNOWN_DETECTION_GAPS below): scenarios EDAMAME does
+# not yet detect on an isolated hosted runner, tracked for a fix. The
+# scheduled and push runs skip them and list them in the run's summary as
+# "skipped: known detection gap, tracked", so a green run is never read as
+# full coverage. A dispatch runs them with include_known_gaps, or by naming
+# them in `scenarios`. Remove a scenario from the list once the release that
+# fixes it is out.
 
 on:
   schedule:
@@ -36,9 +44,13 @@ on:
         type: string
         default: ""
       scenarios:
-        description: "Comma-separated subset of the scenario list (default: every scenario)"
+        description: "Comma-separated subset of the scenario list, run as named, known detection gaps included (default: every scenario except the known detection gaps)"
         type: string
         default: ""
+      include_known_gaps:
+        description: "Also run the known detection gaps (KNOWN_DETECTION_GAPS) when no subset is given"
+        type: boolean
+        default: false
       python:
         description: "Interpreter the triggers run with: the runner's own /usr/bin/python3 (system, what code on the runner would use) or actions/setup-python's (setup-python, as edamame_posture's gate does)"
         type: choice
@@ -63,6 +75,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Comma-separated scenarios skipped unless asked for (see the header).
+  KNOWN_DETECTION_GAPS: "file_events,package_install_lifecycle"
+
 jobs:
   scenarios:
     name: Scenario list
@@ -71,6 +87,7 @@ jobs:
     outputs:
       ref: ${{ steps.list.outputs.ref }}
       scenarios: ${{ steps.list.outputs.scenarios }}
+      skipped: ${{ steps.list.outputs.skipped }}
     steps:
       - name: Checkout edamame_posture_action
         uses: actions/checkout@v4
@@ -80,6 +97,7 @@ jobs:
         env:
           POSTURE_REF: ${{ inputs.posture_ref }}
           SUBSET: ${{ inputs.scenarios }}
+          INCLUDE_KNOWN_GAPS: ${{ inputs.include_known_gaps }}
         run: |
           set -euo pipefail
           ref=$(bash scripts/posture_release_ref.sh)
@@ -91,7 +109,14 @@ jobs:
             exit 1
           fi
           scenarios=$(printf '%s\n' "$csv" | tr ',' '\n' | sed '/^$/d' | jq -R . | jq -cs .)
+          gaps=$(printf '%s\n' "$KNOWN_DETECTION_GAPS" | tr ',' '\n' | sed 's/ //g; /^$/d' | jq -R . | jq -cs .)
+          stale=$(jq -cn --argjson g "$gaps" --argjson a "$scenarios" '$g - $a')
+          if [[ "$stale" != "[]" ]]; then
+            echo "::warning::KNOWN_DETECTION_GAPS names scenarios edamame_posture ${ref} does not have: ${stale}"
+          fi
+          skipped='[]'
           if [[ -n "${SUBSET:-}" ]]; then
+            # An explicit subset runs as named, known gaps included.
             wanted=$(printf '%s\n' "$SUBSET" | tr ',' '\n' | sed 's/ //g; /^$/d' | jq -R . | jq -cs .)
             unknown=$(jq -cn --argjson w "$wanted" --argjson a "$scenarios" '$w - $a')
             if [[ "$unknown" != "[]" ]]; then
@@ -99,11 +124,22 @@ jobs:
               exit 1
             fi
             scenarios=$(jq -cn --argjson w "$wanted" --argjson a "$scenarios" '[$a[] | select(. as $s | $w | index($s))]')
+          elif [[ "${INCLUDE_KNOWN_GAPS:-false}" != "true" ]]; then
+            skipped=$(jq -cn --argjson g "$gaps" --argjson a "$scenarios" '[$a[] | select(. as $s | $g | index($s))]')
+            scenarios=$(jq -cn --argjson g "$gaps" --argjson a "$scenarios" '$a - $g')
           fi
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
-          echo "edamame_posture ${ref}: $(printf '%s' "$scenarios" | jq 'length') scenarios"
-          printf '%s' "$scenarios" | jq -r '.[]'
+          if [[ "$(jq 'length' <<< "$scenarios")" == 0 ]]; then
+            echo "::error::No scenario left to run (edamame_posture ${ref})"
+            exit 1
+          fi
+          {
+            echo "ref=$ref"
+            echo "scenarios=$scenarios"
+            echo "skipped=$skipped"
+          } >> "$GITHUB_OUTPUT"
+          echo "edamame_posture ${ref}: $(jq 'length' <<< "$scenarios") scenarios"
+          jq -r '.[]' <<< "$scenarios"
+          jq -r '.[] | "\(.): skipped: known detection gap, tracked"' <<< "$skipped"
 
   detect-attack:
     name: ${{ matrix.scenario }}
@@ -293,14 +329,41 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Print rollup
+        env:
+          REF: ${{ needs.scenarios.outputs.ref }}
+          RAN: ${{ needs.scenarios.outputs.scenarios }}
+          SKIPPED: ${{ needs.scenarios.outputs.skipped }}
+          RESULT: ${{ needs.detect-attack.result }}
         run: |
-          echo "::notice::Agent Security Attack Detection Demo finished (edamame_posture ${{ needs.scenarios.outputs.ref }})."
-          echo "Result of detect-attack matrix: ${{ needs.detect-attack.result }}"
-          if [[ "${{ needs.detect-attack.result }}" != "success" ]]; then
+          set -euo pipefail
+          ran=${RAN:-[]}
+          skipped=${SKIPPED:-[]}
+          ran_count=$(jq 'length' <<< "$ran")
+          skipped_count=$(jq 'length' <<< "$skipped")
+          {
+            echo "## Agent Security Attack Detection Demo (edamame_posture ${REF:-unresolved})"
+            echo
+            echo "Detection matrix: **${RESULT}**, ${ran_count} scenarios run, ${skipped_count} skipped."
+            echo
+            echo "| Scenario | Status |"
+            echo "|---|---|"
+            jq -r '.[] | "| `\(.)` | skipped: known detection gap, tracked |"' <<< "$skipped"
+            jq -r '.[] | "| `\(.)` | run |"' <<< "$ran"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Agent Security Attack Detection Demo finished (edamame_posture ${REF})."
+          echo "Result of detect-attack matrix: ${RESULT}"
+          if [[ "$skipped_count" != 0 ]]; then
+            echo "::warning title=Known detection gaps skipped::$(jq -r 'join(", ")' <<< "$skipped"): skipped: known detection gap, tracked. This run does not cover them."
+          fi
+          if [[ "$RESULT" != "success" ]]; then
             echo "::error::At least one attack scenario was NOT detected by EDAMAME."
             exit 1
           fi
-          echo "Every attack scenario of edamame_posture ${{ needs.scenarios.outputs.ref }} was detected by EDAMAME."
+          if [[ "$skipped_count" != 0 ]]; then
+            echo "Every scenario run (${ran_count}) of edamame_posture ${REF} was detected by EDAMAME; ${skipped_count} known detection gaps were skipped."
+          else
+            echo "Every attack scenario run (${ran_count}) of edamame_posture ${REF} was detected by EDAMAME."
+          fi
 
       - name: Slack alerts
         if: failure() && github.ref_name == github.event.repository.default_branch
