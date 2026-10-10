@@ -2840,11 +2840,17 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.EDAMAME_AUTO_WHITELIST_ARTIFACT }}
+        # The directory the setup wrote, as the job sees it. In a container
+        # job `runner.temp` is the host's path and the runner maps only the
+        # first line of the input into the container: one file was found,
+        # the root became / and the artifact held __w/_temp/.../
+        # auto_whitelist.json without its state (edamame_app release_linux,
+        # 2.0.5 and 2.0.6).
         path: |
-          ${{ runner.temp }}/edamame-auto-whitelist/auto_whitelist.json
-          ${{ runner.temp }}/edamame-auto-whitelist/auto_whitelist_state.json
-          ${{ runner.temp }}/edamame-auto-whitelist/auto_whitelist_verdict.json
-          ${{ runner.temp }}/edamame-auto-whitelist/auto_whitelist_added.json
+          ${{ env.EDAMAME_AUTO_WHITELIST_DIR }}/auto_whitelist.json
+          ${{ env.EDAMAME_AUTO_WHITELIST_DIR }}/auto_whitelist_state.json
+          ${{ env.EDAMAME_AUTO_WHITELIST_DIR }}/auto_whitelist_verdict.json
+          ${{ env.EDAMAME_AUTO_WHITELIST_DIR }}/auto_whitelist_added.json
         retention-days: 90
         overwrite: true
         if-no-files-found: error
