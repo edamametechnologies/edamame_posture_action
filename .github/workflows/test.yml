@@ -69,6 +69,22 @@ jobs:
           network_scan: true
         continue-on-error: true
 
+      # checkout with persist_credentials: false must leave no token in .git/config.
+      - name: Test checkout without persisted credentials
+        uses: ./
+        with:
+          checkout: true
+          persist_credentials: false
+
+      - name: Assert the origin remote carries no token
+        shell: bash
+        run: |
+          url="$(git remote get-url origin)"
+          case "$url" in
+            *x-access-token*|*@*) echo "::error::the origin remote still carries a credential"; exit 1 ;;
+          esac
+          echo "origin remote is token-free: $url"
+
       # Test eBPF support verification (Linux only)
       # Uses action's verify_ebpf input which:
       #   - Shows device info including eBPF status

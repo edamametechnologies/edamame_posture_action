@@ -77,6 +77,10 @@ inputs:
     description: "Checkout submodules"
     required: false
     default: "false"
+  persist_credentials:
+    description: "With checkout: keep the token in the origin remote URL for later git commands of the job (true, default) or remove it once the checkout is done (false: no credential is left in .git/config)"
+    required: false
+    default: "true"
   wait_for_https:
     description: "Wait for https access to the repo be granted"
     required: false
@@ -2421,6 +2425,15 @@ runs:
               echo "Warning: The checked out commit does not match the expected SHA."
               echo "Expected: ${{ github.sha }}"
               echo "Actual: $(git rev-parse HEAD)"
+            fi
+
+            # The fetch needed the token in the origin URL. Unless a later step
+            # of the job uses that remote (git push / fetch), take it out of
+            # .git/config again: a credential left on disk next to the job's
+            # network traffic is what the attack pattern detector looks for.
+            if [[ "${{ inputs.persist_credentials }}" == "false" ]]; then
+              git remote set-url origin "${server_scheme}://${server_host_path}/${{ github.repository }}.git"
+              echo "Removed the token from the origin remote URL (persist_credentials: false)."
             fi
           fi
         fi

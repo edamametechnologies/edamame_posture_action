@@ -12,6 +12,23 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-12
+
+### Added
+
+- `persist_credentials` input (default `true`). With `checkout: true` and
+  `persist_credentials: false`, the token is removed from the `origin` remote
+  URL once the checkout is done, so no credential stays in `.git/config` for
+  the rest of the job. Jobs that run `git push` or `git fetch` on that remote
+  keep the default.
+
+### Fixed
+
+- Auto-whitelist artifact in container jobs: the upload now reads the job's
+  own whitelist directory (`EDAMAME_AUTO_WHITELIST_DIR`) on every runner kind.
+  In a container job it stored only `auto_whitelist.json`, without the state
+  file, and the next run refused to start a whitelist from that artifact.
+
 ## [1.2.1] - 2026-10-03
 
 ### Fixed

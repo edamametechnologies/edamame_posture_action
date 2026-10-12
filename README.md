@@ -290,6 +290,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `dump_sessions_log`: Dump sessions log (default: false)  
 - `checkout`: Checkout the repo through the git CLI (default: false)  
 - `checkout_submodules`: Checkout git submodules (default: false)  
+- `persist_credentials`: With `checkout`, keep the token in the `origin` remote URL for later git commands of the job (`true`) or remove it once the checkout is done, leaving no credential in `.git/config` (`false`) (default: true)  
 - `wait_for_https`: Wait for https access to the repo to be granted (default: false)  
 - `wait`: Wait for a while (180 seconds) (default: false)  
 - `wait_for_api`: Wait for API access via the GitHub CLI (default: false)  
