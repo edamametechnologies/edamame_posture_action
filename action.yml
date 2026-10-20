@@ -506,14 +506,16 @@ runs:
             echo "gh is already available: $(gh --version | head -1)"
           fi
 
-          if ! command -v wget &> /dev/null && ! choco list | grep -E '^wget[[:space:]]'; then
-            echo "Installing wget..."
-            choco install wget -y | grep -v "Progress:"
-          fi
-
           if ! command -v curl &> /dev/null && ! choco list | grep -q '^curl[[:space:]]'; then
             echo "Installing curl..."
             choco install curl -y | grep -v "Progress:"
+          fi
+
+          # wget is only the fallback when curl is missing (this action and
+          # install.sh use curl first): no Chocolatey call when curl is there.
+          if ! command -v curl &> /dev/null && ! command -v wget &> /dev/null; then
+            echo "Installing wget..."
+            choco install wget -y | grep -v "Progress:"
           fi
 
           if ! command -v jq &> /dev/null && ! choco list | grep -q '^jq[[:space:]]'; then
@@ -526,9 +528,16 @@ runs:
             choco install nodejs -y | grep -v "Progress:"
           fi
 
-          if ! choco list | grep -q '^vcredist2015[[:space:]]'; then
+          # EDAMAME's Windows binaries link the C runtime statically, so the
+          # VC++ runtime is installed only where it is missing, and a failed
+          # install (a Chocolatey feed outage) warns instead of failing setup.
+          if reg query 'HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64' //v Installed 2>/dev/null | grep -q '0x1'; then
+            echo "The VC++ runtime is installed"
+          elif ! choco list | grep -q '^vcredist2015[[:space:]]'; then
             echo "Installing vcredist2015..."
-            choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y | grep -v "Progress:"
+            if ! choco install vcredist2015 --package-parameters "/install /quiet /norestart" -y | grep -v "Progress:"; then
+              echo "::warning::vcredist2015 could not be installed; EDAMAME Posture does not need it (static C runtime), continuing"
+            fi
           fi
         elif [[ "$RUNNER_OS" == "Linux" ]]; then
           # Check if this is Alpine Linux
