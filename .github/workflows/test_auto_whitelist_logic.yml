@@ -89,11 +89,50 @@ jobs:
     name: Logic (vm-runner-windows)
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: vm-runner-windows
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
+      # Like every job on a self-hosted runner: EDAMAME Posture first, with
+      # attack pattern detection, and its gate last. The published action
+      # watches the job; the job tests this commit's scripts.
+      - name: Setup EDAMAME Posture
+        uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}-logic-windows
+          network_scan: true
+          auto_whitelist: true
+          auto_whitelist_artifact_name: edamame-auto-whitelist-logic-vm-runner-windows
+          auto_remediate: true
+          packet_capture: true
+          vulnerability_detection: true
+          vulnerability_detection_interval: "60"
+          agentic_mode: analyze
+          agentic_provider: edamame
+          agentic_interval: 600
+        env:
+          EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
+
       - uses: actions/checkout@v4
+
       - name: Run the auto-whitelist logic tests
         shell: bash
         run: |
           echo "sort on PATH: $(command -v sort || echo none)"
           bash tests/test_auto_whitelist_logic.sh
+
+      - name: Check job status before posture dump
+        id: job_status_check
+        if: failure()
+        run: echo "job_was_failing=true" >> "$GITHUB_OUTPUT"
+
+      - name: Dump EDAMAME Posture sessions
+        id: dump_sessions
+        if: always()
+        uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          dump_sessions_log: true
+          promote_exceptions: ${{ vars.EDAMAME_AUTO_WHITELIST_PROMOTE_EXCEPTIONS }}
+          dump_vulnerability_findings: true
+          exit_on_vulnerability_findings: true
