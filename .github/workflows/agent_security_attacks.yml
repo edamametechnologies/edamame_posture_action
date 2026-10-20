@@ -77,7 +77,9 @@ permissions:
 
 env:
   # Comma-separated scenarios skipped unless asked for (see the header).
-  KNOWN_DETECTION_GAPS: "file_events,package_install_lifecycle"
+  # Empty since 2026-10-20: both former gaps pass on the released 2.1.0
+  # (dispatch 39414340080, include_known_gaps).
+  KNOWN_DETECTION_GAPS: ""
 
 jobs:
   scenarios:
