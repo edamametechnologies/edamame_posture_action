@@ -12,6 +12,15 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-10-21
+
+### Changed
+
+- Windows setup installs only what the run needs: `wget` only when `curl`
+  is missing, and the Visual C++ runtime only when the system lacks it.
+  A Chocolatey feed outage no longer fails the setup on a runner that
+  already has these tools.
+
 ## [1.2.2] - 2026-10-12
 
 ### Added
