@@ -12,6 +12,16 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-10-30
+
+### Changed
+
+- `auto_remediate` no longer turns off automatic login: `automatic login
+  enabled` joins the default `skip_remediations`. A self-hosted Windows
+  runner that starts at an automatic logon did not come back after its next
+  reboot. A workflow that sets `skip_remediations` replaces the default list
+  and should add the entry itself.
+
 ## [1.2.3] - 2026-10-21
 
 ### Changed

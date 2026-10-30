@@ -32,7 +32,7 @@ inputs:
   skip_remediations:
     description: "Remediations to skip when performing auto-remediations (comma separated)"
     required: false
-    default: "remote login enabled,remote desktop enabled,local firewall disabled"
+    default: "remote login enabled,remote desktop enabled,local firewall disabled,automatic login enabled"
   network_scan:
     description: "Scan network for critical devices (only applicable if the background process is started)"
     required: false

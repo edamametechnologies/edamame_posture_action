@@ -278,7 +278,7 @@ The action sets `EDAMAME_POSTURE_CMD` based on the installation method and envir
 - `edamame_mandatory_threats`: Comma-separated list of mandatory threats that the device must not exhibit (the action will fail if the device detects these threats)  
 - `edamame_mandatory_prefixes`: Comma-separated list of mandatory tag prefixes covering threats that the device must not exhibit (the action will fail if the device does not have the prefixes)  
 - `auto_remediate`: Automatically remediate posture issues (default: false)  
-- `skip_remediations`: Remediations to skip (comma-separated)  
+- `skip_remediations`: Remediations to skip (comma-separated) (default: `remote login enabled,remote desktop enabled,local firewall disabled,automatic login enabled`)  
 - `network_scan`: Scan the local network for critical devices (default: false)  
 - `packet_capture`: Capture network traffic (`auto` mirrors `network_scan`; set to `true`/`false` to override)  
 - `check_whitelist`: When `true`, enforce whitelist conformance during network capture (requires `whitelist` to be set) (default: false)  
@@ -526,7 +526,8 @@ This GitHub Action provides multiple automation capabilities that can be combine
 - uses: edamametechnologies/edamame_posture_action@v1
   with:
     auto_remediate: true
-    skip_remediations: "remote_login,firewall"  # Optional: skip specific fixes
+    # Optional: replaces the default list, so keep its entries
+    skip_remediations: "remote login enabled,remote desktop enabled,local firewall disabled,automatic login enabled,Windows Script Host enabled"
 ```
 
 **Best for**:
@@ -537,7 +538,7 @@ This GitHub Action provides multiple automation capabilities that can be combine
 **Limitations**:
 - One-time action only (doesn't monitor for new issues during build)
 - Some fixes skipped by default to avoid disrupting CI environment
-- By default, the action skips remediation of `remote login enabled`, `remote desktop enabled`, and `local firewall disabled` (see `skip_remediations` input). If you override `skip_remediations`, make sure to preserve those entries unless you explicitly want the action to change those services—removing them can cut off RDP/SSH access or switch firewall states in the middle of a job.
+- By default, the action skips remediation of `remote login enabled`, `remote desktop enabled`, `local firewall disabled`, and `automatic login enabled` (see `skip_remediations` input). If you override `skip_remediations`, make sure to preserve those entries unless you explicitly want the action to change those services—removing them can cut off RDP/SSH access, switch firewall states in the middle of a job, or turn off the automatic logon a self-hosted Windows runner starts from (the runner then does not come back after its next reboot).
 
 ### 2. AI Assistant (Continuous Remediation)
 
