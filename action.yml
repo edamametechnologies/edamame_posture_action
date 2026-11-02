@@ -165,7 +165,7 @@ inputs:
       and upload it as the `edamame-fp-capture` GitHub artifact. The artifact is
       the canonical CI input for `tools/ingest_ci_fp_corpus.sh`, which shapes
       it into Shape A entries under `edamame_core/tests/fp_corpus/<FP-ID>/`
-      (FP replay corpus -- see `edamame_core/FPREPLAY.md`). Requires a posture
+      (FP replay corpus -- see `edamame_core/docs/ai-security/14-corpora-and-replay.md`). Requires a posture
       binary that exposes `attack-pattern-debug-trace --latest` (edamame_posture
       >= 1.3.18+); older binaries will print a clap usage error and the step
       will fail soft -- inspect the runner log to confirm.
@@ -2663,7 +2663,7 @@ runs:
         set -euo pipefail
         cd
         # Canonical CI capture path for the FP replay corpus
-        # (see edamame_core/FPREPLAY.md). Dumps three artifacts the
+        # (see edamame_core/docs/ai-security/14-corpora-and-replay.md). Dumps three artifacts the
         # operator-side `tools/ingest_ci_fp_corpus.sh` shaper consumes:
         #
         #   trace.json     The full VulnerabilityDebugTrace JSON from
