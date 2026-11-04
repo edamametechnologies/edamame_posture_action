@@ -640,6 +640,24 @@ runs:
           }
           
           export DEBIAN_FRONTEND=noninteractive
+          # sudo-rs (Ubuntu 25.10+, the ubuntu-26.04 hosted runners) ignores
+          # -E with a warning; name what apt needs instead (sudo 1.8.21+ and
+          # sudo-rs take --preserve-env=list). An older sudo keeps -E.
+          sudo_env_flag() {
+            local line
+            line="$(sudo --version 2>/dev/null | head -n 1)"
+            if [[ "$line" == *sudo-rs* ]]; then
+              echo "--preserve-env=DEBIAN_FRONTEND,http_proxy,https_proxy,ftp_proxy,no_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY,NO_PROXY"
+              return 0
+            fi
+            local version
+            version="$(sed -n 's/^[Ss]udo version \([0-9][0-9.]*\).*/\1/p' <<<"$line")"
+            if [[ -n "$version" ]] && [[ "$(awk -v a="$version" -v b="1.8.21" 'BEGIN { split(a, x, "."); split(b, y, "."); for (i = 1; i <= 3; i++) { if ((x[i] + 0) > (y[i] + 0)) { print "ge"; exit } if ((x[i] + 0) < (y[i] + 0)) { print "lt"; exit } } print "ge" }')" == "ge" ]]; then
+              echo "--preserve-env=DEBIAN_FRONTEND,http_proxy,https_proxy,ftp_proxy,no_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY,NO_PROXY"
+            else
+              echo "-E"
+            fi
+          }
           apt_cmd_with_retry() {
             local max_attempts=10
             local delay_seconds=5
@@ -696,7 +714,7 @@ runs:
                 sudo apt-get clean || true
                 sudo rm -rf /var/lib/apt/lists/* || true
                 wait_for_apt_locks || true
-                if sudo -E apt-get update -y; then
+                if sudo $(sudo_env_flag) apt-get update -y; then
                   refreshed="true"
                 fi
               fi
@@ -735,7 +753,7 @@ runs:
           
           if [[ "$NEED_PACKAGE_INSTALL" == "true" ]]; then
             echo "Updating package lists (tools missing)..."
-            apt_cmd_with_retry sudo -E apt-get update -y
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get update -y
           else
             echo "All required tools present, skipping apt update"
           fi
@@ -743,13 +761,13 @@ runs:
           # Check/install git
           if ! command -v git &> /dev/null; then
             echo "Installing git..."
-            apt_cmd_with_retry sudo -E apt-get install -y git
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get install -y git
           fi
 
           # Check/install wget (needed for GitHub CLI repository setup)
           if ! command -v wget &> /dev/null; then
             echo "Installing wget..."
-            apt_cmd_with_retry sudo -E apt-get install -y wget
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get install -y wget
           fi
 
           # Check/install gh
@@ -762,42 +780,42 @@ runs:
             rm -f "$GH_KEY_TMP"
             sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-            apt_cmd_with_retry sudo -E apt-get update -y
-            apt_cmd_with_retry sudo -E apt-get install -y gh
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get update -y
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get install -y gh
           fi
 
           # Check/install curl
           if ! command -v curl &> /dev/null; then
             echo "Installing curl..."
-            apt_cmd_with_retry sudo -E apt-get install -y curl
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get install -y curl
           fi
 
           # Check/install jq
           if ! command -v jq &> /dev/null; then
             echo "Installing jq..."
-            apt_cmd_with_retry sudo -E apt-get install -y jq
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get install -y jq
           fi
 
           # Check/install bc (needed for auto-whitelist floating-point comparisons)
           if ! command -v bc &> /dev/null; then
             echo "Installing bc..."
-            apt_cmd_with_retry sudo -E apt-get install -y bc
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get install -y bc
           fi
 
 
           # Check/install node + npm
           if ! command -v node &> /dev/null; then
             echo "Installing node + npm..."
-            apt_cmd_with_retry sudo -E apt-get install -y nodejs npm
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get install -y nodejs npm
           fi
 
           # Ensure GTK3 runtime libraries are present (required by edamame_posture daemon)
           if ! ldconfig -p 2>/dev/null | grep -q libgtk-3; then
             echo "Installing GTK3 runtime libraries..."
             if [[ "$NEED_PACKAGE_INSTALL" != "true" ]]; then
-              apt_cmd_with_retry sudo -E apt-get update -y
+              apt_cmd_with_retry sudo $(sudo_env_flag) apt-get update -y
             fi
-            apt_cmd_with_retry sudo -E apt-get install -y libgtk-3-0
+            apt_cmd_with_retry sudo $(sudo_env_flag) apt-get install -y libgtk-3-0
           fi
           fi  # Close Alpine detection if block
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
@@ -1030,7 +1048,8 @@ runs:
             CANCEL_SCRIPT_PATH="${IN_CANCEL_PIPELINE_SCRIPT}"
           else
             # Use $HOME which matches the daemon's default lookup path
-            # Since we use sudo -E, the daemon inherits the same HOME as the action
+            # The daemon inherits the action's HOME: sudo preserves the environment
+            # (-E, or the named list where sudo-rs ignores -E)
             CANCEL_SCRIPT_PATH="$HOME/cancel_pipeline.sh"
           fi
           
@@ -1455,15 +1474,37 @@ runs:
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           EDAMAME_POSTURE_CMD="$BINARY_PATH"
         else
-          # Determine how to run with elevated privileges while preserving environment
-          # -E flag preserves environment variables for CI/CD detection
-          # The daemon checks for GITHUB_ACTIONS, CI, GITLAB_CI, etc.
+          # Determine how to run with elevated privileges while preserving the
+          # environment: the daemon detects CI/CD from GITHUB_ACTIONS, CI,
+          # GITLAB_CI, ... and reads its credentials from the steps' env.
           if [[ $(id -u) -eq 0 ]]; then
             # Already root, no sudo needed
             EDAMAME_POSTURE_CMD="$BINARY_PATH"
           elif command -v sudo >/dev/null 2>&1; then
-            # sudo available, use -E to preserve environment
-            EDAMAME_POSTURE_CMD="sudo -E $BINARY_PATH"
+            # sudo 1.x carried the whole environment with -E. sudo-rs (Ubuntu
+            # 25.10+, GitHub's ubuntu-26.04 runners since 2026-11-03) ignores
+            # -E with a warning on stderr: the daemon started without
+            # EDAMAME_PIN, the LLM key and the CI markers, and the warning
+            # landed in every JSON this action captures with 2>&1 (the
+            # vulnerability-gate test). --preserve-env=list (sudo 1.8.21+ and
+            # sudo-rs) names the variables: what this shell exports plus what
+            # the daemon reads from the steps' env (named whether set or not;
+            # an absent name is simply not preserved). An older sudo keeps -E.
+            SUDO_VERSION_LINE="$(sudo --version 2>/dev/null | head -n 1)"
+            SUDO_VERSION="$(sed -n 's/^[Ss]udo version \([0-9][0-9.]*\).*/\1/p' <<<"$SUDO_VERSION_LINE")"
+            SUDO_TAKES_LIST="false"
+            if [[ "$SUDO_VERSION_LINE" == *sudo-rs* ]]; then
+              SUDO_TAKES_LIST="true"
+            elif [[ -n "$SUDO_VERSION" ]] && [[ "$(awk -v a="$SUDO_VERSION" -v b="1.8.21" 'BEGIN { split(a, x, "."); split(b, y, "."); for (i = 1; i <= 3; i++) { if ((x[i] + 0) > (y[i] + 0)) { print "ge"; exit } if ((x[i] + 0) < (y[i] + 0)) { print "lt"; exit } } print "ge" }')" == "ge" ]]; then
+              SUDO_TAKES_LIST="true"
+            fi
+            if [[ "$SUDO_TAKES_LIST" == "true" ]]; then
+              KEEP_ENV_NAMES="$(awk 'BEGIN { n = 0; for (name in ENVIRON) if (name ~ /^[A-Za-z_][A-Za-z0-9_]*$/) { printf "%s%s", (n ? "," : ""), name; n++ } }')"
+              KEEP_ENV_NAMES="$KEEP_ENV_NAMES,CI,GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_REPOSITORY,GITLAB_CI,CI_PIPELINE_ID,CI_PROJECT_ID,JENKINS_HOME,CIRCLECI,TRAVIS,TF_BUILD,BITBUCKET_BUILD_NUMBER,TEAMCITY_VERSION,DRONE,BUILDKITE,CODEBUILD_BUILD_ID,BUILDER_OUTPUT,EDAMAME_PIN,EDAMAME_LLM_API_KEY,EDAMAME_LLM_BASE_URL,EDAMAME_LLM_MODEL,EDAMAME_LLM_REGION,EDAMAME_AGENTIC_SLACK_BOT_TOKEN,EDAMAME_AGENTIC_SLACK_ACTIONS_CHANNEL,EDAMAME_AGENTIC_SLACK_ESCALATIONS_CHANNEL,EDAMAME_AGENTIC_WEBHOOK_ACTIONS_TOKEN,EDAMAME_TELEGRAM_BOT_TOKEN,EDAMAME_TELEGRAM_CHAT_ID,EDAMAME_TELEGRAM_ALLOWED_USER_IDS,EDAMAME_TELEGRAM_INTERACTIVE_ENABLED,EDAMAME_CANCEL_PIPELINE_SCRIPT,EDAMAME_EXPORT_TO_PORTAL,GH_TOKEN,GH_TOKEN_FILE,GITLAB_TOKEN,EDAMAME_LOG_LEVEL,RUST_LOG,RUST_BACKTRACE"
+              EDAMAME_POSTURE_CMD="sudo --preserve-env=$KEEP_ENV_NAMES $BINARY_PATH"
+            else
+              EDAMAME_POSTURE_CMD="sudo -E $BINARY_PATH"
+            fi
           elif command -v doas >/dev/null 2>&1; then
             # doas available (Alpine, OpenBSD) - preserves env by default
             EDAMAME_POSTURE_CMD="doas $BINARY_PATH"
@@ -1896,7 +1937,7 @@ runs:
           if [[ "${{ inputs.cancel_on_violation }}" == "true" ]]; then
             CANCEL_SCRIPT_PATH="${{ inputs.cancel_pipeline_script }}"
             if [[ -z "$CANCEL_SCRIPT_PATH" ]]; then
-              # Same $HOME as used during creation (sudo -E preserves HOME)
+              # Same $HOME as used during creation (sudo preserves HOME: -E, or the named list)
               CANCEL_SCRIPT_PATH="$HOME/cancel_pipeline.sh"
             fi
             if [[ -f "$CANCEL_SCRIPT_PATH" ]]; then

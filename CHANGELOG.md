@@ -12,6 +12,18 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-11-04
+
+### Fixed
+
+- The daemon receives the action's environment on hosts whose `sudo` is
+  sudo-rs (Ubuntu 25.10 and later, GitHub's `ubuntu-26.04` runners): the
+  credentials, the LLM key and the CI detection it reads from the steps'
+  environment. sudo-rs ignores `-E` with a warning, which also landed in the
+  JSON some steps capture. The action now names the variables to preserve
+  (sudo 1.8.21 and later, sudo-rs) and keeps `-E` on older sudo; the same
+  applies to its apt calls.
+
 ## [1.2.4] - 2026-10-30
 
 ### Changed
