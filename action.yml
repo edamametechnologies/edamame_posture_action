@@ -641,21 +641,18 @@ runs:
           
           export DEBIAN_FRONTEND=noninteractive
           # sudo-rs (Ubuntu 25.10+, the ubuntu-26.04 hosted runners) ignores
-          # -E with a warning; name what apt needs instead (sudo 1.8.21+ and
-          # sudo-rs take --preserve-env=list). An older sudo keeps -E.
+          # -E with a warning; name what apt needs instead. A classic sudo
+          # keeps -E: it logs the value of every variable named with
+          # --preserve-env=list, and a proxy URL can carry credentials.
           sudo_env_flag() {
             local line
             line="$(sudo --version 2>/dev/null | head -n 1)"
             if [[ "$line" == *sudo-rs* ]]; then
               echo "--preserve-env=DEBIAN_FRONTEND,http_proxy,https_proxy,ftp_proxy,no_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY,NO_PROXY"
-              return 0
-            fi
-            local version
-            version="$(sed -n 's/^[Ss]udo version \([0-9][0-9.]*\).*/\1/p' <<<"$line")"
-            if [[ -n "$version" ]] && [[ "$(awk -v a="$version" -v b="1.8.21" 'BEGIN { split(a, x, "."); split(b, y, "."); for (i = 1; i <= 3; i++) { if ((x[i] + 0) > (y[i] + 0)) { print "ge"; exit } if ((x[i] + 0) < (y[i] + 0)) { print "lt"; exit } } print "ge" }')" == "ge" ]]; then
-              echo "--preserve-env=DEBIAN_FRONTEND,http_proxy,https_proxy,ftp_proxy,no_proxy,HTTP_PROXY,HTTPS_PROXY,FTP_PROXY,NO_PROXY"
             else
-              echo "-E"
+              # printf, not echo: bash's echo takes -E as an option and
+              # prints nothing.
+              printf '%s\n' '-E'
             fi
           }
           apt_cmd_with_retry() {
@@ -1490,12 +1487,19 @@ runs:
             # sudo-rs) names the variables: what this shell exports plus what
             # the daemon reads from the steps' env (named whether set or not;
             # an absent name is simply not preserved). An older sudo keeps -E.
+            #
+            # The list is used with sudo-rs ONLY. A classic sudo logs the
+            # value of every variable named with --preserve-env=list (its
+            # log line gains "ENV=NAME=value ..."), so 1.2.5, which used
+            # the list with every sudo that takes it, wrote the job's
+            # environment, secrets included, to the runner's auth log or
+            # journal on each call: harmless on a hosted runner that is
+            # discarded, not on a self-hosted one. -E carries the
+            # same environment and logs no value. Whether sudo-rs logs the
+            # values of the list is not verified.
             SUDO_VERSION_LINE="$(sudo --version 2>/dev/null | head -n 1)"
-            SUDO_VERSION="$(sed -n 's/^[Ss]udo version \([0-9][0-9.]*\).*/\1/p' <<<"$SUDO_VERSION_LINE")"
             SUDO_TAKES_LIST="false"
             if [[ "$SUDO_VERSION_LINE" == *sudo-rs* ]]; then
-              SUDO_TAKES_LIST="true"
-            elif [[ -n "$SUDO_VERSION" ]] && [[ "$(awk -v a="$SUDO_VERSION" -v b="1.8.21" 'BEGIN { split(a, x, "."); split(b, y, "."); for (i = 1; i <= 3; i++) { if ((x[i] + 0) > (y[i] + 0)) { print "ge"; exit } if ((x[i] + 0) < (y[i] + 0)) { print "lt"; exit } } print "ge" }')" == "ge" ]]; then
               SUDO_TAKES_LIST="true"
             fi
             if [[ "$SUDO_TAKES_LIST" == "true" ]]; then

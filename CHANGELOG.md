@@ -12,6 +12,21 @@ README "Pinning" section.
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-11-10
+
+### Fixed
+
+- On hosts with a classic `sudo`, the action passes its environment to the
+  daemon and to apt with `-E` again. Version 1.2.5 named the variables with
+  `--preserve-env=list` on every `sudo` that accepts a list, and a classic
+  `sudo` writes the values of variables named that way to its log (the auth
+  log or the journal). On a self-hosted runner that log outlives the job: it
+  can hold the secrets a workflow exposed to the action's steps since
+  1.2.5. The named list is now used only where it is needed (sudo-rs, which
+  ignores `-E`). Operators of self-hosted runners that ran 1.2.5 should
+  review and purge the `sudo` entries of that period and consider rotating
+  the secrets those jobs carried.
+
 ## [1.2.5] - 2026-11-04
 
 ### Fixed
