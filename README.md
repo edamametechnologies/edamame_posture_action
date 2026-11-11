@@ -1,6 +1,6 @@
 # EDAMAME Posture GitHub Action
 
-> **EDAMAME** is the developer-first, agent-first runtime security layer for the SDLC. **EDAMAME Posture** secures CI/CD runners, build hosts, and self-hosted agent hosts, **EDAMAME Security** protects workstations and local coding sessions, **EDAMAME Hub** gives teams fleet visibility and proof, and **EDAMAME Portal** handles account access and managed LLM subscription.
+> **EDAMAME** is the trust layer for AI agents and the machines they run on, proven by both security posture and runtime behavior. **EDAMAME Posture** secures CI/CD runners and any server running AI agents, cloud or self-hosted, **EDAMAME Security** protects workstations and the AI agents on them, **EDAMAME Hub** gives teams fleet visibility, AI governance and proof, and **EDAMAME Portal** handles account access and the managed LLM subscription.
 
 Harden GitHub Actions runners and continuously verify runtime/network behavior to catch suspicious activity fast — before it turns into source/code or secret exfiltration.
 
@@ -12,7 +12,9 @@ Harden GitHub Actions runners and continuously verify runtime/network behavior t
 - **Supply-chain / backdoor signals**: Detect “unexpected network behavior” patterns that show up in real incidents (e.g., **CVE-2025-30066**-style surprises) by comparing observed traffic to your expected baseline/allowlist.
 - **Developer-first**: Works on **Windows, Linux, and macOS** runners with copy/paste setup.
 
-For the broader “Zero Trust at the GitHub layer” framing (identity + device + context, continuous verification per request), see: https://www.edamame.tech/zerotrust-github
+For the broader “Zero Trust at the GitHub layer” framing (your GitHub organization reachable only from machines that meet your policies, through GitHub's own IP allow list), see: https://www.edamame.tech/zerotrust-github
+
+Watch: [Gate a GitHub Actions build on its runner's posture, its egress and attacks](https://youtu.be/rwHbr6JwHp8) · [An API key for EDAMAME Posture in your CI/CD](https://youtu.be/c7XXrqBRAKE)
 
 ### Pinning
 
@@ -31,7 +33,7 @@ to organization admins (only they may update or delete `v*` tags), so
 [`CHANGELOG.md`](CHANGELOG.md) for the version history.
 
 ## Overview
-This GitHub Action sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture), the CLI for runner and build-host trust gates, posture checks, and optional runtime network enforcement.
+This GitHub Action sets up and configures [EDAMAME Posture](https://github.com/edamametechnologies/edamame_posture_cli), the CLI for runner and build-host trust gates, posture checks, and optional runtime network enforcement.
 It supports Windows, Linux, and macOS runners, checking for and installing any missing dependencies such as wget, curl, jq, Node.js, etc.
 
 ## Quickstart (copy/paste)
