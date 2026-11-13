@@ -325,47 +325,6 @@ jobs:
           stop: true
         continue-on-error: true
         
-      - name: Slack alerts
-        if: |
-          steps.test-start.outcome != 'success' || 
-          (matrix.os == 'ubuntu' && steps.test-ebpf-check.outcome == 'failure') ||
-          steps.test-check-policy-local.outcome != 'success' || 
-          steps.test-check-policy-for-domain.outcome != 'success' || 
-          steps.test-check-policy-local-error.outcome == 'success' || 
-          steps.test-check-policy-for-domain-error.outcome == 'success' || 
-          steps.test-dump-sessions.outcome != 'success' || 
-          (runner.os != 'Windows' && steps.test-create-custom-whitelist.outcome != 'success') || 
-          (runner.os != 'Windows' && steps.test-set-custom-whitelist.outcome != 'success') ||
-          (runner.os != 'Windows' && steps.test-augment-whitelist.outcome != 'success') ||
-          steps.test-display-logs.outcome != 'success' ||
-          steps.test-display-logs-assert.outcome != 'success' ||
-          steps.test-stop.outcome != 'success' ||
-          steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success'
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          channel-id: 'C072J0U9TH7'
-          slack-message: |
-            *Test Results for ${{ github.repository }} (${{ runner.os }}-${{ matrix.arch }})*:
-            - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - eBPF Support: ${{ (matrix.os != 'ubuntu' && '⏭️ Skipped') || (steps.test-ebpf-check.outcome == 'success' && '✅ Success' || '❌ Failed') }}
-            - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
-            - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Display Logs Collect: ${{ steps.test-display-logs.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Display Logs Assert: ${{ steps.test-display-logs-assert.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            Branch: ${{ github.ref }}
-            More details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
       - name: Fail job if tests failed
         if: |
           steps.test-start.outcome != 'success' || 
@@ -748,49 +707,6 @@ jobs:
           stop: true
         continue-on-error: true
 
-      - name: Slack alerts
-        # Won't work on 18.04 because of glibc version
-        # Won't work on ARM64 Alpine because of JavaScript support
-        # eBPF test failure is ignored on Ubuntu 18.04 (doesn't support eBPF well)
-        if: |
-          !contains(matrix.container_name, '18.04') &&
-          !contains(matrix.container_name, 'aarch64-musl') &&
-          (steps.test-start.outcome != 'success' || 
-          (steps.test-ebpf-check.outcome == 'failure' && !contains(matrix.container_name, '18.04')) ||
-          steps.test-check-policy-local.outcome != 'success' || 
-          steps.test-check-policy-for-domain.outcome != 'success' ||
-          steps.test-check-policy-local-error.outcome == 'success' ||
-          steps.test-check-policy-for-domain-error.outcome == 'success' ||
-          steps.test-dump-sessions.outcome != 'success' ||
-          steps.test-create-custom-whitelist.outcome != 'success' ||
-          steps.test-set-custom-whitelist.outcome != 'success' ||
-          steps.test-augment-whitelist.outcome != 'success' ||
-          steps.test-disconnected-mode.outcome != 'success' ||
-          steps.test-sessions-disconnected.outcome != 'success' ||
-          steps.test-stop.outcome != 'success')
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          channel-id: 'C072J0U9TH7'
-          slack-message: |
-            *Container Test Results for ${{ github.repository }} (${{ matrix.container_name }})*:
-            - Start: ${{ steps.test-start.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - eBPF Support: ${{ contains(matrix.container_name, '18.04') && '⚠️ Ignored (18.04)' || (steps.test-ebpf-check.outcome == 'success' && '✅ Success' || '❌ Failed') }}
-            - Check Policy (Local): ${{ steps.test-check-policy-local.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Policy (Domain): ${{ steps.test-check-policy-for-domain.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Policy Error Test: ${{ steps.test-check-policy-local-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
-            - Check Domain Policy Error Test: ${{ steps.test-check-policy-for-domain-error.outcome != 'success' && '✅ Success' || '❌ Failed' }}
-            - Dump Sessions: ${{ steps.test-dump-sessions.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Create Custom Whitelist: ${{ steps.test-create-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Set Custom Whitelist: ${{ steps.test-set-custom-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Augment Whitelist: ${{ steps.test-augment-whitelist.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Disconnected Mode: ${{ steps.test-disconnected-mode.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Sessions Disconnected: ${{ steps.test-sessions-disconnected.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            - Stop: ${{ steps.test-stop.outcome == 'success' && '✅ Success' || '❌ Failed' }}
-            Branch: ${{ github.ref }}
-            More details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
       - name: Fail job if tests failed
         # eBPF test failure is ignored on Ubuntu 18.04 (doesn't support eBPF well).
         # The auto-whitelist lifecycle persists its state through
@@ -835,3 +751,12 @@ jobs:
           echo ""
           echo "Forcing job to fail because some tests did not succeed."
           exit 1
+
+  notify:
+    name: Slack alert
+    needs: [test-native, test-container]
+    if: always() && github.event_name != 'pull_request'
+    uses: edamametechnologies/.github/.github/workflows/slack-notify.yml@main
+    with:
+      results: ${{ toJSON(needs) }}
+    secrets: inherit
