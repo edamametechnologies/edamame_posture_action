@@ -397,6 +397,20 @@ jobs:
       options: --cap-add=NET_ADMIN --cap-add=NET_RAW
 
     steps:
+      # The runner creates /home/runner/work/_actions (mounted at /__w/_actions)
+      # only when it downloads a job-level remote action before the container
+      # starts. Since the per-leg Slack step left this job (2026-11-13) there is
+      # none, docker creates that mount source as root, and every `uses: ./`
+      # step then fails to download the action's nested
+      # actions/upload-artifact ("Access to the path
+      # '/home/runner/work/_actions/_temp_...' is denied"). Give the directory
+      # back to the owner of the work directory (the runner's user).
+      - name: Give the runner its action directory back
+        shell: sh
+        run: |
+          ls -ld /__w /__w/_actions 2>&1 || true
+          if [ -d /__w/_actions ]; then chown "$(stat -c '%u:%g' /__w)" /__w/_actions; fi
+          ls -ld /__w/_actions 2>&1 || true
       # We don't use the EDAMAME Posture Action here, because we want to fully test the action.yml file
       # Manual checkout because actions/checkout@v4 requires node20 which is not supported on older Ubuntu containers
       - name: Manual checkout for Ubuntu containers
