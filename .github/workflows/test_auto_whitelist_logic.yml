@@ -101,6 +101,10 @@ jobs:
           edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
           edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
           edamame_id: ${{ github.run_id }}-logic-windows
+          # The whitelist artifacts are listed through the organization's IP
+          # allow list, which only a connected daemon gets this runner onto:
+          # wait for it, as test.yml's auto-whitelist jobs do.
+          wait_for_api: true
           network_scan: true
           auto_whitelist: true
           auto_whitelist_artifact_name: edamame-auto-whitelist-logic-vm-runner-windows
